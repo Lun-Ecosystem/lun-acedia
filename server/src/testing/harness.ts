@@ -1,15 +1,15 @@
-import { createApp } from '../app.ts';
+import { createApp, type AppDeps } from '../app.ts';
 import { ActionRegistry } from '../contract/actions.ts';
 import { issuePairingCode } from '../contract/auth.ts';
 import { openDb } from '../db.ts';
 
 /** A fresh app on an in-memory database, with a clock the test moves by hand. */
-export function makeHarness() {
+export function makeHarness(extra: Partial<Pick<AppDeps, 'google'>> = {}) {
   const db = openDb(':memory:');
   let now = new Date('2026-11-02T08:00:00.000Z');
   const clock = () => now;
   const actions = new ActionRegistry();
-  const app = createApp({ db, clock, version: '0.0.0-test', actions });
+  const app = createApp({ db, clock, version: '0.0.0-test', actions, ...extra });
 
   return {
     app,

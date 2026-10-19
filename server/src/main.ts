@@ -7,6 +7,7 @@ import { ActionRegistry } from './contract/actions.ts';
 import { bootstrapPairing } from './contract/auth.ts';
 import { pruneEvents } from './contract/events.ts';
 import { openDb } from './db.ts';
+import { googleFromEnv } from './google/oauth.ts';
 
 // Paths are resolved from the repository root, whatever the working directory (npm -w runs in server/).
 const root = fileURLToPath(new URL('../../', import.meta.url));
@@ -19,7 +20,12 @@ const { version } = JSON.parse(readFileSync(new URL('../package.json', import.me
 const db = openDb(resolve(root, process.env.DB_PATH ?? 'data/acedia.db'));
 const clock = () => new Date();
 const actions = new ActionRegistry();
-const app = createApp({ db, clock, version, actions });
+const google = googleFromEnv(process.env);
+if (!google)
+  console.log(
+    'Google non configuré : renseigner GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET et ACEDIA_SECRET_KEY.',
+  );
+const app = createApp({ db, clock, version, actions, google });
 
 bootstrapPairing(db, clock(), (line) => console.log(line));
 setInterval(() => pruneEvents(db, clock()), 3600_000).unref();

@@ -32,6 +32,14 @@ const MIGRATIONS: string[] = [
      amount REAL NOT NULL,
      calls INTEGER NOT NULL
    );`,
+  `CREATE TABLE google_tokens (
+     id INTEGER PRIMARY KEY CHECK (id = 1),
+     access_token TEXT NOT NULL,
+     refresh_token TEXT NOT NULL,
+     expires_at TEXT NOT NULL,
+     email TEXT
+   );
+   CREATE TABLE oauth_states (state TEXT PRIMARY KEY, created_at TEXT NOT NULL);`,
 ];
 
 export function openDb(path: string): DatabaseSync {
