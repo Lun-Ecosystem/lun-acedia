@@ -96,6 +96,32 @@ const MIGRATIONS: string[] = [
      tag_ids TEXT NOT NULL,
      at TEXT NOT NULL
    );`,
+  `CREATE TABLE calendars (id TEXT PRIMARY KEY, title TEXT NOT NULL, default_reminders TEXT NOT NULL);
+   CREATE TABLE calendar_events (
+     calendar_id TEXT NOT NULL,
+     id TEXT NOT NULL,
+     title TEXT NOT NULL,
+     start TEXT NOT NULL,
+     end TEXT NOT NULL,
+     start_ms INTEGER NOT NULL,
+     end_ms INTEGER NOT NULL,
+     all_day INTEGER NOT NULL,
+     location TEXT,
+     reminders TEXT,
+     PRIMARY KEY (calendar_id, id)
+   );
+   CREATE INDEX calendar_events_by_start ON calendar_events (start_ms);
+   CREATE TABLE task_lists (id TEXT PRIMARY KEY, title TEXT NOT NULL);
+   CREATE TABLE tasks (
+     list_id TEXT NOT NULL,
+     id TEXT NOT NULL,
+     title TEXT NOT NULL,
+     due TEXT,
+     done INTEGER NOT NULL,
+     notes TEXT,
+     PRIMARY KEY (list_id, id)
+   );
+   CREATE TABLE reminders_sent (key TEXT PRIMARY KEY, at TEXT NOT NULL);`,
 ];
 
 export function openDb(path: string): DatabaseSync {
