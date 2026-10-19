@@ -40,6 +40,22 @@ const MIGRATIONS: string[] = [
      email TEXT
    );
    CREATE TABLE oauth_states (state TEXT PRIMARY KEY, created_at TEXT NOT NULL);`,
+  `CREATE TABLE labels (id TEXT PRIMARY KEY, name TEXT NOT NULL, type TEXT NOT NULL);
+   CREATE TABLE messages (
+     id TEXT PRIMARY KEY,
+     thread_id TEXT NOT NULL,
+     label_ids TEXT NOT NULL,
+     from_addr TEXT NOT NULL,
+     from_name TEXT,
+     to_addrs TEXT NOT NULL,
+     subject TEXT NOT NULL,
+     snippet TEXT NOT NULL,
+     internal_date INTEGER NOT NULL,
+     unread INTEGER NOT NULL,
+     has_attachments INTEGER NOT NULL
+   );
+   CREATE INDEX messages_by_date ON messages (internal_date DESC, id DESC);
+   CREATE TABLE sync_state (key TEXT PRIMARY KEY, value TEXT NOT NULL);`,
 ];
 
 export function openDb(path: string): DatabaseSync {
