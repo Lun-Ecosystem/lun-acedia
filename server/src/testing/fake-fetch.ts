@@ -6,7 +6,7 @@ export interface RecordedCall {
 }
 
 type Reply = { status?: number; json?: unknown; text?: string; headers?: Record<string, string> };
-type Handler = (call: RecordedCall) => Reply | undefined;
+export type Handler = (call: RecordedCall) => Reply | undefined;
 
 /**
  * A `fetch` that answers from handlers tried in order (the first one returning a reply wins) and

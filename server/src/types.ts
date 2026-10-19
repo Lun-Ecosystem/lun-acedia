@@ -46,6 +46,34 @@ export interface MailDetail extends MailSummary {
   attachments: AttachmentMeta[];
 }
 
+export interface AgendaEvent {
+  kind: 'event';
+  id: string;
+  calendarId: string;
+  title: string;
+  /** ISO 8601 instant, or `AAAA-MM-JJ` for an all-day event. */
+  start: string;
+  /** Exclusive end, same format as `start`. */
+  end: string;
+  allDay: boolean;
+  location?: string;
+  /** Minutes before the start (the calendar defaults when the event has none of its own). */
+  reminders: number[];
+}
+
+export interface AgendaTask {
+  kind: 'task';
+  id: string;
+  listId: string;
+  title: string;
+  /** `AAAA-MM-JJ`. */
+  due?: string;
+  done: boolean;
+  notes?: string;
+}
+
+export type AgendaItem = AgendaEvent | AgendaTask;
+
 export interface MailPage {
   items: MailSummary[];
   cursor?: string;

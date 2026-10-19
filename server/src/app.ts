@@ -1,5 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite';
 import { Hono } from 'hono';
+import { agendaRoutes } from './agenda/routes.ts';
 import type { ActionRegistry } from './contract/actions.ts';
 import { codeExpiry, issuePairingCode, requireToken } from './contract/auth.ts';
 import { contractRoutes } from './contract/routes.ts';
@@ -46,6 +47,7 @@ export function createApp(deps: AppDeps): Hono {
   );
   app.route('/api/send-as', sendAsRoutes(deps, google));
   app.route('/api', triageRoutes(deps, google));
+  app.route('/api', agendaRoutes(deps, google));
 
   app.onError((err, c) => c.json({ error: err.message }, 500));
   return app;
