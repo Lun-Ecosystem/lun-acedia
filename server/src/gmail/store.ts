@@ -130,6 +130,11 @@ export function viewFilter(view: string): { where: string; params: string[] } | 
       return { where: has('SPAM'), params: [] };
     case 'sent':
       return { where: `${has('SENT')} AND NOT ${has('TRASH')}`, params: [] };
+    case 'pending':
+      return {
+        where: `${has('INBOX')} AND EXISTS (SELECT 1 FROM proposals p WHERE p.message_id = messages.id AND p.status = 'pending')`,
+        params: [],
+      };
     case 'drafts':
       return { where: has('DRAFT'), params: [] };
     case 'archive':

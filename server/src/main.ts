@@ -10,6 +10,8 @@ import { openDb } from './db.ts';
 import { startSyncLoop } from './gmail/sync.ts';
 import { createGoogleClient, GoogleNotConnectedError, GoogleReauthError } from './google/client.ts';
 import { googleFromEnv } from './google/oauth.ts';
+import { createAnthropicClassifier } from './triage/anthropic.ts';
+import { triageNew } from './triage/pipeline.ts';
 
 // Paths are resolved from the repository root, whatever the working directory (npm -w runs in server/).
 const root = fileURLToPath(new URL('../../', import.meta.url));
@@ -30,17 +32,20 @@ if (!google)
 const app = createApp({ db, clock, version, actions, google });
 
 bootstrapPairing(db, clock(), (line) => console.log(line));
+const classifier = process.env.ANTHROPIC_API_KEY
+  ? createAnthropicClassifier({ apiKey: process.env.ANTHROPIC_API_KEY })
+  : undefined;
+if (!classifier) console.log('ANTHROPIC_API_KEY absente : seules les règles trient les mails.');
 if (google) {
-  startSyncLoop(
-    { db, google: createGoogleClient({ db, now: clock, ...google }), now: clock },
-    {
-      onError: (err) => {
-        // Not connected yet, or waiting for a new consent: health already says so.
-        if (err instanceof GoogleNotConnectedError || err instanceof GoogleReauthError) return;
-        console.error('Synchro Gmail :', err);
-      },
+  const deps = { db, google: createGoogleClient({ db, now: clock, ...google }), now: clock };
+  startSyncLoop(deps, {
+    onResult: (result) => triageNew({ ...deps, classifier }, result.added),
+    onError: (err) => {
+      // Not connected yet, or waiting for a new consent: health already says so.
+      if (err instanceof GoogleNotConnectedError || err instanceof GoogleReauthError) return;
+      console.error('Synchro Gmail :', err);
     },
-  );
+  });
 }
 setInterval(() => pruneEvents(db, clock()), 3600_000).unref();
 

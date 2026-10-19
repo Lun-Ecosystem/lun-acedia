@@ -77,6 +77,25 @@ const MIGRATIONS: string[] = [
      after TEXT NOT NULL,
      undone_at TEXT
    );`,
+  `CREATE TABLE proposals (
+     message_id TEXT PRIMARY KEY,
+     box_id TEXT,
+     tag_ids TEXT NOT NULL,
+     importance TEXT NOT NULL,
+     confidence INTEGER NOT NULL,
+     source TEXT NOT NULL,
+     status TEXT NOT NULL,
+     created_at TEXT NOT NULL
+   );
+   CREATE TABLE examples (
+     message_id TEXT PRIMARY KEY,
+     from_addr TEXT NOT NULL,
+     from_domain TEXT NOT NULL,
+     subject TEXT NOT NULL,
+     box_id TEXT NOT NULL,
+     tag_ids TEXT NOT NULL,
+     at TEXT NOT NULL
+   );`,
 ];
 
 export function openDb(path: string): DatabaseSync {

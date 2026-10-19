@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { b64url, multipart, textPart, type Part } from '../testing/fake-gmail.ts';
-import { renderBody } from './body.ts';
+import { plainText, renderBody } from './body.ts';
 
 const noAttachment = async () => {
   throw new Error('no attachment expected');
@@ -90,5 +90,24 @@ describe('renderBody', () => {
   it('falls back to UTF-8 on an unknown charset', async () => {
     const { html } = await renderBody(textPart('text/html', '<p>déjà</p>', 'x-unknown'), noAttachment);
     expect(html).toContain('déjà');
+  });
+});
+
+describe('plainText', () => {
+  it('prefers the text alternative', () => {
+    const part = multipart('multipart/alternative', [
+      textPart('text/plain', '  version texte \n'),
+      textPart('text/html', '<b>version html</b>'),
+    ]);
+    expect(plainText(part)).toBe('version texte');
+  });
+
+  it('strips the HTML when there is no text part, and cuts at the limit', () => {
+    const part = textPart(
+      'text/html',
+      '<style>p{color:red}</style><p>Rendu&nbsp;d&eacute;cal&#233; &amp; <b>noté</b></p>',
+    );
+    expect(plainText(part)).toBe('Rendu décalé & noté');
+    expect(plainText(textPart('text/plain', 'x'.repeat(5000)))).toHaveLength(4000);
   });
 });

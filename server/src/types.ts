@@ -9,7 +9,8 @@ export interface Address {
 }
 
 export interface ProposalView {
-  boxId: string | 'trash' | 'spam';
+  /** A box id, `trash`, `spam`, or `null` when no box fits (the proposal may still carry tags). */
+  boxId: string | null;
   tagIds: string[];
   confidence: number;
   status: 'pending' | 'auto' | 'accepted' | 'corrected';
