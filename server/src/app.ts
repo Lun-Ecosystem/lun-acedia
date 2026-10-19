@@ -8,6 +8,7 @@ import { contractRoutes } from './contract/routes.ts';
 import { gmailRoutes, sendAsRoutes } from './gmail/routes.ts';
 import { createGoogleClient, type GoogleClient, type GoogleDeps } from './google/client.ts';
 import { googleRoutes } from './google/oauth.ts';
+import { serveApp } from './static.ts';
 import { onManualFile, withProposal } from './triage/pipeline.ts';
 import { triageRoutes } from './triage/routes.ts';
 
@@ -19,6 +20,8 @@ export interface AppDeps {
   actions: ActionRegistry;
   /** Absent when GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET or ACEDIA_SECRET_KEY is missing. */
   google?: GoogleDeps | undefined;
+  /** The built standalone app (app/dist), served at the root when present. */
+  staticDir?: string | undefined;
 }
 
 export function createApp(deps: AppDeps): Hono {
@@ -50,6 +53,7 @@ export function createApp(deps: AppDeps): Hono {
   app.route('/api/send-as', sendAsRoutes(deps, google));
   app.route('/api', triageRoutes(deps, google));
   app.route('/api', agendaRoutes(deps, google));
+  if (deps.staticDir) serveApp(app, deps.staticDir);
 
   app.onError((err, c) => c.json({ error: err.message }, 500));
   return app;

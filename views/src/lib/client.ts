@@ -110,6 +110,14 @@ export class ApiError extends Error {
   }
 }
 
+/** The token was refused (revoked or never paired): the device has to pair again. */
+export class UnauthorizedError extends ApiError {
+  constructor(message: string) {
+    super(401, message);
+    this.name = 'UnauthorizedError';
+  }
+}
+
 const enc = encodeURIComponent;
 
 /** The `AcediaClient` over HTTP, for a server at `baseUrl` and a paired client token. */
@@ -126,7 +134,7 @@ export function httpClient(opts: { baseUrl: string; token: string; fetch?: typeo
     const json = text ? (JSON.parse(text) as unknown) : undefined;
     if (!res.ok) {
       const message = (json as { error?: string } | undefined)?.error ?? `Erreur ${res.status}`;
-      throw new ApiError(res.status, message);
+      throw res.status === 401 ? new UnauthorizedError(message) : new ApiError(res.status, message);
     }
     return json as T;
   }

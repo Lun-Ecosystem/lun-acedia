@@ -42,7 +42,10 @@ export class FakeAgenda {
   readonly lists = new Map<string, { id: string; title: string; tasks: Map<string, FakeTask> }>();
   private seq = 0;
 
-  constructor(private readonly now: () => Date) {
+  private readonly now: () => Date;
+
+  constructor(now: () => Date) {
+    this.now = now;
     this.addCalendar('primary', 'Personnel', { defaultReminders: [{ method: 'popup', minutes: 30 }] });
     this.addList('list1', 'Mes tâches');
   }

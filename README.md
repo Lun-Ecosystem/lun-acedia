@@ -31,7 +31,9 @@ Monorepo à workspaces npm ; l'outillage (format, lint, typage, tests) est à la
 
 ## Documentation
 
-- [`docs/`](docs/) : ce que fait le projet aujourd'hui (utilisateur, technique, exploitation).
+- [`docs/`](docs/) : ce que fait le projet aujourd'hui (utilisateur, technique, exploitation), dont
+  [Brancher Google](docs/brancher-google.md), [Installer sur le téléphone](docs/installer-sur-le-telephone.md)
+  et [Prouver J1](docs/prouver-j1.md).
 - [`docs/decisions/`](docs/decisions/) : les décisions propres au projet.
 - Cahier des attendus de J1 :
   [lun-docs](https://github.com/Lun-Ecosystem/lun-docs/blob/main/docs/specs/2026-10-19-j1-acedia-design.md).

@@ -1,0 +1,29 @@
+# Publishes the views package to GitHub Packages. Started by hand by CrOliX only, after bumping the
+# version in views/package.json on main.
+name: Publish views
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          registry-url: https://npm.pkg.github.com
+          scope: '@lun-ecosystem'
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build -w @lun-ecosystem/lunacedia-views
+      - run: npm publish -w @lun-ecosystem/lunacedia-views
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
