@@ -58,10 +58,10 @@ export function fakeClient(opts: { mails?: MailSummary[]; journal?: JournalEntry
   const notUsed = () => Promise.reject(new Error('not used in this test'));
 
   const client = {
-    listMail: vi.fn(async (view: string) => ({
+    listMail: vi.fn<AcediaClient['listMail']>(async (view: string) => ({
       items: structuredClone(mails.filter((m) => inView(view, m))),
     })),
-    getMail: vi.fn(async (id: string): Promise<MailDetail> => {
+    getMail: vi.fn<AcediaClient['getMail']>(async (id: string): Promise<MailDetail> => {
       const m = mails.find((x) => x.id === id);
       if (!m) throw new ApiError(404, 'Mail introuvable');
       return {
@@ -71,60 +71,67 @@ export function fakeClient(opts: { mails?: MailSummary[]; journal?: JournalEntry
         attachments: [],
       };
     }),
-    attachment: vi.fn(async () => new Blob(['contenu'])),
-    file: vi.fn(async (id: string, boxId: string) =>
+    attachment: vi.fn<AcediaClient['attachment']>(async () => new Blob(['contenu'])),
+    file: vi.fn<AcediaClient['file']>(async (id: string, boxId: string) =>
       relabel(id, [boxId], ['INBOX', ...boxes().filter((b) => b !== boxId)]),
     ),
-    trash: vi.fn(async (id: string) => relabel(id, ['TRASH'], ['INBOX'])),
-    untrash: vi.fn(async (id: string) => relabel(id, [], ['TRASH'])),
-    archive: vi.fn(async (id: string) => relabel(id, [], ['INBOX'])),
-    spam: vi.fn(async (id: string) => relabel(id, ['SPAM'], ['INBOX'])),
-    setTags: vi.fn(async (id: string, add: string[], remove: string[]) => relabel(id, add, remove)),
-    markRead: vi.fn(async (id: string, read: boolean) =>
+    trash: vi.fn<AcediaClient['trash']>(async (id: string) => relabel(id, ['TRASH'], ['INBOX'])),
+    untrash: vi.fn<AcediaClient['untrash']>(async (id: string) => relabel(id, [], ['TRASH'])),
+    archive: vi.fn<AcediaClient['archive']>(async (id: string) => relabel(id, [], ['INBOX'])),
+    spam: vi.fn<AcediaClient['spam']>(async (id: string) => relabel(id, ['SPAM'], ['INBOX'])),
+    setTags: vi.fn<AcediaClient['setTags']>(async (id: string, add: string[], remove: string[]) =>
+      relabel(id, add, remove),
+    ),
+    markRead: vi.fn<AcediaClient['markRead']>(async (id: string, read: boolean) =>
       read ? relabel(id, [], ['UNREAD']) : relabel(id, ['UNREAD'], []),
     ),
-    batch: vi.fn(notUsed),
-    send: vi.fn(async () => ({ id: 'sent1', threadId: 't-new' })),
-    sendAs: vi.fn(async () => ({
+    batch: vi.fn<AcediaClient['batch']>(notUsed),
+    send: vi.fn<AcediaClient['send']>(async () => ({ id: 'sent1', threadId: 't-new' })),
+    sendAs: vi.fn<AcediaClient['sendAs']>(async () => ({
       addresses: [{ email: 'moi@example.com', name: 'Moi', primary: true }],
       default: 'moi@example.com',
     })),
-    validate: vi.fn(async (id: string) => {
+    validate: vi.fn<AcediaClient['validate']>(async (id: string) => {
       const m = mails.find((x) => x.id === id)!;
       relabel(id, [m.proposal!.boxId!], ['INBOX']);
       m.proposal = { ...m.proposal!, status: 'accepted' };
       return m.proposal;
     }),
-    correct: vi.fn(async (id: string, boxId: string, tagIds: string[]) => {
+    correct: vi.fn<AcediaClient['correct']>(async (id: string, boxId: string, tagIds: string[]) => {
       const m = mails.find((x) => x.id === id)!;
       relabel(id, [boxId, ...tagIds], ['INBOX']);
       m.proposal = { boxId, tagIds, confidence: m.proposal?.confidence ?? 0, status: 'corrected' };
       return m.proposal;
     }),
-    listLabels: vi.fn(async () => structuredClone(LABELS)),
-    createLabel: vi.fn(notUsed),
-    updateLabel: vi.fn(notUsed),
-    listRules: vi.fn(async () => []),
-    saveRule: vi.fn(notUsed),
-    deleteRule: vi.fn(notUsed),
-    journal: vi.fn(async () => ({ items: structuredClone(journal) })),
-    undo: vi.fn(notUsed),
-    getSettings: vi.fn(async () => ({ threshold: 100 })),
-    putSettings: vi.fn(async (patch: { threshold?: number }) => ({ threshold: patch.threshold ?? 100 })),
-    agenda: vi.fn(async () => []),
-    undatedTasks: vi.fn(async () => []),
-    listCalendars: vi.fn(async () => []),
-    listTaskLists: vi.fn(async () => []),
-    saveEvent: vi.fn(notUsed),
-    deleteEvent: vi.fn(notUsed),
-    saveTask: vi.fn(notUsed),
-    completeTask: vi.fn(notUsed),
-    deleteTask: vi.fn(notUsed),
-    googleStatus: vi.fn(async () => ({ connected: true, email: 'moi@example.com' })),
-    googleAuthUrl: vi.fn(notUsed),
-    googleDisconnect: vi.fn(notUsed),
-    createPairingCode: vi.fn(notUsed),
-    subscribe: vi.fn(() => () => {}),
+    listLabels: vi.fn<AcediaClient['listLabels']>(async () => structuredClone(LABELS)),
+    createLabel: vi.fn<AcediaClient['createLabel']>(notUsed),
+    updateLabel: vi.fn<AcediaClient['updateLabel']>(notUsed),
+    listRules: vi.fn<AcediaClient['listRules']>(async () => []),
+    saveRule: vi.fn<AcediaClient['saveRule']>(notUsed),
+    deleteRule: vi.fn<AcediaClient['deleteRule']>(notUsed),
+    journal: vi.fn<AcediaClient['journal']>(async () => ({ items: structuredClone(journal) })),
+    undo: vi.fn<AcediaClient['undo']>(notUsed),
+    getSettings: vi.fn<AcediaClient['getSettings']>(async () => ({ threshold: 100 })),
+    putSettings: vi.fn<AcediaClient['putSettings']>(async (patch: { threshold?: number }) => ({
+      threshold: patch.threshold ?? 100,
+    })),
+    agenda: vi.fn<AcediaClient['agenda']>(async () => []),
+    undatedTasks: vi.fn<AcediaClient['undatedTasks']>(async () => []),
+    listCalendars: vi.fn<AcediaClient['listCalendars']>(async () => []),
+    listTaskLists: vi.fn<AcediaClient['listTaskLists']>(async () => []),
+    saveEvent: vi.fn<AcediaClient['saveEvent']>(notUsed),
+    deleteEvent: vi.fn<AcediaClient['deleteEvent']>(notUsed),
+    saveTask: vi.fn<AcediaClient['saveTask']>(notUsed),
+    completeTask: vi.fn<AcediaClient['completeTask']>(notUsed),
+    deleteTask: vi.fn<AcediaClient['deleteTask']>(notUsed),
+    googleStatus: vi.fn<AcediaClient['googleStatus']>(async () => ({
+      connected: true,
+      email: 'moi@example.com',
+    })),
+    googleAuthUrl: vi.fn<AcediaClient['googleAuthUrl']>(notUsed),
+    googleDisconnect: vi.fn<AcediaClient['googleDisconnect']>(notUsed),
+    createPairingCode: vi.fn<AcediaClient['createPairingCode']>(notUsed),
+    subscribe: vi.fn<AcediaClient['subscribe']>(() => () => {}),
   } satisfies AcediaClient;
   return { client, mails };
 }
