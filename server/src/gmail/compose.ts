@@ -3,24 +3,9 @@ import type { GoogleClient } from '../google/client.ts';
 import { BadRequestError, type ActionDeps } from './actions.ts';
 import { getStoredMessage, parseAddress } from './store.ts';
 import { GMAIL_API } from './sync.ts';
+import type { Draft, SendAsAddress } from '../types.ts';
 
-export interface Draft {
-  from: string;
-  to: string;
-  cc?: string;
-  subject: string;
-  html: string;
-  text?: string;
-  inReplyTo?: string;
-  references?: string;
-  threadId?: string;
-}
-
-export interface SendAsAddress {
-  email: string;
-  name?: string;
-  primary: boolean;
-}
+export type { Draft, SendAsAddress };
 
 /** RFC 2047: non-ASCII header values travel as base64 UTF-8 encoded words. */
 export function encodeHeader(value: string): string {

@@ -1,0 +1,66 @@
+/*
+ * Tokens of the Lun' design (lun-docs, standards/design.md) and the Lun'Acedia world. The host app
+ * loads the fonts (self-hosted Cormorant Garamond and Inter); the stacks fall back to Georgia and
+ * system-ui.
+ */
+:root {
+  --encre: #0d0b09;
+  --encre-2: #1a1612;
+  --ivoire: #f0ebe1;
+  --papier: #e8e2d6;
+  --lune: #c8c0b0;
+  --lavis: #8a9bae;
+  --rouge: #7a1818;
+
+  --monde-fond: #070c14;
+  --monde-accent: #3a6080;
+
+  --serif: 'Cormorant Garamond', Georgia, serif;
+  --sans: 'Inter', system-ui, sans-serif;
+
+  --surface: #0d1420;
+  --surface-2: #121b2a;
+  --bordure: rgba(200, 192, 176, 0.14);
+  --accent-doux: rgba(58, 96, 128, 0.28);
+  --rayon: 8px;
+}
+
+.lun-acedia {
+  font-family: var(--sans);
+  font-weight: 300;
+  color: var(--ivoire);
+  background: var(--monde-fond);
+}
+
+.lun-acedia button {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: 1px solid var(--bordure);
+  border-radius: var(--rayon);
+  padding: 0.3rem 0.65rem;
+  cursor: pointer;
+}
+
+.lun-acedia button:hover:not(:disabled) {
+  border-color: var(--monde-accent);
+}
+
+.lun-acedia button:focus-visible,
+.lun-acedia input:focus-visible,
+.lun-acedia select:focus-visible,
+.lun-acedia textarea:focus-visible {
+  outline: 2px solid var(--lavis);
+  outline-offset: 1px;
+}
+
+.lun-acedia input,
+.lun-acedia select,
+.lun-acedia textarea {
+  font: inherit;
+  color: var(--ivoire);
+  background: var(--surface-2);
+  border: 1px solid var(--bordure);
+  border-radius: var(--rayon);
+  padding: 0.35rem 0.55rem;
+}

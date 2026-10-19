@@ -1,20 +1,8 @@
 import type { DatabaseSync } from 'node:sqlite';
 import { BadRequestError, boxIds } from '../gmail/actions.ts';
-import type { Address } from '../types.ts';
+import type { Address, Rule, RuleField, RuleOp } from '../types.ts';
 
-export type RuleField = 'from' | 'fromDomain' | 'to' | 'subject';
-export type RuleOp = 'equals' | 'contains';
-
-export interface Rule {
-  id: number;
-  field: RuleField;
-  op: RuleOp;
-  value: string;
-  boxId: string;
-  tagIds: string[];
-  enabled: boolean;
-  position: number;
-}
+export type { RuleField, RuleOp, Rule };
 
 export type RuleInput = Omit<Rule, 'id' | 'position' | 'enabled' | 'tagIds'> & {
   tagIds?: string[];

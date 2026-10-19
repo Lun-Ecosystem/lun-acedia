@@ -1,15 +1,7 @@
 import type { DatabaseSync } from 'node:sqlite';
+import type { Importance, LunEvent } from '../types.ts';
 
-export type Importance = 'info' | 'normal' | 'urgent';
-
-export interface LunEvent {
-  id: string;
-  type: string;
-  importance: Importance;
-  at: string;
-  title: string;
-  data?: unknown;
-}
+export type { Importance, LunEvent };
 
 const RETENTION_MS = 7 * 24 * 3600_000;
 const listeners = new Map<DatabaseSync, Set<(e: LunEvent) => void>>();

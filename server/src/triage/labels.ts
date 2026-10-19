@@ -3,15 +3,9 @@ import { BadRequestError, type ActionDeps } from '../gmail/actions.ts';
 import { saveLabels } from '../gmail/store.ts';
 import { GMAIL_API } from '../gmail/sync.ts';
 import { GoogleApiError } from '../google/client.ts';
+import type { Role, LabelView } from '../types.ts';
 
-export type Role = 'box' | 'tag';
-
-export interface LabelView {
-  id: string;
-  name: string;
-  type: string;
-  role?: Role;
-}
+export type { Role, LabelView };
 
 export function listLabels(db: DatabaseSync): LabelView[] {
   const rows = db

@@ -78,3 +78,95 @@ export interface MailPage {
   items: MailSummary[];
   cursor?: string;
 }
+
+export type Importance = 'info' | 'normal' | 'urgent';
+
+export interface LunEvent {
+  id: string;
+  type: string;
+  importance: Importance;
+  at: string;
+  title: string;
+  data?: unknown;
+}
+
+export interface LabelChange {
+  id: string;
+  before: string[];
+  after: string[];
+}
+
+export type BatchOp =
+  | { kind: 'file'; boxId: string }
+  | { kind: 'archive' }
+  | { kind: 'trash' }
+  | { kind: 'untrash' }
+  | { kind: 'spam' }
+  | { kind: 'read'; read: boolean }
+  | { kind: 'tags'; add: string[]; remove: string[] };
+
+export interface Draft {
+  from: string;
+  to: string;
+  cc?: string;
+  subject: string;
+  html: string;
+  text?: string;
+  inReplyTo?: string;
+  references?: string;
+  threadId?: string;
+}
+
+export interface SendAsAddress {
+  email: string;
+  name?: string;
+  primary: boolean;
+}
+
+export type Role = 'box' | 'tag';
+
+export interface LabelView {
+  id: string;
+  name: string;
+  type: string;
+  role?: Role;
+}
+
+export type RuleField = 'from' | 'fromDomain' | 'to' | 'subject';
+
+export type RuleOp = 'equals' | 'contains';
+
+export interface Rule {
+  id: number;
+  field: RuleField;
+  op: RuleOp;
+  value: string;
+  boxId: string;
+  tagIds: string[];
+  enabled: boolean;
+  position: number;
+}
+
+export type Origin = 'rule' | 'ai';
+
+export interface JournalEntry {
+  id: number;
+  at: string;
+  messageId: string;
+  subject: string;
+  origin: Origin;
+  action: string;
+  before: string[];
+  after: string[];
+  undoneAt: string | null;
+}
+
+export interface Settings {
+  /** Confidence (0 to 100) the AI needs to file a mail on its own. */
+  threshold: number;
+}
+
+export interface GoogleStatus {
+  connected: boolean;
+  email?: string;
+}
