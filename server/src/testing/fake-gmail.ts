@@ -97,6 +97,11 @@ export class FakeGmail {
   private minHistoryId = 1000;
   private history: HistoryEntry[] = [];
   readonly email = 'test@example.com';
+  sendAs = [
+    { sendAsEmail: 'test@example.com', displayName: 'Test', isPrimary: true },
+    { sendAsEmail: 'contact@lun.example', displayName: "Lun'Ecosystem", isPrimary: false },
+  ];
+  readonly sent: { raw: string; threadId?: string }[] = [];
 
   constructor(initial: FakeMessage[] = []) {
     for (const m of initial) this.messages.set(m.id, structuredClone(m));
@@ -205,6 +210,34 @@ export class FakeGmail {
       const m = this.messages.get(one[1]!);
       if (!m) return { status: 404, json: { error: { message: 'Not Found' } } };
       return { json: q.get('format') === 'full' ? structuredClone(m) : this.metadata(m) };
+    }
+
+    const action = path.match(/^\/messages\/([^/]+)\/(modify|trash|untrash)$/);
+    if (call.method === 'POST' && action) {
+      const m = this.messages.get(action[1]!);
+      if (!m) return { status: 404, json: { error: { message: 'Not Found' } } };
+      const body = JSON.parse(call.body ?? '{}') as { addLabelIds?: string[]; removeLabelIds?: string[] };
+      const op = action[2];
+      const add = op === 'trash' ? ['TRASH'] : op === 'modify' ? (body.addLabelIds ?? []) : [];
+      const remove = op === 'untrash' ? ['TRASH'] : op === 'modify' ? (body.removeLabelIds ?? []) : [];
+      this.relabel(m.id, add, remove);
+      return { json: { id: m.id, threadId: m.threadId, labelIds: m.labelIds } };
+    }
+    if (call.method === 'GET' && path === '/settings/sendAs') return { json: { sendAs: this.sendAs } };
+    if (call.method === 'POST' && path === '/messages/send') {
+      const body = JSON.parse(call.body ?? '{}') as { raw: string; threadId?: string };
+      this.sent.push(body);
+      return {
+        json: { id: `sent-${this.sent.length}`, threadId: body.threadId ?? 'new', labelIds: ['SENT'] },
+      };
+    }
+    if (call.method === 'POST' && path === '/labels') {
+      const body = JSON.parse(call.body ?? '{}') as { name: string };
+      if (this.labels.some((l) => l.name.toLowerCase() === body.name.toLowerCase())) {
+        return { status: 409, json: { error: { message: 'Label name exists or conflicts' } } };
+      }
+      const id = this.addLabel(body.name);
+      return { json: { id, name: body.name, type: 'user' } };
     }
 
     if (call.method === 'GET' && path === '/history') {

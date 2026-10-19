@@ -56,6 +56,7 @@ const MIGRATIONS: string[] = [
    );
    CREATE INDEX messages_by_date ON messages (internal_date DESC, id DESC);
    CREATE TABLE sync_state (key TEXT PRIMARY KEY, value TEXT NOT NULL);`,
+  `CREATE TABLE label_roles (label_id TEXT PRIMARY KEY, role TEXT NOT NULL CHECK (role IN ('box', 'tag')));`,
 ];
 
 export function openDb(path: string): DatabaseSync {
