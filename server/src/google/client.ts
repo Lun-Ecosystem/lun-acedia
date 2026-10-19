@@ -43,12 +43,11 @@ export class GoogleNotConnectedError extends Error {
 }
 
 export class GoogleApiError extends Error {
-  constructor(
-    readonly status: number,
-    message: string,
-  ) {
+  readonly status: number;
+  constructor(status: number, message: string) {
     super(`Google ${status} : ${message}`);
     this.name = 'GoogleApiError';
+    this.status = status;
   }
 }
 

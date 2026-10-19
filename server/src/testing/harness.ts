@@ -4,7 +4,7 @@ import { issuePairingCode } from '../contract/auth.ts';
 import { openDb } from '../db.ts';
 
 /** A fresh app on an in-memory database, with a clock the test moves by hand. */
-export function makeHarness(extra: Partial<Pick<AppDeps, 'google'>> = {}) {
+export function makeHarness(extra: Partial<Pick<AppDeps, 'google' | 'staticDir'>> = {}) {
   const db = openDb(':memory:');
   let now = new Date('2026-11-02T08:00:00.000Z');
   const clock = () => now;

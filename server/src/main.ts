@@ -31,7 +31,10 @@ if (!google)
   console.log(
     'Google non configuré : renseigner GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET et ACEDIA_SECRET_KEY.',
   );
-const app = createApp({ db, clock, version, actions, google });
+const appDist = resolve(root, 'app/dist');
+const staticDir = existsSync(resolve(appDist, 'index.html')) ? appDist : undefined;
+if (!staticDir) console.log('Front autonome absent : lancer « npm run build -w @lun-acedia/app ».');
+const app = createApp({ db, clock, version, actions, google, staticDir });
 
 bootstrapPairing(db, clock(), (line) => console.log(line));
 const classifier = process.env.ANTHROPIC_API_KEY
