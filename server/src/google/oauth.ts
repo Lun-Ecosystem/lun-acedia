@@ -1,7 +1,9 @@
 import { randomBytes } from 'node:crypto';
+import type { DatabaseSync } from 'node:sqlite';
 import { Hono } from 'hono';
 import type { AppDeps } from '../app.ts';
 import { requireToken } from '../contract/auth.ts';
+import { getSetting, putSetting } from '../db.ts';
 import {
   createGoogleClient,
   forgetTokens,
@@ -52,6 +54,39 @@ export function googleFromEnv(env: NodeJS.ProcessEnv): GoogleDeps | undefined {
     secretKey: ACEDIA_SECRET_KEY,
     fetch,
   };
+}
+
+/**
+ * Everything that belongs to one Google account: its cache, sync points, label roles, rules,
+ * proposals, examples, journal and agenda. Label ids are numbered per account, so none of it can
+ * follow to another one. Settings, paired clients and events stay.
+ */
+const ACCOUNT_TABLES = [
+  'messages',
+  'labels',
+  'sync_state',
+  'label_roles',
+  'rules',
+  'journal',
+  'proposals',
+  'examples',
+  'triage_queue',
+  'calendars',
+  'calendar_events',
+  'task_lists',
+  'tasks',
+  'reminders_sent',
+];
+
+export function forgetAccountData(db: DatabaseSync): void {
+  db.exec('BEGIN');
+  try {
+    for (const table of ACCOUNT_TABLES) db.exec(`DELETE FROM ${table}`);
+    db.exec('COMMIT');
+  } catch (err) {
+    db.exec('ROLLBACK');
+    throw err;
+  }
 }
 
 /** `/oauth/callback` (public: Google redirects the browser there) and `/api/google/*`. */
@@ -125,6 +160,9 @@ export function googleRoutes(deps: AppDeps): { callback: Hono; api: Hono } {
     const client = createGoogleClient({ db, now: clock, ...google });
     const profile = await client.request<{ emailAddress: string }>('GET', PROFILE_URL);
     db.prepare('UPDATE google_tokens SET email = ? WHERE id = 1').run(profile.emailAddress);
+    const previous = getSetting<string | null>(db, 'google.account', null);
+    if (previous !== null && previous !== profile.emailAddress) forgetAccountData(db);
+    putSetting(db, 'google.account', profile.emailAddress);
     return c.redirect('/?google=connected', 302);
   });
 

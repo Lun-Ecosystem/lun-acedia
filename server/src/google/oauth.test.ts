@@ -1,4 +1,5 @@
 import { randomBytes } from 'node:crypto';
+import { createRule } from '../triage/rules.ts';
 import { describe, expect, it } from 'vitest';
 import { fakeFetch, on } from '../testing/fake-fetch.ts';
 import { makeHarness } from '../testing/harness.ts';
@@ -14,13 +15,26 @@ const config = {
 const PROFILE = 'https://gmail.googleapis.com/gmail/v1/users/me/profile';
 
 function harness() {
+  const account = { email: 'test@example.com' };
   const fake = fakeFetch(
     on('POST', TOKEN_URL, { json: { access_token: 'acc', refresh_token: 'ref-secret', expires_in: 3600 } }),
-    on('GET', PROFILE, { json: { emailAddress: 'test@example.com' } }),
+    (call) =>
+      call.method === 'GET' && call.url === PROFILE ? { json: { emailAddress: account.email } } : undefined,
     on('POST', 'https://oauth2.googleapis.com/revoke', { json: {} }),
   );
-  return { h: makeHarness({ google: { config, secretKey, fetch: fake.fetch } }), calls: fake.calls };
+  const h = makeHarness({ google: { config, secretKey, fetch: fake.fetch } });
+  async function connect(email: string) {
+    account.email = email;
+    const token = await h.pairClient();
+    const { url } = await (await h.app.request('/api/google/auth-url', { headers: h.auth(token) })).json();
+    await h.app.request(`/oauth/callback?code=abc&state=${new URL(url).searchParams.get('state')}`);
+    return token;
+  }
+  return { h, calls: fake.calls, connect };
 }
+
+const count = (h: ReturnType<typeof makeHarness>, table: string) =>
+  (h.db.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get() as { n: number }).n;
 
 describe('Google authorization', () => {
   it('builds a consent URL asking for offline access and the five scopes', () => {
@@ -89,5 +103,19 @@ describe('Google authorization', () => {
     const token = await h.pairClient();
     const status = await (await h.app.request('/api/google/status', { headers: h.auth(token) })).json();
     expect(status).toEqual({ connected: false });
+  });
+
+  it('starts afresh when another Google account is connected', async () => {
+    const { h, connect } = harness();
+    const token = await connect('test@example.com');
+    h.db.prepare("INSERT INTO labels (id, name, type) VALUES ('Label_3', 'École', 'user')").run();
+    h.db.prepare("INSERT INTO label_roles (label_id, role) VALUES ('Label_3', 'box')").run();
+    createRule(h.db, { field: 'fromDomain', op: 'equals', value: 'ecole.fr', boxId: 'Label_3' });
+    h.db.prepare("INSERT INTO sync_state (key, value) VALUES ('gmail.historyId', '42')").run();
+    await h.app.request('/api/google/disconnect', { method: 'POST', headers: h.auth(token) });
+    await connect('test@example.com');
+    expect(count(h, 'rules')).toBe(1);
+    await connect('autre@example.com');
+    for (const table of ['rules', 'labels', 'label_roles', 'sync_state']) expect(count(h, table)).toBe(0);
   });
 });
