@@ -1,0 +1,13 @@
+{
+  "name": "@lun-ecosystem/lunacedia-views",
+  "version": "0.0.0",
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Lun-Ecosystem/lun-acedia.git",
+    "directory": "views"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json"
+  }
+}
