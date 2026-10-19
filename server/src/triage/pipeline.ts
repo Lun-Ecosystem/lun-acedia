@@ -31,6 +31,7 @@ import {
   setProposalStatus,
   type Proposal,
 } from './proposals.ts';
+import { dequeue, enqueue, failedAttempt, queuedIds } from './queue.ts';
 import { listRules, matchRule } from './rules.ts';
 
 export { getProposal };
@@ -105,9 +106,9 @@ function creditExhausted(deps: ActionDeps): void {
 async function classify(
   deps: TriageDeps & { classifier: Classifier },
   mail: StoredMessage,
-): Promise<Classification | 'credit' | undefined> {
+): Promise<Classification | 'credit' | 'gone' | 'unusable'> {
   const payload = (await fetchFull(deps.google, mail.id))?.payload;
-  if (!payload) return undefined;
+  if (!payload) return 'gone';
   try {
     const result = await deps.classifier.classify({
       mail: {
@@ -138,18 +139,24 @@ async function classify(
       creditExhausted(deps);
       return 'credit';
     }
-    if (err instanceof ClassifierError) return undefined;
+    if (err instanceof ClassifierError) return 'unusable';
     throw err;
   }
 }
 
-/** Triages one claimed mail; returns `credit` when the AI ran out of credit. */
-async function triageOne(deps: TriageDeps, id: string, useAi: boolean): Promise<'credit' | undefined> {
+/**
+ * What became of a queued mail: `done` (decided, or nothing left to decide), `wait` (the AI is out of
+ * credit: try again later), `unusable` (the AI answered nothing usable).
+ */
+type Outcome = 'done' | 'wait' | 'unusable';
+
+/** Triages one claimed mail; `credit` when the AI just ran out of credit. */
+async function triageOne(deps: TriageDeps, id: string, useAi: boolean): Promise<Outcome | 'credit'> {
   const mail = getStoredMessage(deps.db, id);
   // A mail already out of the inbox (a Gmail filter, a gesture) is left where it is.
   if (!mail?.labels.includes('INBOX')) {
     release(deps.db, id);
-    return undefined;
+    return 'done';
   }
 
   const rule = matchRule(listRules(deps.db), mail);
@@ -170,18 +177,23 @@ async function triageOne(deps: TriageDeps, id: string, useAi: boolean): Promise<
       { type: 'mail.triaged', importance: 'info', title: mail.subject, data: { id, boxId: rule.boxId } },
       deps.now(),
     );
-    return undefined;
+    return 'done';
   }
 
+  // Without an AI configured, what no rule catches is filed by hand.
   const classifier = deps.classifier;
-  if (!classifier || !useAi) {
+  if (!classifier) {
     release(deps.db, id);
-    return undefined;
+    return 'done';
+  }
+  if (!useAi) {
+    release(deps.db, id);
+    return 'wait';
   }
   const c = await classify({ ...deps, classifier }, mail);
-  if (c === undefined || c === 'credit') {
+  if (typeof c === 'string') {
     release(deps.db, id);
-    return c;
+    return c === 'gone' ? 'done' : c;
   }
 
   const urgent = c.importance === 'urgent' ? listTags(deps.db).find((t) => isUrgentName(t.name)) : undefined;
@@ -218,25 +230,36 @@ async function triageOne(deps: TriageDeps, id: string, useAi: boolean): Promise<
       deps.now(),
     );
   }
-  return undefined;
+  return 'done';
 }
 
 /**
- * Triages the mails a sync just brought in: rules first, then the AI. Each mail is treated once
- * (claimed before anything else); nothing happens while paused. After a credit error, the rest of
- * the batch only gets the rules; the next batch tries the AI again.
+ * Triages the queued mails (the sync queues each new one; `ids` are queued too): rules first, then
+ * the AI. Each mail is treated once (claimed before anything else); nothing happens while paused,
+ * and the queue waits. After a credit error, the rest only gets the rules and waits for the AI; the
+ * next pass tries again. A failure stops the pass and leaves the mail queued.
  */
-export async function triageNew(deps: TriageDeps, ids: string[]): Promise<void> {
+export async function triageNew(deps: TriageDeps, ids: string[] = []): Promise<void> {
+  enqueue(deps.db, ids, deps.now());
   let useAi = true;
-  for (const id of ids) {
+  for (const id of queuedIds(deps.db)) {
     if (getState(deps.db).paused) return;
-    if (!claim(deps.db, id, deps.now())) continue;
+    if (!claim(deps.db, id, deps.now())) {
+      // Already decided; or being triaged by another pass, which will dequeue it.
+      if (getProposal(deps.db, id)) dequeue(deps.db, id);
+      continue;
+    }
+    let outcome: Outcome | 'credit';
     try {
-      if ((await triageOne(deps, id, useAi)) === 'credit') useAi = false;
+      outcome = await triageOne(deps, id, useAi);
     } catch (err) {
       release(deps.db, id);
+      failedAttempt(deps.db, id);
       throw err;
     }
+    if (outcome === 'credit') useAi = false;
+    else if (outcome === 'unusable') failedAttempt(deps.db, id);
+    else if (outcome === 'done') dequeue(deps.db, id);
   }
 }
 

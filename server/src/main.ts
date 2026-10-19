@@ -14,6 +14,8 @@ import { createGoogleClient, GoogleNotConnectedError, GoogleReauthError } from '
 import { googleFromEnv } from './google/oauth.ts';
 import { createAnthropicClassifier } from './triage/anthropic.ts';
 import { triageNew } from './triage/pipeline.ts';
+import { recoverQueue } from './triage/queue.ts';
+import { startLoop } from './util.ts';
 
 // Paths are resolved from the repository root, whatever the working directory (npm -w runs in server/).
 const root = fileURLToPath(new URL('../../', import.meta.url));
@@ -41,18 +43,26 @@ const classifier = process.env.ANTHROPIC_API_KEY
   ? createAnthropicClassifier({ apiKey: process.env.ANTHROPIC_API_KEY })
   : undefined;
 if (!classifier) console.log('ANTHROPIC_API_KEY absente : seules les règles trient les mails.');
+function logError(what: string) {
+  return (err: unknown) => {
+    // Not connected yet, or waiting for a new consent: health already says so.
+    if (err instanceof GoogleNotConnectedError || err instanceof GoogleReauthError) return;
+    console.error(`${what} :`, err);
+  };
+}
+// Claims left by a stop in the middle of a triage go back to the queue.
+recoverQueue(db);
 if (google) {
   const deps = { db, google: createGoogleClient({ db, now: clock, ...google }), now: clock };
   startSyncLoop(deps, {
-    onResult: async (result) => {
-      await triageNew({ ...deps, classifier }, result.added);
-      await syncAgenda(deps);
-    },
-    onError: (err) => {
-      // Not connected yet, or waiting for a new consent: health already says so.
-      if (err instanceof GoogleNotConnectedError || err instanceof GoogleReauthError) return;
-      console.error('Synchro Gmail :', err);
-    },
+    // The sync queues the new mails; the triage drains the queue (also what waited for a resume).
+    onResult: () => triageNew({ ...deps, classifier }),
+    onError: logError('Synchro Gmail'),
+  });
+  // The agenda has its own loop: a Gmail or AI failure never stops it.
+  startLoop(() => syncAgenda(deps), {
+    intervalMs: Number(process.env.SYNC_INTERVAL_MS ?? 60_000),
+    onError: logError('Synchro Agenda'),
   });
 }
 startReminderLoop(db, clock);

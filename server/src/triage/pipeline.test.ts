@@ -2,10 +2,11 @@ import { describe, expect, it } from 'vitest';
 import { eventsSince } from '../contract/events.ts';
 import { getState, setPaused } from '../contract/state.ts';
 import { putSetting } from '../db.ts';
-import { getStoredMessage } from '../gmail/store.ts';
+import { getStoredMessage, upsertMessage } from '../gmail/store.ts';
 import { message } from '../testing/fake-gmail.ts';
 import { makeGmailHarness } from '../testing/gmail-harness.ts';
 import {
+  ClassifierError,
   CreditExhaustedError,
   type Classification,
   type Classifier,
@@ -13,6 +14,8 @@ import {
 } from './classifier.ts';
 import { pickExamples } from './examples.ts';
 import { getProposal, triageNew } from './pipeline.ts';
+import { claim } from './proposals.ts';
+import { queuedIds, recoverQueue } from './queue.ts';
 import { createRule } from './rules.ts';
 
 /** A classifier that answers what the test decides and counts its calls. */
@@ -133,6 +136,7 @@ describe('triageNew', () => {
     expect(getProposal(s.h.db, 'm1')).toBeUndefined();
     setPaused(s.h.db, false);
     await s.triage(await s.deliver({ id: 'm2' }));
+    expect(getProposal(s.h.db, 'm1')?.status).toBe('pending');
     expect(getProposal(s.h.db, 'm2')?.status).toBe('pending');
   });
 
@@ -234,5 +238,62 @@ describe('triageNew', () => {
     expect(input.tags.map((t) => t.name)).toEqual(['Urgent']);
     expect(input.mail.text).toBe('Bonjour');
     expect(input.mail.from).toBe('Prof Martin <prof@ecole.fr>');
+  });
+});
+
+describe('triage queue', () => {
+  it('a mail left alone during a credit outage is triaged once the credit is back', async () => {
+    let fail = true;
+    let box = '';
+    const s = await setup(() => (fail ? new CreditExhaustedError() : { boxId: box, confidence: 50 }));
+    box = s.ecole;
+    await s.triage(await s.deliver({ id: 'm1' }));
+    expect(getProposal(s.h.db, 'm1')).toBeUndefined();
+    fail = false;
+    await s.triage([]);
+    expect(getProposal(s.h.db, 'm1')?.status).toBe('pending');
+    expect(queuedIds(s.h.db)).toEqual([]);
+  });
+
+  it('a mail caught mid-triage by a restart is triaged after it', async () => {
+    let box = '';
+    const s = await setup(() => ({ boxId: box, confidence: 50 }));
+    box = s.ecole;
+    await s.deliver({ id: 'm1' });
+    claim(s.h.db, 'm1', s.h.clock()); // the process died here
+    recoverQueue(s.h.db);
+    await s.triage([]);
+    expect(getProposal(s.h.db, 'm1')?.status).toBe('pending');
+  });
+
+  it('a transient failure keeps the mail queued for the next pass', async () => {
+    let calls = 0;
+    let box = '';
+    const s = await setup(() =>
+      ++calls === 1 ? new Error('Anthropic 529') : { boxId: box, confidence: 50 },
+    );
+    box = s.ecole;
+    await expect(s.triage(await s.deliver({ id: 'm1' }))).rejects.toThrow('529');
+    expect(queuedIds(s.h.db)).toEqual(['m1']);
+    await s.triage([]);
+    expect(getProposal(s.h.db, 'm1')?.status).toBe('pending');
+  });
+
+  it('gives up on a mail after three unusable answers', async () => {
+    const s = await setup(() => new ClassifierError('réponse illisible'));
+    await s.triage(await s.deliver({ id: 'm1' }));
+    await s.triage([]);
+    expect(queuedIds(s.h.db)).toEqual(['m1']);
+    await s.triage([]);
+    expect(queuedIds(s.h.db)).toEqual([]);
+    expect(s.fake.inputs).toHaveLength(3);
+  });
+
+  it('triages a new mail even when it was cached before the sync saw it arrive', async () => {
+    const s = await setup(() => ({ boxId: null, confidence: 50 }));
+    const early = message({ id: 'm1', date: '2026-11-02T08:30:00.000Z' });
+    s.h.gmail.deliver(early);
+    upsertMessage(s.h.db, early); // read by the core through mail.read before the sync loop ran
+    expect((await s.h.sync()).added).toEqual(['m1']);
   });
 });

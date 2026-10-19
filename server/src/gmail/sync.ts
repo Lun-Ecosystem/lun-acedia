@@ -1,6 +1,8 @@
 import type { DatabaseSync } from 'node:sqlite';
 import { emitEvent } from '../contract/events.ts';
 import { GoogleApiError, type GoogleClient } from '../google/client.ts';
+import { enqueue } from '../triage/queue.ts';
+import { startLoop } from '../util.ts';
 import {
   getStoredMessage,
   getSyncState,
@@ -118,6 +120,7 @@ async function fullSync(deps: SyncDeps, initial: boolean): Promise<SyncResult> {
       result.removed.push(id);
     }
   }
+  enqueue(db, result.added, deps.now());
   setSyncState(db, 'gmail.historyId', profile.historyId);
   if (initial) setSyncState(db, 'gmail.connectedAt', String(connectedAt));
   return result;
@@ -173,9 +176,9 @@ async function incrementalSync(deps: SyncDeps, startHistoryId: string): Promise<
     const previous = getStoredMessage(db, id)?.labels.join(',');
     upsertMessage(db, m);
     const labels = m.labelIds ?? [];
-    if (!before.has(id)) {
-      if (addedIds.has(id) && isIncoming(labels)) result.added.push(id);
-    } else if (previous !== labels.join(',')) result.changed.push(id);
+    // New is what Gmail says arrived, even if a read or a search cached it a moment earlier.
+    if (addedIds.has(id) && isIncoming(labels)) result.added.push(id);
+    else if (before.has(id) && previous !== labels.join(',')) result.changed.push(id);
   }
   for (const id of deleted) {
     if (before.has(id)) {
@@ -183,6 +186,7 @@ async function incrementalSync(deps: SyncDeps, startHistoryId: string): Promise<
       result.removed.push(id);
     }
   }
+  enqueue(db, result.added, deps.now());
   setSyncState(db, 'gmail.historyId', historyId ?? startHistoryId);
   return result;
 }
@@ -223,25 +227,14 @@ export function startSyncLoop(
     onError?: (err: unknown) => void;
   } = {},
 ): { stop: () => void; runNow: () => Promise<void> } {
-  let running: Promise<void> | undefined;
-  const runNow = () => {
-    running ??= (async () => {
-      try {
-        const result = await syncGmail(deps);
-        await opts.onResult?.(result);
-      } catch (err) {
-        opts.onError?.(err);
-      } finally {
-        running = undefined;
-      }
-    })();
-    return running;
-  };
-  const timer = setInterval(
-    () => void runNow(),
-    opts.intervalMs ?? Number(process.env.SYNC_INTERVAL_MS ?? 60_000),
+  return startLoop(
+    async () => {
+      const result = await syncGmail(deps);
+      await opts.onResult?.(result);
+    },
+    {
+      intervalMs: opts.intervalMs ?? Number(process.env.SYNC_INTERVAL_MS ?? 60_000),
+      ...(opts.onError ? { onError: opts.onError } : {}),
+    },
   );
-  timer.unref();
-  void runNow();
-  return { stop: () => clearInterval(timer), runNow };
 }

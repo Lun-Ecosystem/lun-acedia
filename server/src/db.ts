@@ -122,6 +122,11 @@ const MIGRATIONS: string[] = [
      PRIMARY KEY (list_id, id)
    );
    CREATE TABLE reminders_sent (key TEXT PRIMARY KEY, at TEXT NOT NULL);`,
+  `CREATE TABLE triage_queue (
+     message_id TEXT PRIMARY KEY,
+     queued_at TEXT NOT NULL,
+     attempts INTEGER NOT NULL DEFAULT 0
+   );`,
 ];
 
 export function openDb(path: string): DatabaseSync {
