@@ -1,6 +1,7 @@
 import { Hono, type Context } from 'hono';
 import { z } from 'zod';
 import type { AppDeps } from '../app.ts';
+import { stripUndefined } from '../util.ts';
 import { requireToken } from '../contract/auth.ts';
 import { GoogleApiError, type GoogleClient } from '../google/client.ts';
 import type { MailDetail, MailSummary } from '../types.ts';
@@ -231,12 +232,6 @@ const DraftBody = z.object({
   references: z.string().optional(),
   threadId: z.string().optional(),
 });
-
-function stripUndefined<T extends object>(o: T): { [K in keyof T]: Exclude<T[K], undefined> } {
-  return Object.fromEntries(Object.entries(o).filter(([, v]) => v !== undefined)) as {
-    [K in keyof T]: Exclude<T[K], undefined>;
-  };
-}
 
 /** Maps the domain errors of an action to HTTP answers. */
 async function guard(c: Context, run: () => Promise<unknown>) {

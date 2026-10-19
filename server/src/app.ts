@@ -6,6 +6,7 @@ import { contractRoutes } from './contract/routes.ts';
 import { gmailRoutes, sendAsRoutes } from './gmail/routes.ts';
 import { createGoogleClient, type GoogleClient, type GoogleDeps } from './google/client.ts';
 import { googleRoutes } from './google/oauth.ts';
+import { triageRoutes } from './triage/routes.ts';
 
 /** Everything the app needs; later tasks add their own dependencies here. */
 export interface AppDeps {
@@ -37,6 +38,7 @@ export function createApp(deps: AppDeps): Hono {
   app.route('/api/google', auth.api);
   app.route('/api/mail', gmailRoutes(deps, google));
   app.route('/api/send-as', sendAsRoutes(deps, google));
+  app.route('/api', triageRoutes(deps, google));
 
   app.onError((err, c) => c.json({ error: err.message }, 500));
   return app;
