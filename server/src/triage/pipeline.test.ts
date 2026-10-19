@@ -74,6 +74,18 @@ describe('triageNew', () => {
     });
   });
 
+  it('threshold 100: even a 100 % proposal waits, for a box, the trash or spam', async () => {
+    const targets: string[] = [];
+    const s = await setup(() => ({ boxId: targets.shift() ?? null, confidence: 100 }));
+    targets.push(s.ecole, 'trash', 'spam');
+    await s.triage(await s.deliver({ id: 'm1' }, { id: 'm2' }, { id: 'm3' }));
+    for (const id of ['m1', 'm2', 'm3']) {
+      expect(getProposal(s.h.db, id)).toMatchObject({ confidence: 100, status: 'pending' });
+      expect(getStoredMessage(s.h.db, id)?.labels).toContain('INBOX');
+    }
+    expect(journalCount(s.h)).toBe(0);
+  });
+
   it('threshold 80: an 85 % proposal is filed and journaled', async () => {
     let box = '';
     const s = await setup(() => ({ boxId: box, confidence: 85 }));

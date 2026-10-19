@@ -186,9 +186,12 @@ async function triageOne(deps: TriageDeps, id: string, useAi: boolean): Promise<
 
   const urgent = c.importance === 'urgent' ? listTags(deps.db).find((t) => isUrgentName(t.name)) : undefined;
   const tagIds = urgent && !c.tagIds.includes(urgent.id) ? [...c.tagIds, urgent.id] : c.tagIds;
+  // At 100 (the default) everything waits for validation, whatever the AI's confidence.
+  const threshold = getThreshold(deps.db);
   const auto =
     c.boxId !== null &&
-    c.confidence >= getThreshold(deps.db) &&
+    threshold < 100 &&
+    c.confidence >= threshold &&
     (c.boxId !== 'spam' || c.confidence >= SPAM_CONFIDENCE);
   if (auto) {
     const change = await applyTarget(deps, id, c.boxId, tagIds);
