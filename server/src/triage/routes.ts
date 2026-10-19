@@ -7,6 +7,8 @@ import { BadRequestError, NotFoundError, type ActionDeps } from '../gmail/action
 import type { GoogleClient } from '../google/client.ts';
 import { ConflictError, listJournal, undo } from './journal.ts';
 import { createLabel, listLabels, setRole } from './labels.ts';
+import { getSetting, putSetting } from '../db.ts';
+import { correct, DEFAULT_THRESHOLD, validate } from './pipeline.ts';
 import { createRule, deleteRule, listRules, updateRule } from './rules.ts';
 
 const RoleSchema = z.enum(['box', 'tag']);
@@ -36,7 +38,9 @@ async function body<T>(c: Context, schema: z.ZodType<T>): Promise<T | Response> 
   return parsed.success ? parsed.data : c.json({ error: parsed.error.message }, 400);
 }
 
-/** `/api/labels`, `/api/rules` and `/api/journal`. */
+const settings = (deps: AppDeps) => ({ threshold: getSetting(deps.db, 'threshold', DEFAULT_THRESHOLD) });
+
+/** `/api/labels`, `/api/rules`, `/api/journal`, `/api/settings` and the answers to the AI's proposals. */
 export function triageRoutes(deps: AppDeps, google: GoogleClient | undefined): Hono {
   const r = new Hono();
   r.use('*', requireToken(deps.db));
@@ -81,6 +85,24 @@ export function triageRoutes(deps: AppDeps, google: GoogleClient | undefined): H
     return c.json(listJournal(deps.db, cursor ? Number(cursor) : undefined));
   });
   r.post('/journal/:id/undo', (c) => answer(c, () => undo(actionDeps(), Number(c.req.param('id')))));
+
+  r.post('/mail/:id/validate', (c) => answer(c, () => validate(actionDeps(), c.req.param('id'))));
+  r.post('/mail/:id/correct', async (c) => {
+    const input = await body(
+      c,
+      z.object({ boxId: z.string().min(1), tagIds: z.array(z.string()).default([]) }),
+    );
+    if (input instanceof Response) return input;
+    return answer(c, () => correct(actionDeps(), c.req.param('id'), input.boxId, input.tagIds));
+  });
+
+  r.get('/settings', (c) => c.json(settings(deps)));
+  r.put('/settings', async (c) => {
+    const input = await body(c, z.object({ threshold: z.number().int().min(0).max(100) }));
+    if (input instanceof Response) return input;
+    putSetting(deps.db, 'threshold', input.threshold);
+    return c.json(settings(deps));
+  });
 
   return r;
 }

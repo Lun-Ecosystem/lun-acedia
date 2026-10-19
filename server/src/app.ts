@@ -6,6 +6,7 @@ import { contractRoutes } from './contract/routes.ts';
 import { gmailRoutes, sendAsRoutes } from './gmail/routes.ts';
 import { createGoogleClient, type GoogleClient, type GoogleDeps } from './google/client.ts';
 import { googleRoutes } from './google/oauth.ts';
+import { onManualFile, withProposal } from './triage/pipeline.ts';
 import { triageRoutes } from './triage/routes.ts';
 
 /** Everything the app needs; later tasks add their own dependencies here. */
@@ -36,7 +37,13 @@ export function createApp(deps: AppDeps): Hono {
   const auth = googleRoutes(deps);
   app.route('/oauth', auth.callback);
   app.route('/api/google', auth.api);
-  app.route('/api/mail', gmailRoutes(deps, google));
+  app.route(
+    '/api/mail',
+    gmailRoutes(deps, google, {
+      decorate: (m) => withProposal(deps.db, m),
+      onFile: (id, boxId) => onManualFile({ db: deps.db, google: google!, now: deps.clock }, id, boxId),
+    }),
+  );
   app.route('/api/send-as', sendAsRoutes(deps, google));
   app.route('/api', triageRoutes(deps, google));
 

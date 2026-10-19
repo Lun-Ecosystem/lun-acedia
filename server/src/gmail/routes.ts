@@ -45,8 +45,13 @@ export function summary(m: StoredMessage): MailSummary {
   return s;
 }
 
-/** Hook for later tasks to enrich a listed mail (its box, a pending proposal). */
-export type Decorate = (m: StoredMessage) => StoredMessage;
+/** What the triage plugs into the mail routes. */
+export interface MailHooks {
+  /** Enriches a listed mail (its proposal). */
+  decorate?: (m: StoredMessage) => StoredMessage;
+  /** Called after each mail filed by hand. */
+  onFile?: (id: string, boxId: string) => void;
+}
 
 async function search(deps: AppDeps, google: GoogleClient, q: string, cursor?: string) {
   const params = new URLSearchParams({ q, maxResults: '50' });
@@ -69,11 +74,11 @@ async function search(deps: AppDeps, google: GoogleClient, q: string, cursor?: s
   return { items, cursor: page.nextPageToken };
 }
 
-export function gmailRoutes(
-  deps: AppDeps,
-  google: GoogleClient | undefined,
-  decorate: Decorate = (m) => m,
-): Hono {
+export function gmailRoutes(deps: AppDeps, google: GoogleClient | undefined, hooks: MailHooks = {}): Hono {
+  const decorate = hooks.decorate ?? ((m: StoredMessage) => m);
+  const filed = (ids: string[], op: BatchOp) => {
+    if (op.kind === 'file') for (const id of ids) hooks.onFile?.(id, op.boxId);
+  };
   const r = new Hono();
   r.use('*', requireToken(deps.db));
   r.use('*', async (c, next) => {
@@ -93,7 +98,6 @@ export function gmailRoutes(
       return c.json(body);
     }
     const view = c.req.query('view') ?? 'inbox';
-    if (view === 'pending') return c.json({ items: [] });
     const filter = viewFilter(view);
     if (!filter) return c.json({ error: `Vue inconnue : ${view}` }, 400);
     const page = listView(deps.db, filter, cursor);
@@ -166,7 +170,12 @@ export function gmailRoutes(
   r.post('/batch', async (c) => {
     const parsed = BatchBody.safeParse(await c.req.json().catch(() => undefined));
     if (!parsed.success) return c.json({ error: parsed.error.message }, 400);
-    return guard(c, () => batch(actionDeps(), parsed.data.ids, parsed.data.op as BatchOp));
+    const op = parsed.data.op as BatchOp;
+    return guard(c, async () => {
+      const changes = await batch(actionDeps(), parsed.data.ids, op);
+      filed(parsed.data.ids, op);
+      return changes;
+    });
   });
 
   r.post('/send', async (c) => {
@@ -179,7 +188,12 @@ export function gmailRoutes(
     r.post(`/:id/${verb}`, async (c) => {
       const parsed = schema.safeParse((await c.req.json().catch(() => ({}))) ?? {});
       if (!parsed.success) return c.json({ error: parsed.error.message }, 400);
-      return guard(c, () => applyOp(actionDeps(), c.req.param('id'), parsed.data as BatchOp));
+      const op = parsed.data as BatchOp;
+      return guard(c, async () => {
+        const change = await applyOp(actionDeps(), c.req.param('id'), op);
+        filed([c.req.param('id')], op);
+        return change;
+      });
     });
   }
 

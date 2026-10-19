@@ -130,3 +130,59 @@ export function findPart(payload: GmailPart, id: string): GmailPart | undefined 
   });
   return found;
 }
+
+const ENTITIES: Record<string, string> = {
+  amp: '&',
+  lt: '<',
+  gt: '>',
+  quot: '"',
+  apos: "'",
+  nbsp: ' ',
+  laquo: '«',
+  raquo: '»',
+  rsquo: '’',
+  lsquo: '‘',
+  ldquo: '“',
+  rdquo: '”',
+  hellip: '…',
+  euro: '€',
+  eacute: 'é',
+  egrave: 'è',
+  ecirc: 'ê',
+  euml: 'ë',
+  agrave: 'à',
+  acirc: 'â',
+  ccedil: 'ç',
+  icirc: 'î',
+  iuml: 'ï',
+  ocirc: 'ô',
+  ugrave: 'ù',
+  ucirc: 'û',
+  Eacute: 'É',
+  Egrave: 'È',
+  Agrave: 'À',
+  Ccedil: 'Ç',
+};
+
+function htmlToText(html: string): string {
+  return html
+    .replace(/<(style|script|head)\b[\s\S]*?<\/\1>/gi, ' ')
+    .replace(/<br\s*\/?>|<\/(p|div|li|tr|h\d)>/gi, '\n')
+    .replace(/<[^>]*>/g, '')
+    .replace(/&#(x?)([0-9a-f]+);/gi, (_, hex: string, n: string) =>
+      String.fromCodePoint(parseInt(n, hex ? 16 : 10)),
+    )
+    .replace(/&([a-z]+);/gi, (all, name: string) => ENTITIES[name] ?? all);
+}
+
+/** The readable text of a mail (text part, else the HTML stripped), for the AI: at most `max` characters. */
+export function plainText(payload: GmailPart, max = 4000): string {
+  const textPart = findBody(payload, 'text/plain');
+  const htmlPart = textPart ? undefined : findBody(payload, 'text/html');
+  const raw = textPart ? decodeText(textPart) : htmlPart ? htmlToText(decodeText(htmlPart)) : '';
+  return raw
+    .replace(/[^\S\n]+/g, ' ')
+    .replace(/\s*\n\s*/g, '\n')
+    .trim()
+    .slice(0, max);
+}
