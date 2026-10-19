@@ -8,6 +8,14 @@ export class DegradedError extends Error {
   }
 }
 
+/** Thrown by an action whose input passed the schema but makes no sense (HTTP 400). */
+export class InvalidInputError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'InvalidInputError';
+  }
+}
+
 export interface Action {
   name: string;
   description: string;

@@ -30,6 +30,7 @@ interface CalendarListEntry {
   summary?: string;
   summaryOverride?: string;
   selected?: boolean;
+  primary?: boolean;
   defaultReminders?: GoogleReminder[];
 }
 
@@ -201,6 +202,8 @@ export async function syncCalendars(deps: SyncDeps): Promise<number> {
   } while (pageToken);
 
   const selected = entries.filter((c) => c.selected);
+  const main = entries.find((c) => c.primary) ?? selected[0];
+  if (main) setSyncState(deps.db, 'calendar:main', main.id);
   let changes = 0;
   const known = (deps.db.prepare('SELECT id FROM calendars').all() as { id: string }[]).map((r) => r.id);
   for (const id of known.filter((id) => !selected.some((c) => c.id === id))) {
@@ -226,6 +229,9 @@ export async function syncCalendars(deps: SyncDeps): Promise<number> {
   }
   return changes;
 }
+
+/** The account's main calendar (Google's `primary`, by its real id). */
+export const mainCalendar = (db: DatabaseSync) => getSyncState(db, 'calendar:main');
 
 export function listCalendars(db: DatabaseSync): { id: string; title: string }[] {
   return db.prepare('SELECT id, title FROM calendars ORDER BY title').all() as {

@@ -14,10 +14,9 @@ import {
   type ActionDeps,
   type LabelChange,
 } from '../gmail/actions.ts';
-import { plainText, type GmailPart } from '../gmail/body.ts';
+import { plainText } from '../gmail/body.ts';
 import { getStoredMessage, header, type StoredMessage } from '../gmail/store.ts';
-import { GMAIL_API } from '../gmail/sync.ts';
-import { GoogleApiError } from '../google/client.ts';
+import { fetchFull } from '../gmail/read.ts';
 import { ClassifierError, CreditExhaustedError, type Classification, type Classifier } from './classifier.ts';
 import { pickExamples, recordExample } from './examples.ts';
 import { ConflictError, logAuto } from './journal.ts';
@@ -89,19 +88,6 @@ async function applyTarget(
 
 const actionOf = (boxId: string | null) => (boxId === 'trash' || boxId === 'spam' ? boxId : 'file');
 
-async function fullPayload(deps: ActionDeps, id: string): Promise<GmailPart | undefined> {
-  try {
-    const m = await deps.google.request<{ payload: GmailPart }>(
-      'GET',
-      `${GMAIL_API}/messages/${encodeURIComponent(id)}?format=full`,
-    );
-    return m.payload;
-  } catch (err) {
-    if (err instanceof GoogleApiError && err.status === 404) return undefined;
-    throw err;
-  }
-}
-
 function creditExhausted(deps: ActionDeps): void {
   if (getState(deps.db).degraded.includes('credit')) return;
   addDegraded(deps.db, 'credit');
@@ -120,7 +106,7 @@ async function classify(
   deps: TriageDeps & { classifier: Classifier },
   mail: StoredMessage,
 ): Promise<Classification | 'credit' | undefined> {
-  const payload = await fullPayload(deps, mail.id);
+  const payload = (await fetchFull(deps.google, mail.id))?.payload;
   if (!payload) return undefined;
   try {
     const result = await deps.classifier.classify({
