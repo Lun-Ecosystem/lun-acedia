@@ -2,17 +2,14 @@ import type { DatabaseSync } from 'node:sqlite';
 import { GoogleApiError, type GoogleClient } from '../google/client.ts';
 import { getStoredMessage, setStoredLabels, upsertMessage } from './store.ts';
 import { fetchMetadata, GMAIL_API } from './sync.ts';
+import type { LabelChange, BatchOp } from '../types.ts';
+
+export type { LabelChange, BatchOp };
 
 export interface ActionDeps {
   db: DatabaseSync;
   google: GoogleClient;
   now: () => Date;
-}
-
-export interface LabelChange {
-  id: string;
-  before: string[];
-  after: string[];
 }
 
 export class NotFoundError extends Error {
@@ -28,15 +25,6 @@ export class BadRequestError extends Error {
     this.name = 'BadRequestError';
   }
 }
-
-export type BatchOp =
-  | { kind: 'file'; boxId: string }
-  | { kind: 'archive' }
-  | { kind: 'trash' }
-  | { kind: 'untrash' }
-  | { kind: 'spam' }
-  | { kind: 'read'; read: boolean }
-  | { kind: 'tags'; add: string[]; remove: string[] };
 
 /** Label ids that are boxes (Task 6 lets CrOliX choose them). */
 export function boxIds(db: DatabaseSync): string[] {

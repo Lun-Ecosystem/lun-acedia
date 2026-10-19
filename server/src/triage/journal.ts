@@ -8,20 +8,9 @@ import {
 } from '../gmail/actions.ts';
 import { getStoredMessage, setStoredLabels, upsertMessage } from '../gmail/store.ts';
 import { fetchMetadata } from '../gmail/sync.ts';
+import type { Origin, JournalEntry } from '../types.ts';
 
-export type Origin = 'rule' | 'ai';
-
-export interface JournalEntry {
-  id: number;
-  at: string;
-  messageId: string;
-  subject: string;
-  origin: Origin;
-  action: string;
-  before: string[];
-  after: string[];
-  undoneAt: string | null;
-}
+export type { Origin, JournalEntry };
 
 export class ConflictError extends Error {
   constructor(message: string) {

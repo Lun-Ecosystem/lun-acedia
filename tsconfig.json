@@ -13,5 +13,5 @@
     "types": ["node"],
     "outDir": "dist"
   },
-  "include": ["server/src", "views/src", "app/src", "*.ts"]
+  "include": ["server/src", "app/src", "*.ts"]
 }
