@@ -3,7 +3,7 @@ import { Hono } from 'hono';
 import type { ActionRegistry } from './contract/actions.ts';
 import { codeExpiry, issuePairingCode, requireToken } from './contract/auth.ts';
 import { contractRoutes } from './contract/routes.ts';
-import { gmailRoutes } from './gmail/routes.ts';
+import { gmailRoutes, sendAsRoutes } from './gmail/routes.ts';
 import { createGoogleClient, type GoogleClient, type GoogleDeps } from './google/client.ts';
 import { googleRoutes } from './google/oauth.ts';
 
@@ -36,6 +36,7 @@ export function createApp(deps: AppDeps): Hono {
   app.route('/oauth', auth.callback);
   app.route('/api/google', auth.api);
   app.route('/api/mail', gmailRoutes(deps, google));
+  app.route('/api/send-as', sendAsRoutes(deps, google));
 
   app.onError((err, c) => c.json({ error: err.message }, 500));
   return app;
