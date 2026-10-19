@@ -57,6 +57,26 @@ const MIGRATIONS: string[] = [
    CREATE INDEX messages_by_date ON messages (internal_date DESC, id DESC);
    CREATE TABLE sync_state (key TEXT PRIMARY KEY, value TEXT NOT NULL);`,
   `CREATE TABLE label_roles (label_id TEXT PRIMARY KEY, role TEXT NOT NULL CHECK (role IN ('box', 'tag')));`,
+  `CREATE TABLE rules (
+     id INTEGER PRIMARY KEY AUTOINCREMENT,
+     field TEXT NOT NULL,
+     op TEXT NOT NULL,
+     value TEXT NOT NULL,
+     box_label_id TEXT NOT NULL,
+     tag_ids TEXT NOT NULL,
+     enabled INTEGER NOT NULL,
+     position INTEGER NOT NULL
+   );
+   CREATE TABLE journal (
+     id INTEGER PRIMARY KEY AUTOINCREMENT,
+     at TEXT NOT NULL,
+     message_id TEXT NOT NULL,
+     origin TEXT NOT NULL,
+     action TEXT NOT NULL,
+     before TEXT NOT NULL,
+     after TEXT NOT NULL,
+     undone_at TEXT
+   );`,
 ];
 
 export function openDb(path: string): DatabaseSync {
