@@ -124,6 +124,7 @@ export async function syncTasks(deps: SyncDeps): Promise<number> {
     pageToken = page.nextPageToken;
   } while (pageToken);
 
+  if (lists[0]) setSyncState(deps.db, 'tasks:main', lists[0].id);
   let changes = 0;
   const known = (deps.db.prepare('SELECT id FROM task_lists').all() as { id: string }[]).map((r) => r.id);
   for (const id of known.filter((id) => !lists.some((l) => l.id === id))) {
@@ -141,6 +142,9 @@ export async function syncTasks(deps: SyncDeps): Promise<number> {
   }
   return changes;
 }
+
+/** The default task list (the first one Google returns). */
+export const mainTaskList = (db: DatabaseSync) => getSyncState(db, 'tasks:main');
 
 export function listTaskLists(db: DatabaseSync): { id: string; title: string }[] {
   return db.prepare('SELECT id, title FROM task_lists ORDER BY title').all() as {

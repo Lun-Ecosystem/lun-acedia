@@ -2,6 +2,7 @@ import type { DatabaseSync } from 'node:sqlite';
 import { Hono } from 'hono';
 import { agendaRoutes } from './agenda/routes.ts';
 import type { ActionRegistry } from './contract/actions.ts';
+import { registerCatalog } from './contract/catalog.ts';
 import { codeExpiry, issuePairingCode, requireToken } from './contract/auth.ts';
 import { contractRoutes } from './contract/routes.ts';
 import { gmailRoutes, sendAsRoutes } from './gmail/routes.ts';
@@ -25,6 +26,7 @@ export function createApp(deps: AppDeps): Hono {
   const google: GoogleClient | undefined = deps.google
     ? createGoogleClient({ db: deps.db, now: deps.clock, ...deps.google })
     : undefined;
+  registerCatalog(deps.actions, { db: deps.db, google, clock: deps.clock });
   app.route('/lun/v1', contractRoutes(deps));
 
   const api = new Hono();

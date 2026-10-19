@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import { streamSSE } from 'hono/streaming';
 import type { AppDeps } from '../app.ts';
 import { SATELLITE } from '../identity.ts';
-import { DegradedError } from './actions.ts';
+import { DegradedError, InvalidInputError } from './actions.ts';
 import { pair, requireToken } from './auth.ts';
 import { costsSince } from './costs.ts';
 import { eventsSince, subscribe, type LunEvent } from './events.ts';
@@ -110,6 +110,7 @@ export function contractRoutes(deps: AppDeps): Hono {
       return c.json({ ok: true, result: await entry.run(parsed.data) });
     } catch (err) {
       if (err instanceof DegradedError) return c.json({ error: err.message }, 503);
+      if (err instanceof InvalidInputError) return c.json({ error: err.message }, 400);
       return c.json({ ok: false, error: err instanceof Error ? err.message : String(err) });
     }
   });
