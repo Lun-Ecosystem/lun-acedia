@@ -115,7 +115,7 @@ describe('readAuthorizationRequest', () => {
         'code_challenge refusé : 43 caractères base64url attendus (S256)',
       ],
       ['code_challenge', 'plain-verifier', 'code_challenge refusé : 43 caractères base64url attendus (S256)'],
-    ])
+    ] as const)
       expect(readAuthorizationRequest({ ...valid, [field]: value }), `${field}=${value}`).toEqual({ error });
   });
 
@@ -242,10 +242,10 @@ describe('app token scope', () => {
     const token = await appToken(h);
     const appId = (h.db.prepare("SELECT id FROM clients WHERE kind = 'app'").get() as { id: number }).id;
     for (const [method, path, body] of [
-      ['POST', '/api/pairing-codes', undefined],
-      ['DELETE', `/api/clients/${appId}`, undefined],
+      ['POST', '/api/pairing-codes', null],
+      ['DELETE', `/api/clients/${appId}`, null],
       ['PUT', '/api/anthropic-key', JSON.stringify({ key: 'sk-ant-test-0000' })],
-      ['GET', '/api/google/status', undefined],
+      ['GET', '/api/google/status', null],
     ] as const) {
       const res = await h.app.request(path, { method, headers: h.auth(token), body });
       expect(res.status, `${method} ${path}`).toBe(403);
