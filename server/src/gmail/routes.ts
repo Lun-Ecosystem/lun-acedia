@@ -8,8 +8,8 @@ import type { MailSummary } from '../types.ts';
 import { applyOp, BadRequestError, batch, NotFoundError, type ActionDeps, type BatchOp } from './actions.ts';
 import { findPart } from './body.ts';
 import { defaultFrom, sendMail } from './compose.ts';
-import { fetchFull, readMail, searchMail, summary } from './read.ts';
-import { listView, viewFilter, type StoredMessage } from './store.ts';
+import { fetchFull, listMail, readMail, searchMail, summary } from './read.ts';
+import type { StoredMessage } from './store.ts';
 import { GMAIL_API } from './sync.ts';
 
 /** What the triage plugs into the mail routes. */
@@ -44,9 +44,8 @@ export function gmailRoutes(deps: AppDeps, google: GoogleClient | undefined, hoo
       return c.json(body);
     }
     const view = c.req.query('view') ?? 'inbox';
-    const filter = viewFilter(view);
-    if (!filter) return c.json({ error: `Vue inconnue : ${view}` }, 400);
-    const page = listView(deps.db, filter, cursor);
+    const page = await listMail(deps.db, google!, view, cursor);
+    if (!page) return c.json({ error: `Vue inconnue : ${view}` }, 400);
     const body: { items: MailSummary[]; cursor?: string } = {
       items: page.items.map((m) => summary(decorate(m))),
     };
