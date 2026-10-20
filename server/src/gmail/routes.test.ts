@@ -9,12 +9,12 @@ import { syncGmail } from './sync.ts';
 const secretKey = randomBytes(32).toString('base64');
 const config = { clientId: 'id', clientSecret: 's', redirectUri: 'http://localhost/cb' };
 
-async function setup(gmail: FakeGmail) {
+async function setup(gmail: FakeGmail, opts: { initialMails?: number } = {}) {
   const fake = fakeFetch(gmail.handler);
   const h = makeHarness({ google: { config, secretKey, fetch: fake.fetch } });
   saveTokens(h.db, secretKey, { accessToken: 'a', refreshToken: 'r', expiresAt: '2030-01-01T00:00:00.000Z' });
   const google = createGoogleClient({ db: h.db, fetch: fake.fetch, now: h.clock, config, secretKey });
-  await syncGmail({ db: h.db, google, now: h.clock });
+  await syncGmail({ db: h.db, google, now: h.clock, ...opts });
   const token = await h.pairClient();
   const get = async (path: string) => {
     const res = await h.app.request(path, { headers: h.auth(token) });
@@ -69,6 +69,19 @@ describe('GET /api/mail', () => {
     const { get } = await setup(gmail);
     const { body } = await get('/api/mail?view=box:Label_1');
     expect(body.items.map((m: { id: string }) => m.id)).toEqual(['school']);
+  });
+
+  it('keeps paging a box past the cache, through Gmail', async () => {
+    const gmail = new FakeGmail(
+      [1, 2, 3, 4, 5].map((d) => message({ id: `b${d}`, labelIds: ['Label_1'], date: at(d) })),
+    );
+    const { get } = await setup(gmail, { initialMails: 2 });
+    const ids = (r: { body: { items: { id: string }[] } }) => r.body.items.map((m) => m.id);
+    const first = await get('/api/mail?view=box:Label_1');
+    expect(ids(first)).toEqual(['b5', 'b4']);
+    const second = await get(`/api/mail?view=box:Label_1&cursor=${first.body.cursor}`);
+    expect(ids(second)).toEqual(['b3', 'b2', 'b1']);
+    expect(second.body.cursor).toBeUndefined();
   });
 
   it('paginates with a stable cursor, 50 per page', async () => {

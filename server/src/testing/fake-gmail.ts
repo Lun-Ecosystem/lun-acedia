@@ -82,6 +82,8 @@ type HistoryEntry = {
   labelsRemoved?: { message: { id: string; threadId: string; labelIds: string[] }; labelIds: string[] }[];
 };
 
+const IN_LABELS: Record<string, string> = { drafts: 'DRAFT' };
+
 const SYSTEM_LABELS = ['INBOX', 'SENT', 'DRAFT', 'SPAM', 'TRASH', 'UNREAD', 'STARRED', 'IMPORTANT'];
 
 /** An in-memory Gmail answering the REST endpoints Acedia uses, with a real history. */
@@ -173,15 +175,29 @@ export class FakeGmail {
     if (call.method === 'GET' && path === '/labels') return { json: { labels: this.labels } };
 
     if (call.method === 'GET' && path === '/messages') {
-      const query = q.get('q') ?? '';
-      const spamTrash = /in:spam|in:trash/.test(query);
-      const term = query
-        .replace(/in:\w+|OR/g, '')
-        .trim()
-        .toLowerCase();
+      // The subset of Gmail's search Acedia uses: `in:` (OR-ed), `-in:`, `before:<epoch s>`, words.
+      const anyOf: string[] = [];
+      const noneOf: string[] = [];
+      const words: string[] = [];
+      let before: number | undefined;
+      for (const token of (q.get('q') ?? '').split(/\s+/).filter((t) => t && t !== 'OR')) {
+        const inLabel = token.match(/^(-?)in:(\w+)$/);
+        const date = token.match(/^before:(\d+)$/);
+        if (inLabel) (inLabel[1] ? noneOf : anyOf).push(IN_LABELS[inLabel[2]!] ?? inLabel[2]!.toUpperCase());
+        else if (date) before = Number(date[1]) * 1000;
+        else words.push(token.toLowerCase());
+      }
+      const labelId = q.get('labelIds');
+      const term = words.join(' ');
+      // Like Gmail, spam and trash only show up when asked for.
+      const wantsSpamTrash = [...anyOf, labelId].some((l) => l === 'SPAM' || l === 'TRASH');
       const list = this.sorted((m) => {
         const isSpamTrash = m.labelIds.includes('SPAM') || m.labelIds.includes('TRASH');
-        if (spamTrash !== isSpamTrash) return false;
+        if (isSpamTrash && !wantsSpamTrash) return false;
+        if (anyOf.length && !anyOf.some((l) => m.labelIds.includes(l))) return false;
+        if (labelId && !m.labelIds.includes(labelId)) return false;
+        if (noneOf.some((l) => m.labelIds.includes(l))) return false;
+        if (before !== undefined && Number(m.internalDate) >= before) return false;
         if (!term) return true;
         const headers = m.payload.headers?.map((h) => h.value.toLowerCase()).join(' ') ?? '';
         return headers.includes(term) || m.snippet.toLowerCase().includes(term);

@@ -153,6 +153,28 @@ export function viewFilter(view: string): { where: string; params: string[] } | 
   }
 }
 
+/** What to ask Gmail for each view past the end of the cache; `pending` exists only in Acedia. */
+export function viewQuery(view: string): { labelIds?: string; q?: string } | undefined {
+  switch (view) {
+    case 'inbox':
+      return { labelIds: 'INBOX' };
+    case 'trash':
+      return { q: 'in:trash' };
+    case 'spam':
+      return { q: 'in:spam' };
+    case 'sent':
+      return { labelIds: 'SENT', q: '-in:trash' };
+    case 'drafts':
+      return { labelIds: 'DRAFT' };
+    case 'archive':
+      return { q: '-in:inbox -in:trash -in:spam -in:drafts -in:sent' };
+    default:
+      return view.startsWith('box:') && view.length > 4
+        ? { labelIds: view.slice(4), q: '-in:trash' }
+        : undefined;
+  }
+}
+
 function encodeCursor(row: { internal_date: number; id: string }): string {
   return Buffer.from(`${row.internal_date}:${row.id}`).toString('base64url');
 }
