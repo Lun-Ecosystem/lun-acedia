@@ -2,15 +2,32 @@ import { createApp, type AppDeps } from '../app.ts';
 import { ActionRegistry } from '../contract/actions.ts';
 import { issuePairingCode } from '../contract/auth.ts';
 import { openDb } from '../db.ts';
+import type { KeyCheck } from '../keys/anthropic-key.ts';
 
 /** A fresh app on an in-memory database, with a clock the test moves by hand. */
-export function makeHarness(extra: Partial<Pick<AppDeps, 'google' | 'staticDir'>> = {}) {
+export function makeHarness(
+  extra: Partial<Pick<AppDeps, 'google' | 'staticDir' | 'secretKey' | 'anthropicEnv'>> = {},
+) {
   const db = openDb(':memory:');
   let now = new Date('2026-11-02T08:00:00.000Z');
   const clock = () => now;
   const actions = new ActionRegistry();
   const logs: string[] = [];
-  const app = createApp({ db, clock, version: '0.0.0-test', actions, log: (l) => logs.push(l), ...extra });
+  // Never the network: the Anthropic key check answers what the test sets.
+  const anthropicCheck = { result: 'ok' as KeyCheck, calls: [] as string[] };
+  const checkAnthropicKey = async (key: string) => {
+    anthropicCheck.calls.push(key);
+    return anthropicCheck.result;
+  };
+  const app = createApp({
+    db,
+    clock,
+    version: '0.0.0-test',
+    actions,
+    log: (l) => logs.push(l),
+    checkAnthropicKey,
+    ...extra,
+  });
 
   return {
     app,
@@ -19,6 +36,8 @@ export function makeHarness(extra: Partial<Pick<AppDeps, 'google' | 'staticDir'>
     clock,
     /** Warnings the app logged. */
     logs,
+    /** What the fake Anthropic key check answers, and the keys it was given. */
+    anthropicCheck,
     advance(ms: number) {
       now = new Date(now.getTime() + ms);
     },

@@ -12,7 +12,14 @@ import { openDb } from './db.ts';
 import { startSyncLoop } from './gmail/sync.ts';
 import { createGoogleClient, GoogleNotConnectedError, GoogleReauthError } from './google/client.ts';
 import { googleFromEnv } from './google/oauth.ts';
-import { createAnthropicClassifier } from './triage/anthropic.ts';
+import {
+  ANTHROPIC_LABEL,
+  checkWithModelsList,
+  classifierFor,
+  currentAnthropicKey,
+  currentExpiry,
+} from './keys/anthropic-key.ts';
+import { checkExpiry, isValidDate } from './keys/expiry.ts';
 import { triageNew } from './triage/pipeline.ts';
 import { recoverQueue } from './triage/queue.ts';
 import { startLoop } from './util.ts';
@@ -36,13 +43,33 @@ if (!google)
 const appDist = resolve(root, 'app/dist');
 const staticDir = existsSync(resolve(appDist, 'index.html')) ? appDist : undefined;
 if (!staticDir) console.log('Front autonome absent : lancer « npm run build -w @lun-acedia/app ».');
-const app = createApp({ db, clock, version, actions, google, staticDir });
+const secretKey = process.env.ACEDIA_SECRET_KEY || undefined;
+const anthropicEnv = {
+  key: process.env.ANTHROPIC_API_KEY || undefined,
+  expires: process.env.ANTHROPIC_KEY_EXPIRES || undefined,
+};
+const app = createApp({
+  db,
+  clock,
+  version,
+  actions,
+  google,
+  staticDir,
+  secretKey,
+  anthropicEnv,
+  checkAnthropicKey: checkWithModelsList,
+});
 
 bootstrapPairing(db, clock(), (line) => console.log(line));
-const classifier = process.env.ANTHROPIC_API_KEY
-  ? createAnthropicClassifier({ apiKey: process.env.ANTHROPIC_API_KEY })
-  : undefined;
-if (!classifier) console.log('ANTHROPIC_API_KEY absente : seules les règles trient les mails.');
+if (!currentAnthropicKey(db, secretKey, anthropicEnv.key))
+  console.log('Aucune clé Anthropic (Réglages ou ANTHROPIC_API_KEY) : seules les règles trient les mails.');
+if (anthropicEnv.expires && !isValidDate(anthropicEnv.expires))
+  console.log('ANTHROPIC_KEY_EXPIRES ignorée : date attendue au format AAAA-MM-JJ.');
+// The declared expiry of the key in service: checked at start, then every hour.
+const checkKeyExpiry = () =>
+  checkExpiry(db, clock(), currentExpiry(db, secretKey, anthropicEnv), ANTHROPIC_LABEL);
+checkKeyExpiry();
+setInterval(checkKeyExpiry, 3600_000).unref();
 function logError(what: string) {
   return (err: unknown) => {
     // Not connected yet, or waiting for a new consent: health already says so.
@@ -56,7 +83,8 @@ if (google) {
   const deps = { db, google: createGoogleClient({ db, now: clock, ...google }), now: clock };
   startSyncLoop(deps, {
     // The sync queues the new mails; the triage drains the queue (also what waited for a resume).
-    onResult: () => triageNew({ ...deps, classifier }),
+    // The classifier is looked up at each pass: a key saved in the settings serves at once.
+    onResult: () => triageNew({ ...deps, classifier: classifierFor(db, secretKey, anthropicEnv.key) }),
     onError: logError('Synchro Gmail'),
   });
   // The agenda has its own loop: a Gmail or AI failure never stops it.

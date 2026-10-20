@@ -3,6 +3,7 @@ import { z } from 'zod';
 import {
   ClassifierError,
   CreditExhaustedError,
+  KeyRefusedError,
   type Classification,
   type Classifier,
   type ClassifyInput,
@@ -70,6 +71,12 @@ function isCreditError(err: unknown): boolean {
   return e?.status === 402 || (e?.status === 400 && /credit balance/i.test(e.message ?? ''));
 }
 
+/** 401 (invalid, revoked or expired key) or 403 (no permission): the key itself is refused. */
+export function isKeyRefusedError(err: unknown): boolean {
+  const status = (err as { status?: number })?.status;
+  return status === 401 || status === 403;
+}
+
 export function createAnthropicClassifier(opts: {
   apiKey?: string;
   model?: string;
@@ -94,6 +101,7 @@ export function createAnthropicClassifier(opts: {
         });
       } catch (err) {
         if (isCreditError(err)) throw new CreditExhaustedError();
+        if (isKeyRefusedError(err)) throw new KeyRefusedError();
         throw err;
       }
       if (res.stop_reason !== 'end_turn')

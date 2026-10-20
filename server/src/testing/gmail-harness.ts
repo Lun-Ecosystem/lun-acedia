@@ -12,7 +12,7 @@ const config = { clientId: 'id', clientSecret: 's', redirectUri: 'http://localho
 export async function makeGmailHarness(initial: FakeMessage[] = [], handlers: Handler[] = []) {
   const gmail = new FakeGmail(initial);
   const fake = fakeFetch(gmail.handler, ...handlers);
-  const h = makeHarness({ google: { config, secretKey, fetch: fake.fetch } });
+  const h = makeHarness({ google: { config, secretKey, fetch: fake.fetch }, secretKey });
   saveTokens(h.db, secretKey, { accessToken: 'a', refreshToken: 'r', expiresAt: '2030-01-01T00:00:00.000Z' });
   const google = createGoogleClient({ db: h.db, fetch: fake.fetch, now: h.clock, config, secretKey });
   const deps = { db: h.db, google, now: h.clock };
@@ -21,6 +21,7 @@ export async function makeGmailHarness(initial: FakeMessage[] = [], handlers: Ha
   return {
     ...h,
     gmail,
+    secretKey,
     calls: fake.calls,
     deps,
     sync: () => syncGmail(deps),

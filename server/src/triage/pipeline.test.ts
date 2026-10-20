@@ -8,12 +8,14 @@ import { makeGmailHarness } from '../testing/gmail-harness.ts';
 import {
   ClassifierError,
   CreditExhaustedError,
+  KeyRefusedError,
   type Classification,
   type Classifier,
   type ClassifyInput,
 } from './classifier.ts';
 import { pickExamples } from './examples.ts';
 import { getProposal, triageNew } from './pipeline.ts';
+import { getSetting } from '../db.ts';
 import { claim } from './proposals.ts';
 import { queuedIds, recoverQueue } from './queue.ts';
 import { createRule } from './rules.ts';
@@ -162,6 +164,71 @@ describe('triageNew', () => {
     fail = false;
     await s.triage(await s.deliver({ id: 'm2' }));
     expect(getState(s.h.db).degraded).not.toContain('credit');
+  });
+
+  it('a refused key pauses AI triage, rules go on, one key.invalid', async () => {
+    const s = await setup(() => new KeyRefusedError());
+    createRule(s.h.db, { field: 'fromDomain', op: 'equals', value: 'ecole.fr', boxId: s.ecole });
+    await s.triage(
+      await s.deliver(
+        { id: 'm1', from: 'x@ailleurs.fr' },
+        { id: 'm2', from: 'p@ecole.fr' },
+        { id: 'm3', from: 'y@ailleurs.fr' },
+      ),
+    );
+    await s.triage(await s.deliver({ id: 'm4', from: 'z@ailleurs.fr' }));
+    expect(getState(s.h.db).degraded).toEqual(['anthropic-key']);
+    expect(getProposal(s.h.db, 'm1')).toBeUndefined();
+    expect(getStoredMessage(s.h.db, 'm1')?.labels).toContain('INBOX');
+    expect(getStoredMessage(s.h.db, 'm2')?.labels).toContain(s.ecole);
+    expect(queuedIds(s.h.db)).toEqual(expect.arrayContaining(['m1', 'm3', 'm4']));
+    const invalid = eventsSince(s.h.db).filter((e) => e.type === 'key.invalid');
+    expect(invalid).toHaveLength(1);
+    expect(invalid[0]).toMatchObject({
+      importance: 'normal',
+      title: "Clé Anthropic refusée : le tri par l'IA est en pause, les règles continuent",
+    });
+    const health = await s.h.call('GET', '/lun/v1/health');
+    expect(health.body).toMatchObject({ status: 'degraded', reason: 'anthropic-key' });
+  });
+
+  it('restart with the key still refused emits nothing new', async () => {
+    const s = await setup(() => new KeyRefusedError());
+    await s.triage(await s.deliver({ id: 'm1' }));
+    // A restart: the claims go back to the queue, the state stays in the database.
+    recoverQueue(s.h.db);
+    await s.triage(await s.deliver({ id: 'm2' }));
+    expect(s.fake.inputs.length).toBeGreaterThanOrEqual(2);
+    expect(eventsSince(s.h.db).filter((e) => e.type === 'key.invalid')).toHaveLength(1);
+    expect(getSetting(s.h.db, 'anthropic.keyState', 'ok')).toBe('refused');
+  });
+
+  it('a working call clears the state and emits key.restored', async () => {
+    let refuse = true;
+    let box = '';
+    const s = await setup(() => (refuse ? new KeyRefusedError() : { boxId: box, confidence: 50 }));
+    box = s.ecole;
+    await s.triage(await s.deliver({ id: 'm1' }));
+    refuse = false;
+    await s.triage(await s.deliver({ id: 'm2' }));
+    expect(getState(s.h.db).degraded).toEqual([]);
+    expect(getProposal(s.h.db, 'm1')?.status).toBe('pending');
+    const keyEvents = eventsSince(s.h.db).filter((e) => e.type.startsWith('key.'));
+    expect(keyEvents.map((e) => e.type)).toEqual(['key.invalid', 'key.restored']);
+    expect(keyEvents[1]).toMatchObject({ importance: 'info', title: 'Clé Anthropic de nouveau en service' });
+    await s.triage(await s.deliver({ id: 'm3' }));
+    expect(eventsSince(s.h.db).filter((e) => e.type === 'key.restored')).toHaveLength(1);
+  });
+
+  it('credit exhausted stays distinct from a refused key', async () => {
+    const s = await setup(() => new CreditExhaustedError());
+    await s.triage(await s.deliver({ id: 'm1' }));
+    expect(getState(s.h.db).degraded).toEqual(['credit']);
+    expect(eventsSince(s.h.db).map((e) => e.type)).not.toContain('key.invalid');
+    const s2 = await setup(() => new KeyRefusedError());
+    await s2.triage(await s2.deliver({ id: 'm1' }));
+    expect(getState(s2.h.db).degraded).toEqual(['anthropic-key']);
+    expect(eventsSince(s2.h.db).map((e) => e.type)).not.toContain('credit.exhausted');
   });
 
   it('a correction comes back first among the examples of the same sender', async () => {
