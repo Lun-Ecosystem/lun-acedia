@@ -123,6 +123,6 @@
     color: var(--lavis);
   }
   .error {
-    color: #e3a0a0;
+    color: var(--erreur);
   }
 </style>

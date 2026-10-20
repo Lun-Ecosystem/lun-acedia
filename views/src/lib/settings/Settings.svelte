@@ -97,7 +97,7 @@
     color: var(--lune);
   }
   .settings :global(.error) {
-    color: #e3a0a0;
+    color: var(--erreur);
   }
   .settings :global(.ok) {
     font-size: 0.85rem;

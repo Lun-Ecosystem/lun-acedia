@@ -116,7 +116,7 @@
     min-width: 10rem;
   }
   .error {
-    color: #e3a0a0;
+    color: var(--erreur);
   }
   .empty {
     color: var(--lune);

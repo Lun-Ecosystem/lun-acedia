@@ -144,7 +144,7 @@
     margin: 0 0 1.25rem;
   }
   .refused .error {
-    color: #e3a0a0;
+    color: var(--erreur);
     line-height: 1.5;
   }
   @media (max-width: 560px) {
