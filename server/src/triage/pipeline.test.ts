@@ -186,7 +186,7 @@ describe('triageNew', () => {
     expect(invalid).toHaveLength(1);
     expect(invalid[0]).toMatchObject({
       importance: 'normal',
-      title: "Clé Anthropic refusée : le tri par l'IA est en pause, les règles continuent",
+      title: 'Clé Anthropic refusée : le tri par l’IA est en pause, les règles continuent',
     });
     const health = await s.h.call('GET', '/lun/v1/health');
     expect(health.body).toMatchObject({ status: 'degraded', reason: 'anthropic-key' });

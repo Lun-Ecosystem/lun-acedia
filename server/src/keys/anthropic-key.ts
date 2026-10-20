@@ -92,7 +92,7 @@ export function keyRefused(db: DatabaseSync, now: Date): void {
     {
       type: 'key.invalid',
       importance: 'normal',
-      title: "Clé Anthropic refusée : le tri par l'IA est en pause, les règles continuent",
+      title: 'Clé Anthropic refusée : le tri par l’IA est en pause, les règles continuent',
     },
     now,
   );

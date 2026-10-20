@@ -118,8 +118,8 @@ export function createApp(deps: AppDeps): Hono {
     if (expires !== undefined && !isValidDate(expires))
       return c.json({ error: 'Date d’échéance attendue au format AAAA-MM-JJ' }, 400);
     const check = await (deps.checkAnthropicKey ?? checkWithModelsList)(key);
-    if (check === 'refused') return c.json({ error: "Clé refusée par Anthropic, rien n'a changé" }, 400);
-    if (check === 'unreachable') return c.json({ error: "Anthropic injoignable, rien n'a changé" }, 502);
+    if (check === 'refused') return c.json({ error: 'Clé refusée par Anthropic, rien n’a changé' }, 400);
+    if (check === 'unreachable') return c.json({ error: 'Anthropic injoignable, rien n’a changé' }, 502);
     saveAnthropicKey(deps.db, deps.secretKey, key, expires);
     keyWorks(deps.db, deps.clock());
     checkExpiry(deps.db, deps.clock(), expires, ANTHROPIC_LABEL);

@@ -76,12 +76,12 @@ describe('Anthropic key', () => {
     h.anthropicCheck.result = 'refused';
     const refused = await call('PUT', { key: NEW_KEY, expires: '2027-01-01' });
     expect(refused.status).toBe(400);
-    expect(refused.body).toEqual({ error: "Clé refusée par Anthropic, rien n'a changé" });
+    expect(refused.body).toEqual({ error: 'Clé refusée par Anthropic, rien n’a changé' });
 
     h.anthropicCheck.result = 'unreachable';
     const unreachable = await call('PUT', { key: NEW_KEY });
     expect(unreachable.status).toBe(502);
-    expect(unreachable.body).toEqual({ error: "Anthropic injoignable, rien n'a changé" });
+    expect(unreachable.body).toEqual({ error: 'Anthropic injoignable, rien n’a changé' });
 
     expect((await call('GET')).body).toEqual(before.body);
     expect(currentAnthropicKey(h.db, secretKey)?.key).toBe('sk-ant-test-old-0000');
