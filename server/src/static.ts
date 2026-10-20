@@ -49,9 +49,15 @@ export function serveApp(app: Hono, dir: string): void {
     const name = file.slice(root.length + 1).replaceAll(sep, '/');
     // Hashed bundles never change; the shell and the service worker must be checked every time.
     const cache = name.startsWith('assets/') ? 'public, max-age=31536000, immutable' : 'no-cache';
-    return c.body(await readFile(file), 200, {
+    const headers: Record<string, string> = {
       'content-type': TYPES[extname(file)] ?? 'application/octet-stream',
       'cache-control': cache,
-    });
+    };
+    // No page of the app may be framed, the authorization page (`/?autoriser=1`) first of all.
+    if (extname(file) === '.html') {
+      headers['content-security-policy'] = "frame-ancestors 'none'";
+      headers['x-frame-options'] = 'DENY';
+    }
+    return c.body(await readFile(file), 200, headers);
   });
 }

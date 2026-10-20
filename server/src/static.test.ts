@@ -23,6 +23,15 @@ describe('standalone app hosting', () => {
     expect(await res.text()).toContain('Lun’Acedia');
   });
 
+  it('forbids framing the HTML pages, the authorization page included', async () => {
+    const { app } = makeHarness({ staticDir: appDist() });
+    for (const path of ['/', '/?autoriser=1&client=x', '/agenda', '/index.html']) {
+      const res = await app.request(path);
+      expect(res.headers.get('content-security-policy'), path).toBe("frame-ancestors 'none'");
+      expect(res.headers.get('x-frame-options'), path).toBe('DENY');
+    }
+  });
+
   it('serves hashed assets with a long cache and the service worker without one', async () => {
     const { app } = makeHarness({ staticDir: appDist() });
     const asset = await app.request('/assets/index-abc123.js');
