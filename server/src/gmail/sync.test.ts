@@ -5,13 +5,13 @@ import { openDb } from '../db.ts';
 import { createGoogleClient, saveTokens } from '../google/client.ts';
 import { fakeFetch } from '../testing/fake-fetch.ts';
 import { FakeGmail, message } from '../testing/fake-gmail.ts';
-import { getStoredMessage, messageCount } from './store.ts';
+import { getStoredMessage, messageCount, upsertMessage } from './store.ts';
 import { syncGmail } from './sync.ts';
 
 const secretKey = randomBytes(32).toString('base64');
 const config = { clientId: 'id', clientSecret: 's', redirectUri: 'http://localhost/cb' };
 
-function setup(gmail: FakeGmail) {
+function setup(gmail: FakeGmail, opts: { initialMails?: number } = {}) {
   const db = openDb(':memory:');
   let now = new Date('2026-11-02T08:00:00.000Z');
   saveTokens(db, secretKey, { accessToken: 'a', refreshToken: 'r', expiresAt: '2030-01-01T00:00:00.000Z' });
@@ -20,7 +20,7 @@ function setup(gmail: FakeGmail) {
   return {
     db,
     calls: fake.calls,
-    sync: () => syncGmail({ db, google, now: () => now }),
+    sync: () => syncGmail({ db, google, now: () => now, ...opts }),
     advance(ms: number) {
       now = new Date(now.getTime() + ms);
     },
@@ -103,6 +103,19 @@ describe('syncGmail', () => {
     expect(messageCount(s.db)).toBe(2);
     expect(getStoredMessage(s.db, 'a')?.labels).toEqual(['UNREAD']);
     expect(result.added).toEqual([]);
+  });
+
+  it('a full resync keeps the older mails cached beyond the first listing', async () => {
+    const older = message({ id: 'older', date: '2026-09-01T10:00:00.000Z' });
+    const gmail = new FakeGmail([old('a'), older]);
+    const s = setup(gmail, { initialMails: 1 });
+    await s.sync();
+    upsertMessage(s.db, older); // opened from a search
+    gmail.relabel('a', ['STARRED'], []);
+    gmail.expireHistory();
+    const result = await s.sync();
+    expect(result.removed).toEqual([]);
+    expect(getStoredMessage(s.db, 'older')).toBeDefined();
   });
 
   it('still reports a mail that arrived during an expired history gap', async () => {

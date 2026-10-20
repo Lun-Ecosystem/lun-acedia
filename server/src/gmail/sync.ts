@@ -23,6 +23,8 @@ export interface SyncDeps {
   db: DatabaseSync;
   google: GoogleClient;
   now: () => Date;
+  /** How many recent mails the first listing caches (500). */
+  initialMails?: number;
 }
 
 export interface SyncResult {
@@ -95,10 +97,12 @@ async function refreshLabels(deps: SyncDeps): Promise<void> {
 async function fullSync(deps: SyncDeps, initial: boolean): Promise<SyncResult> {
   const { db, google } = deps;
   const profile = await google.request<{ historyId: string }>('GET', `${GMAIL_API}/profile`);
-  const ids = [
-    ...(await listIds(google, INITIAL_MAILS)),
-    ...(await listIds(google, INITIAL_SPAM_TRASH, 'in:spam OR in:trash')),
-  ];
+  const maxMails = deps.initialMails ?? INITIAL_MAILS;
+  const recent = await listIds(google, maxMails);
+  const spamTrash = await listIds(google, INITIAL_SPAM_TRASH, 'in:spam OR in:trash');
+  const ids = [...recent, ...spamTrash];
+  // Whether the cache holds the whole mailbox, or the views must ask Gmail past its end.
+  const complete = recent.length < maxMails && spamTrash.length < INITIAL_SPAM_TRASH;
   const before = storedIds(db);
   const previousLabels = new Map([...before].map((id) => [id, getStoredMessage(db, id)?.labels.join(',')]));
   const connectedAt = Number(getSyncState(db, 'gmail.connectedAt') ?? deps.now().getTime());
@@ -114,14 +118,25 @@ async function fullSync(deps: SyncDeps, initial: boolean): Promise<SyncResult> {
       if (!initial && isIncoming(labels) && Number(m.internalDate) >= connectedAt) result.added.push(m.id);
     } else if (previousLabels.get(m.id) !== labels.join(',')) result.changed.push(m.id);
   }
-  for (const id of before) {
-    if (!seen.has(id)) {
+  // The listing stops at the most recent mails: an older cached one is gone only if Gmail says so.
+  const unseen = [...before].filter((id) => !seen.has(id));
+  const checked = await mapLimit(
+    unseen,
+    CONCURRENCY,
+    async (id) => [id, await fetchMetadata(google, id)] as const,
+  );
+  for (const [id, m] of checked) {
+    if (!m) {
       removeMessage(db, id);
       result.removed.push(id);
+      continue;
     }
+    upsertMessage(db, m);
+    if (previousLabels.get(id) !== (m.labelIds ?? []).join(',')) result.changed.push(id);
   }
   enqueue(db, result.added, deps.now());
   setSyncState(db, 'gmail.historyId', profile.historyId);
+  setSyncState(db, 'gmail.complete', complete ? '1' : '0');
   if (initial) setSyncState(db, 'gmail.connectedAt', String(connectedAt));
   return result;
 }
