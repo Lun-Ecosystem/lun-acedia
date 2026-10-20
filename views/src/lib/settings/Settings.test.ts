@@ -1,6 +1,6 @@
 import { render, screen, waitFor, within } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { fakeClient } from '../../testing/fake-client.ts';
 import Settings from './Settings.svelte';
 
@@ -34,11 +34,63 @@ describe('Settings', () => {
     expect(await within(section).findByText('Banque')).toBeInTheDocument();
   });
 
-  it('shows a 6-digit pairing code and its expiry', async () => {
+  it('Devices lists devices and apps and revokes one', async () => {
+    const { client, user } = await open();
+    const section = screen.getByRole('region', { name: 'Appareils et applications' });
+    expect(within(section).getByText("Ce qui a accès à Lun'Acedia.")).toBeInTheDocument();
+    const self = (await within(section).findByText('Ce navigateur')).closest('li')!;
+    expect(within(self).getByText(/appareil · relié le 19\/10\/2026/)).toBeInTheDocument();
+    const app = within(section).getByText('Assistant local').closest('li')!;
+    expect(within(app).getByText(/application · reliée le 20\/10\/2026/)).toBeInTheDocument();
+
+    await user.click(within(app).getByRole('button', { name: 'Retirer' }));
+    expect(client.revokeClient).toHaveBeenCalledWith(2);
+    expect(await within(section).findByRole('status')).toHaveTextContent('Accès retiré : Assistant local.');
+    expect(within(section).queryByText('Assistant local')).not.toBeInTheDocument();
+    expect(within(section).getByText('Ce navigateur')).toBeInTheDocument();
+  });
+
+  it('asks before revoking this browser, then hands over once', async () => {
+    const { client } = fakeClient();
+    const onSelfRevoked = vi.fn();
+    const user = userEvent.setup();
+    render(Settings, { props: { client, onSelfRevoked } });
+    const section = screen.getByRole('region', { name: 'Appareils et applications' });
+    const self = (await within(section).findByText('Ce navigateur')).closest('li')!;
+
+    await user.click(within(self).getByRole('button', { name: 'Retirer' }));
+    expect(client.revokeClient).not.toHaveBeenCalled();
+    await user.click(within(section).getByRole('button', { name: 'Annuler' }));
+    expect(within(section).queryByRole('button', { name: 'Retirer ce navigateur' })).not.toBeInTheDocument();
+
+    await user.click(within(self).getByRole('button', { name: 'Retirer' }));
+    await user.click(within(section).getByRole('button', { name: 'Retirer ce navigateur' }));
+    expect(client.revokeClient).toHaveBeenCalledWith(1);
+    expect(onSelfRevoked).toHaveBeenCalledTimes(1);
+    expect(client.listClients).toHaveBeenCalledTimes(1);
+  });
+
+  it('without onSelfRevoked, probes the dead token once so the host sees the 401', async () => {
+    const { client } = fakeClient();
+    const user = userEvent.setup();
+    render(Settings, { props: { client } });
+    const section = screen.getByRole('region', { name: 'Appareils et applications' });
+    const self = (await within(section).findByText('Ce navigateur')).closest('li')!;
+    client.listClients.mockRejectedValueOnce(new Error('Jeton absent, invalide ou révoqué'));
+
+    await user.click(within(self).getByRole('button', { name: 'Retirer' }));
+    await user.click(within(section).getByRole('button', { name: 'Retirer ce navigateur' }));
+    expect(client.revokeClient).toHaveBeenCalledWith(1);
+    expect(await within(section).findByRole('status')).toHaveTextContent('Accès retiré : ce navigateur.');
+    expect(client.listClients).toHaveBeenCalledTimes(2);
+    expect(within(section).queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('links a device with a 6-digit code and its expiry', async () => {
     const { client, user } = await open();
     client.createPairingCode.mockResolvedValueOnce({ code: '042517', expiresAt: '2026-11-02T08:10:00.000Z' });
-    const section = screen.getByRole('region', { name: 'Appairage' });
-    await user.click(within(section).getByRole('button', { name: 'Générer un code' }));
+    const section = screen.getByRole('region', { name: 'Appareils et applications' });
+    await user.click(within(section).getByRole('button', { name: 'Relier un appareil' }));
     expect(await within(section).findByText('042517')).toBeInTheDocument();
     expect(within(section).getByText(/Expire à/)).toBeInTheDocument();
   });

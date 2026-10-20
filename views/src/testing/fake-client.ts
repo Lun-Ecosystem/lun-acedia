@@ -131,6 +131,25 @@ export function fakeClient(opts: { mails?: MailSummary[]; journal?: JournalEntry
     googleAuthUrl: vi.fn<AcediaClient['googleAuthUrl']>(notUsed),
     googleDisconnect: vi.fn<AcediaClient['googleDisconnect']>(notUsed),
     createPairingCode: vi.fn<AcediaClient['createPairingCode']>(notUsed),
+    listClients: vi.fn<AcediaClient['listClients']>(async () => [
+      {
+        id: 1,
+        name: "Lun'Acedia (app)",
+        kind: 'device',
+        createdAt: '2026-10-19T08:00:00.000Z',
+        current: true,
+      },
+      { id: 2, name: 'Assistant local', kind: 'app', createdAt: '2026-10-20T09:30:00.000Z', current: false },
+    ]),
+    revokeClient: vi.fn<AcediaClient['revokeClient']>(async () => {}),
+    authorize: vi.fn<AcediaClient['authorize']>(notUsed),
+    getAnthropicKey: vi.fn<AcediaClient['getAnthropicKey']>(async () => ({
+      state: 'ok',
+      last4: '7f3a',
+      expires: '2026-12-31',
+      source: 'saved',
+    })),
+    saveAnthropicKey: vi.fn<AcediaClient['saveAnthropicKey']>(notUsed),
     subscribe: vi.fn<AcediaClient['subscribe']>(() => () => {}),
   } satisfies AcediaClient;
   return { client, mails };

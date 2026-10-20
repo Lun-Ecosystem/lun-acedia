@@ -17,7 +17,14 @@ import {
 import { plainText } from '../gmail/body.ts';
 import { getStoredMessage, header, type StoredMessage } from '../gmail/store.ts';
 import { fetchFull } from '../gmail/read.ts';
-import { ClassifierError, CreditExhaustedError, type Classification, type Classifier } from './classifier.ts';
+import { keyRefused, keyWorks } from '../keys/anthropic-key.ts';
+import {
+  ClassifierError,
+  CreditExhaustedError,
+  KeyRefusedError,
+  type Classification,
+  type Classifier,
+} from './classifier.ts';
 import { pickExamples, recordExample } from './examples.ts';
 import { ConflictError, logAuto } from './journal.ts';
 import { listBoxes, listTags } from './labels.ts';
@@ -37,7 +44,7 @@ import { listRules, matchRule } from './rules.ts';
 export { getProposal };
 
 export interface TriageDeps extends ActionDeps {
-  /** Absent without ANTHROPIC_API_KEY: only the rules run. */
+  /** Absent without an Anthropic key (saved or in `.env`): only the rules run. */
   classifier?: Classifier | undefined;
 }
 
@@ -106,7 +113,7 @@ function creditExhausted(deps: ActionDeps): void {
 async function classify(
   deps: TriageDeps & { classifier: Classifier },
   mail: StoredMessage,
-): Promise<Classification | 'credit' | 'gone' | 'unusable'> {
+): Promise<Classification | 'ai-off' | 'gone' | 'unusable'> {
   const payload = (await fetchFull(deps.google, mail.id))?.payload;
   if (!payload) return 'gone';
   try {
@@ -123,6 +130,7 @@ async function classify(
       examples: pickExamples(deps.db, mail),
     });
     if (getState(deps.db).degraded.includes('credit')) clearDegraded(deps.db, 'credit');
+    keyWorks(deps.db, deps.now());
     recordCost(
       deps.db,
       {
@@ -137,7 +145,11 @@ async function classify(
   } catch (err) {
     if (err instanceof CreditExhaustedError) {
       creditExhausted(deps);
-      return 'credit';
+      return 'ai-off';
+    }
+    if (err instanceof KeyRefusedError) {
+      keyRefused(deps.db, deps.now());
+      return 'ai-off';
     }
     if (err instanceof ClassifierError) return 'unusable';
     throw err;
@@ -146,12 +158,12 @@ async function classify(
 
 /**
  * What became of a queued mail: `done` (decided, or nothing left to decide), `wait` (the AI is out of
- * credit: try again later), `unusable` (the AI answered nothing usable).
+ * credit or its key is refused: try again later), `unusable` (the AI answered nothing usable).
  */
 type Outcome = 'done' | 'wait' | 'unusable';
 
-/** Triages one claimed mail; `credit` when the AI just ran out of credit. */
-async function triageOne(deps: TriageDeps, id: string, useAi: boolean): Promise<Outcome | 'credit'> {
+/** Triages one claimed mail; `ai-off` when the AI just ran out of credit or refused the key. */
+async function triageOne(deps: TriageDeps, id: string, useAi: boolean): Promise<Outcome | 'ai-off'> {
   const mail = getStoredMessage(deps.db, id);
   // A mail already out of the inbox (a Gmail filter, a gesture) is left where it is.
   if (!mail?.labels.includes('INBOX')) {
@@ -236,8 +248,8 @@ async function triageOne(deps: TriageDeps, id: string, useAi: boolean): Promise<
 /**
  * Triages the queued mails (the sync queues each new one; `ids` are queued too): rules first, then
  * the AI. Each mail is treated once (claimed before anything else); nothing happens while paused,
- * and the queue waits. After a credit error, the rest only gets the rules and waits for the AI; the
- * next pass tries again. A failure stops the pass and leaves the mail queued.
+ * and the queue waits. After a credit error or a refused key, the rest only gets the rules and waits
+ * for the AI; the next pass tries again. A failure stops the pass and leaves the mail queued.
  */
 export async function triageNew(deps: TriageDeps, ids: string[] = []): Promise<void> {
   enqueue(deps.db, ids, deps.now());
@@ -249,7 +261,7 @@ export async function triageNew(deps: TriageDeps, ids: string[] = []): Promise<v
       if (getProposal(deps.db, id)) dequeue(deps.db, id);
       continue;
     }
-    let outcome: Outcome | 'credit';
+    let outcome: Outcome | 'ai-off';
     try {
       outcome = await triageOne(deps, id, useAi);
     } catch (err) {
@@ -257,7 +269,7 @@ export async function triageNew(deps: TriageDeps, ids: string[] = []): Promise<v
       failedAttempt(deps.db, id);
       throw err;
     }
-    if (outcome === 'credit') useAi = false;
+    if (outcome === 'ai-off') useAi = false;
     else if (outcome === 'unusable') failedAttempt(deps.db, id);
     else if (outcome === 'done') dequeue(deps.db, id);
   }

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { createAnthropicClassifier, type MessagesApi } from './anthropic.ts';
-import { ClassifierError, CreditExhaustedError, type ClassifyInput } from './classifier.ts';
+import { ClassifierError, CreditExhaustedError, KeyRefusedError, type ClassifyInput } from './classifier.ts';
 import { costOf } from './prices.ts';
 
 const input: ClassifyInput = {
@@ -101,6 +101,15 @@ describe('Anthropic classifier', () => {
     await expect(createAnthropicClassifier({ api: fakeApi(low).api }).classify(input)).rejects.toBeInstanceOf(
       CreditExhaustedError,
     );
+  });
+
+  it('recognises a refused key (401 or 403), apart from the credit', async () => {
+    for (const status of [401, 403]) {
+      const err = Object.assign(new Error('invalid x-api-key'), { status });
+      await expect(
+        createAnthropicClassifier({ api: fakeApi(err).api }).classify(input),
+      ).rejects.toBeInstanceOf(KeyRefusedError);
+    }
   });
 });
 

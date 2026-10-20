@@ -6,7 +6,8 @@
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "dev": "node --watch --experimental-strip-types src/main.ts",
-    "start": "node dist/main.js"
+    "start": "node dist/main.js",
+    "pair-code": "node --experimental-strip-types --no-warnings src/cli/pair-code.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.135.0",

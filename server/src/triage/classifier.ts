@@ -39,6 +39,14 @@ export class CreditExhaustedError extends Error {
   }
 }
 
+/** The provider refused the key (invalid, revoked or expired): the triage degrades, the rules go on. */
+export class KeyRefusedError extends Error {
+  constructor() {
+    super('Clé Anthropic refusée');
+    this.name = 'KeyRefusedError';
+  }
+}
+
 /** The answer could not be used (refusal, cut off, not the expected JSON): nothing is filed. */
 export class ClassifierError extends Error {
   constructor(message: string) {

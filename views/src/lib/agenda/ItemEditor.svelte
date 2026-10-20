@@ -171,6 +171,6 @@
     border-color: var(--rouge);
   }
   .error {
-    color: #e3a0a0;
+    color: var(--erreur);
   }
 </style>

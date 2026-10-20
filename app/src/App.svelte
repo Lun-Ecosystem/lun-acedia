@@ -1,5 +1,7 @@
 <script lang="ts">
   import { Agenda, Journal, Mailbox, Settings } from '@lun-ecosystem/lunacedia-views';
+  import { readAuthorization } from './authorization.ts';
+  import Authorize from './Authorize.svelte';
   import { createHttpClient } from './httpClient.ts';
   import Pair from './Pair.svelte';
   import { clearToken, loadToken, saveToken } from './session.ts';
@@ -23,10 +25,28 @@
   let tab = $state<Tab>(params.has('google') ? 'settings' : 'mail');
   if (params.has('google')) history.replaceState(null, '', window.location.pathname);
 
-  function forget() {
+  // An app asks for access (`GET /lun/v1/authorize`): the request waits here, through pairing if needed.
+  let authorization = $state(readAuthorization(window.location.search));
+
+  /** Leaves the authorization page for the app itself, without the request in the address. */
+  function leaveAuthorization() {
+    authorization = null;
+    history.replaceState(null, '', window.location.pathname);
+  }
+
+  function signOut(message: string) {
     clearToken(localStorage);
     token = null;
-    notice = 'Cet appareil n’est plus reconnu : relie-le avec un nouveau code.';
+    notice = message;
+  }
+
+  // Ignored once the token is gone: a late 401 does not reset the pairing screen.
+  function forget() {
+    if (token) signOut('Cet appareil n’est plus reconnu. Saisir un nouveau code pour le relier.');
+  }
+
+  function revokedSelf() {
+    signOut("Ce navigateur n’a plus accès à Lun'Acedia.");
   }
 
   const client = $derived(token ? createHttpClient(baseUrl, token, { onUnauthorized: forget }) : null);
@@ -38,7 +58,15 @@
   }
 </script>
 
-{#if client}
+{#if authorization && 'error' in authorization}
+  <main class="refused lun-acedia">
+    <p class="brand">Lun'Acedia</p>
+    <p class="error" role="alert">{authorization.error}</p>
+    <button type="button" onclick={leaveAuthorization}>Ouvrir Lun'Acedia</button>
+  </main>
+{:else if client && authorization}
+  <Authorize {client} request={authorization.request} />
+{:else if client}
   <div class="shell lun-acedia">
     <nav aria-label="Sections">
       <span class="name">Lun'Acedia</span>
@@ -57,13 +85,13 @@
         {:else if tab === 'journal'}
           <Journal {client} />
         {:else}
-          <Settings {client} />
+          <Settings {client} onSelfRevoked={revokedSelf} />
         {/if}
       {/key}
     </main>
   </div>
 {:else}
-  <Pair {baseUrl} {notice} onPaired={paired} />
+  <Pair {baseUrl} {notice} authorizing={authorization !== null} onPaired={paired} />
 {/if}
 
 <style>
@@ -100,6 +128,24 @@
   main {
     min-height: 0;
     overflow: hidden;
+  }
+  .refused {
+    max-width: 30rem;
+    margin: 0 auto;
+    padding: 18vh 1rem 2rem;
+    min-height: 100dvh;
+    box-sizing: border-box;
+    overflow: visible;
+  }
+  .refused .brand {
+    font-family: var(--serif);
+    font-weight: 500;
+    font-size: 1.35rem;
+    margin: 0 0 1.25rem;
+  }
+  .refused .error {
+    color: var(--erreur);
+    line-height: 1.5;
   }
   @media (max-width: 560px) {
     .name {

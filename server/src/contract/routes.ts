@@ -3,7 +3,8 @@ import { streamSSE } from 'hono/streaming';
 import type { AppDeps } from '../app.ts';
 import { SATELLITE } from '../identity.ts';
 import { DegradedError, InvalidInputError } from './actions.ts';
-import { pair, requireToken } from './auth.ts';
+import { pair, recordPairingFailure, requireToken } from './auth.ts';
+import { authorizationPage, exchangeAuthorizationCode, readAuthorizationRequest } from './authorize.ts';
 import { costsSince } from './costs.ts';
 import { eventsSince, subscribe, type LunEvent } from './events.ts';
 import { getState, setPaused, statusOf } from './state.ts';
@@ -19,21 +20,41 @@ async function readJson(req: Request): Promise<unknown> {
 /** The satellite contract v1 (`standards/contrat-satellite.md` in lun-docs). */
 export function contractRoutes(deps: AppDeps): Hono {
   const { db, clock, actions } = deps;
+  const log = deps.log ?? ((line: string) => console.warn(line));
   const r = new Hono();
 
   r.post('/pair', async (c) => {
-    let body: { code?: unknown; client?: unknown };
+    let body: { code?: unknown; client?: unknown; code_verifier?: unknown };
     try {
       body = (await readJson(c.req.raw)) as typeof body;
     } catch {
       return c.json({ error: 'Corps JSON invalide' }, 400);
     }
-    const result =
-      typeof body.code === 'string'
-        ? pair(db, body.code, typeof body.client === 'string' ? body.client : 'client', clock())
-        : null;
-    if (!result) return c.json({ error: "Code d'appairage invalide, déjà utilisé ou expiré" }, 401);
+    const byAuthorization = body.code_verifier !== undefined;
+    let result: { token: string } | null = null;
+    if (typeof body.code === 'string') {
+      if (byAuthorization)
+        result =
+          typeof body.code_verifier === 'string'
+            ? exchangeAuthorizationCode(db, body.code, body.code_verifier, clock())
+            : null;
+      else result = pair(db, body.code, typeof body.client === 'string' ? body.client : 'client', clock());
+    }
+    if (!result) {
+      recordPairingFailure(db, clock(), log);
+      const error = byAuthorization
+        ? 'Code d’autorisation invalide, déjà utilisé, expiré ou code_verifier faux'
+        : 'Code d’appairage invalide, déjà utilisé ou expiré';
+      return c.json({ error }, 401);
+    }
     return c.json({ token: result.token, satellite: { ...SATELLITE, version: deps.version } });
+  });
+
+  // Public, like /pair: the front's page then tests its own device token.
+  r.get('/authorize', (c) => {
+    const read = readAuthorizationRequest(c.req.query());
+    if ('error' in read) return c.text(read.error, 400);
+    return c.redirect(authorizationPage(read.request), 302);
   });
 
   r.use('*', requireToken(db));

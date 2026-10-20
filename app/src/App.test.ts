@@ -1,0 +1,160 @@
+// @vitest-environment jsdom
+import '@testing-library/jest-dom/vitest';
+import { render, screen, within } from '@testing-library/svelte';
+import userEvent from '@testing-library/user-event';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { Settings } from '@lun-ecosystem/lunacedia-views';
+import App from './App.svelte';
+import { createHttpClient } from './httpClient.ts';
+
+const TOKEN_KEY = 'lunacedia.token';
+
+/** A fake Lun'Acedia server: records each call as `METHOD /path`. */
+function fakeServer() {
+  const calls: string[] = [];
+  const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status });
+  const fetch = vi.fn<typeof globalThis.fetch>(async (input, init) => {
+    const key = `${init?.method ?? 'GET'} ${new URL(String(input)).pathname}`;
+    calls.push(key);
+    switch (key) {
+      case 'GET /api/labels':
+        return json({ labels: [] });
+      case 'GET /api/rules':
+        return json({ rules: [] });
+      case 'GET /api/settings':
+        return json({ threshold: 100 });
+      case 'GET /api/google/status':
+        return json({ connected: false });
+      case 'GET /api/clients':
+        return json({
+          clients: [
+            {
+              id: 1,
+              name: "Lun'Acedia (app)",
+              kind: 'device',
+              createdAt: '2026-10-19T08:00:00.000Z',
+              current: true,
+            },
+            {
+              id: 2,
+              name: 'Assistant local',
+              kind: 'app',
+              createdAt: '2026-10-20T09:30:00.000Z',
+              current: false,
+            },
+          ],
+        });
+      case 'DELETE /api/clients/1':
+        return new Response(null, { status: 204 });
+      case 'POST /lun/v1/pair':
+        return json({ token: 'tok-2', satellite: {} });
+      default:
+        return json({ error: 'Introuvable' }, 404);
+    }
+  });
+  vi.stubGlobal('fetch', fetch);
+  return { calls };
+}
+
+const authorizeQuery = (redirect = 'http://127.0.0.1:53682/callback') =>
+  `/?${new URLSearchParams({
+    autoriser: '1',
+    client: 'Assistant local',
+    redirect_uri: redirect,
+    state: 'state-1',
+    code_challenge: 'challenge-1',
+  })}`;
+
+beforeEach(() => {
+  localStorage.clear();
+  history.replaceState(null, '', '/');
+});
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
+
+describe('App', () => {
+  it('revoking the current device clears the token and shows pairing, once', async () => {
+    const { calls } = fakeServer();
+    localStorage.setItem(TOKEN_KEY, 'tok-1');
+    history.replaceState(null, '', '/?google=1');
+    const user = userEvent.setup();
+    render(App);
+
+    const section = await screen.findByRole('region', { name: 'Appareils et applications' });
+    const self = (await within(section).findByText('Ce navigateur')).closest('li')!;
+    await user.click(within(self).getByRole('button', { name: 'Retirer' }));
+    await user.click(within(section).getByRole('button', { name: 'Retirer ce navigateur' }));
+
+    expect(await screen.findByRole('button', { name: 'Relier cet appareil' })).toBeInTheDocument();
+    expect(localStorage.getItem(TOKEN_KEY)).toBeNull();
+    await new Promise((r) => setTimeout(r, 50));
+    expect(calls.at(-1)).toBe('DELETE /api/clients/1');
+    expect(calls.filter((c) => c === 'DELETE /api/clients/1')).toHaveLength(1);
+    expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1);
+    expect(screen.getByRole('status')).toHaveTextContent("Ce navigateur n’a plus accès à Lun'Acedia.");
+  });
+
+  it('asks an unknown browser for a code, then resumes the authorization', async () => {
+    fakeServer();
+    history.replaceState(null, '', authorizeQuery());
+    const user = userEvent.setup();
+    render(App);
+
+    expect(
+      screen.getByText(
+        (_, el) =>
+          el?.tagName === 'P' &&
+          el.textContent?.replace(/\s+/g, ' ').trim() ===
+            "Lun'Acedia ne connaît pas ce navigateur. Saisir le code donné par npm run pair-code sur la machine qui héberge Lun'Acedia.",
+      ),
+    ).toBeInTheDocument();
+    await user.type(screen.getByLabelText('Code à 6 chiffres'), '042517');
+    await user.click(screen.getByRole('button', { name: 'Continuer' }));
+
+    expect(
+      await screen.findByRole('heading', { level: 1, name: "Assistant local demande l’accès à Lun'Acedia" }),
+    ).toBeInTheDocument();
+    expect(localStorage.getItem(TOKEN_KEY)).toBe('tok-2');
+    expect(window.location.search).toContain('autoriser=1');
+  });
+
+  it('refuses a return address outside the loopback and leaves without the request', async () => {
+    fakeServer();
+    localStorage.setItem(TOKEN_KEY, 'tok-1');
+    history.replaceState(null, '', authorizeQuery('http://localhost.evil.test/callback'));
+    const user = userEvent.setup();
+    render(App);
+
+    expect(screen.getByRole('alert')).toHaveTextContent('Adresse de retour refusée');
+    expect(screen.queryByRole('button', { name: 'Autoriser' })).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: "Ouvrir Lun'Acedia" }));
+    expect(window.location.search).toBe('');
+    expect(await screen.findByRole('navigation', { name: 'Sections' })).toBeInTheDocument();
+  });
+});
+
+describe('Settings without onSelfRevoked', () => {
+  it('hands a self-revocation to the client’s 401 handling, once', async () => {
+    const { calls } = fakeServer();
+    const onUnauthorized = vi.fn();
+    const client = createHttpClient('http://acedia.test', 'tok-1', { onUnauthorized });
+    const user = userEvent.setup();
+    render(Settings, { props: { client } });
+
+    const section = await screen.findByRole('region', { name: 'Appareils et applications' });
+    const self = (await within(section).findByText('Ce navigateur')).closest('li')!;
+    // From now on the token is dead.
+    vi.mocked(globalThis.fetch).mockImplementation(async (input, init) => {
+      calls.push(`${init?.method ?? 'GET'} ${new URL(String(input)).pathname}`);
+      return init?.method === 'DELETE'
+        ? new Response(null, { status: 204 })
+        : new Response(JSON.stringify({ error: 'Jeton absent, invalide ou révoqué' }), { status: 401 });
+    });
+    await user.click(within(self).getByRole('button', { name: 'Retirer' }));
+    await user.click(within(section).getByRole('button', { name: 'Retirer ce navigateur' }));
+
+    await vi.waitFor(() => expect(onUnauthorized).toHaveBeenCalledTimes(1));
+    expect(calls.slice(-2)).toEqual(['DELETE /api/clients/1', 'GET /api/clients']);
+  });
+});

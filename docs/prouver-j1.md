@@ -38,7 +38,7 @@ d'adresse interne, de nom de machine ni de jeton.
 
 ```bash
 B=http://localhost:8787/lun/v1
-CODE=…   # Réglages → Appairage
+CODE=…   # Réglages → Appareils et applications → « Relier un appareil »
 TOKEN=$(curl -s -X POST $B/pair -H 'content-type: application/json' \
   -d "{\"code\":\"$CODE\",\"client\":\"preuve\"}" | node -e 'process.stdin.on("data",d=>console.log(JSON.parse(d).token))')
 H="authorization: Bearer $TOKEN"

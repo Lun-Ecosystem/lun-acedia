@@ -27,7 +27,7 @@ describe('POST /lun/v1/pair', () => {
     expect((await pair()).status).toBe(200);
     const second = await pair();
     expect(second.status).toBe(401);
-    expect(await second.json()).toEqual({ error: expect.any(String) });
+    expect(await second.json()).toEqual({ error: 'Code d’appairage invalide, déjà utilisé ou expiré' });
   });
 
   it('refuses a code older than 10 minutes', async () => {
