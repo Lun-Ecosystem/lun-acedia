@@ -111,7 +111,7 @@ describe('App', () => {
     await user.click(screen.getByRole('button', { name: 'Continuer' }));
 
     expect(
-      await screen.findByRole('heading', { level: 1, name: "Assistant local demande l'accès à Lun'Acedia" }),
+      await screen.findByRole('heading', { level: 1, name: "Assistant local demande l’accès à Lun'Acedia" }),
     ).toBeInTheDocument();
     expect(localStorage.getItem(TOKEN_KEY)).toBe('tok-2');
     expect(window.location.search).toContain('autoriser=1');

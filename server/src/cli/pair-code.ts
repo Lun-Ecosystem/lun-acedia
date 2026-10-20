@@ -7,7 +7,7 @@ import { openDb } from '../db.ts';
 
 /** Issues a pairing code, whether clients exist or not, and returns the line to print. */
 export function pairCodeLine(db: DatabaseSync, now: Date): string {
-  return `Code d'appairage (10 min) : ${issuePairingCode(db, now)}`;
+  return `Code d’appairage (10 min) : ${issuePairingCode(db, now)}`;
 }
 
 // `npm run pair-code`: same `.env` and same database as the server, running or not.

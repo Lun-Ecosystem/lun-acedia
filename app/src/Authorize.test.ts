@@ -27,7 +27,7 @@ describe('Authorize', () => {
   it('Authorize shows the client name and the return host:port, and follows the redirect', async () => {
     const { authorize, navigate, user } = setup();
     expect(
-      screen.getByRole('heading', { level: 1, name: "Assistant local demande l'accès à Lun'Acedia" }),
+      screen.getByRole('heading', { level: 1, name: "Assistant local demande l’accès à Lun'Acedia" }),
     ).toBeInTheDocument();
     expect(screen.getByText('Retour vers 127.0.0.1:53682')).toBeInTheDocument();
     expect(screen.getByText('lire et ranger les mails')).toBeInTheDocument();
@@ -51,7 +51,7 @@ describe('Authorize', () => {
   it('shows the client name as text only', () => {
     setup({ client: '<img src=x onerror=alert(1)>' });
     expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(
-      "<img src=x onerror=alert(1)> demande l'accès à Lun'Acedia",
+      "<img src=x onerror=alert(1)> demande l’accès à Lun'Acedia",
     );
     expect(document.querySelector('img')).toBeNull();
   });

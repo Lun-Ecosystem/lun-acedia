@@ -14,9 +14,9 @@
   } = $props();
 
   const RIGHTS = [
-    "lire l'état, les coûts et les événements",
+    'lire l’état, les coûts et les événements',
     'lire et ranger les mails',
-    "gérer l'agenda, les tâches et les rappels",
+    'gérer l’agenda, les tâches et les rappels',
     'mettre en pause et reprendre le service',
   ];
 
@@ -39,7 +39,7 @@
 
 <main class="authorize lun-acedia">
   <p class="brand">Lun'Acedia</p>
-  <h1>{request.client} demande l'accès à Lun'Acedia</h1>
+  <h1>{request.client} demande l’accès à Lun'Acedia</h1>
   <p>Une fois reliée, cette application pourra :</p>
   <ul>
     {#each RIGHTS as right (right)}

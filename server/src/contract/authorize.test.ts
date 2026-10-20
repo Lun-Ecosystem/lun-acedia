@@ -194,7 +194,9 @@ describe('POST /api/authorizations', () => {
     expect((await exchange(h, reused)).status).toBe(200);
     const again = await exchange(h, reused);
     expect(again.status).toBe(401);
-    expect(await again.json()).toEqual({ error: expect.any(String) });
+    expect(await again.json()).toEqual({
+      error: 'Code d’autorisation invalide, déjà utilisé, expiré ou code_verifier faux',
+    });
     expect(failures(h)).toBe(3);
 
     expect((await exchange(h, 'unknown-code')).status).toBe(401);

@@ -43,8 +43,8 @@ export function contractRoutes(deps: AppDeps): Hono {
     if (!result) {
       recordPairingFailure(db, clock(), log);
       const error = byAuthorization
-        ? "Code d'autorisation invalide, déjà utilisé, expiré ou code_verifier faux"
-        : "Code d'appairage invalide, déjà utilisé ou expiré";
+        ? 'Code d’autorisation invalide, déjà utilisé, expiré ou code_verifier faux'
+        : 'Code d’appairage invalide, déjà utilisé ou expiré';
       return c.json({ error }, 401);
     }
     return c.json({ token: result.token, satellite: { ...SATELLITE, version: deps.version } });
