@@ -55,6 +55,37 @@ describe('createHttpClient', () => {
     expect(JSON.parse(String(fetch.mock.calls[2]![1]?.body))).toEqual(req);
   });
 
+  it('reads and replaces the Anthropic key on its route', async () => {
+    const view = { state: 'ok', last4: 'c0de', expires: '2027-03-01', source: 'saved' };
+    const fetch = vi.fn<typeof globalThis.fetch>(async () => json(view));
+    const client = createHttpClient(BASE, 'tok-1', { fetch });
+    expect(await client.getAnthropicKey()).toEqual(view);
+    expect(await client.saveAnthropicKey('sk-ant-test-c0de', '2027-03-01')).toEqual(view);
+    await client.saveAnthropicKey('sk-ant-test-c0de');
+    const calls = fetch.mock.calls.map(([url, init]) => [init?.method, String(url)]);
+    expect(calls).toEqual([
+      ['GET', `${BASE}/api/anthropic-key`],
+      ['PUT', `${BASE}/api/anthropic-key`],
+      ['PUT', `${BASE}/api/anthropic-key`],
+    ]);
+    expect(JSON.parse(String(fetch.mock.calls[1]![1]?.body))).toEqual({
+      key: 'sk-ant-test-c0de',
+      expires: '2027-03-01',
+    });
+    expect(JSON.parse(String(fetch.mock.calls[2]![1]?.body))).toEqual({ key: 'sk-ant-test-c0de' });
+  });
+
+  it('reports a refused Anthropic key with the server message', async () => {
+    const fetch = vi.fn<typeof globalThis.fetch>(async () =>
+      json({ error: 'Anthropic injoignable, rien n’a changé' }, 502),
+    );
+    const client = createHttpClient(BASE, 'tok-1', { fetch });
+    await expect(client.saveAnthropicKey('sk-ant-test-c0de')).rejects.toMatchObject({
+      status: 502,
+      message: 'Anthropic injoignable, rien n’a changé',
+    });
+  });
+
   it('receives a streamed event and stops when unsubscribed', async () => {
     const event = {
       id: '7',

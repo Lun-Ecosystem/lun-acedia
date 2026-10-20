@@ -61,6 +61,19 @@ export interface LinkedClient {
   current: boolean;
 }
 
+/**
+ * The Anthropic key in service, as `GET /api/anthropic-key` describes it: never the key itself, only
+ * its last 4 characters. `credit` means the key works but its credit is spent.
+ */
+export interface AnthropicKeyStatus {
+  state: 'ok' | 'refused' | 'credit' | 'absent';
+  last4?: string;
+  /** Declared expiry, `AAAA-MM-JJ`. */
+  expires?: string;
+  /** Where the key in service comes from: saved in the settings or declared in `.env`. */
+  source?: 'saved' | 'env';
+}
+
 /** An app asking for access (`GET /lun/v1/authorize`), as the authorization page received it. */
 export interface AuthorizationRequest {
   client: string;
@@ -117,6 +130,9 @@ export interface AcediaClient {
   revokeClient(id: number): Promise<void>;
   /** Records the decision of a linked device; returns where to send the browser back. */
   authorize(req: AuthorizationRequest & { decision: 'allow' | 'deny' }): Promise<{ redirect: string }>;
+  getAnthropicKey(): Promise<AnthropicKeyStatus>;
+  /** Checks the key with Anthropic, then saves it; rejects (nothing changed) when refused or unreachable. */
+  saveAnthropicKey(key: string, expires?: string): Promise<AnthropicKeyStatus>;
   /** Calls `onEvent` for each satellite event; returns the function that stops listening. */
   subscribe(onEvent: (e: LunEvent) => void): () => void;
 }
@@ -229,6 +245,9 @@ export function httpClient(opts: { baseUrl: string; token: string; fetch?: typeo
       await call('DELETE', `/api/clients/${id}`);
     },
     authorize: (req) => call('POST', '/api/authorizations', req),
+    getAnthropicKey: () => call('GET', '/api/anthropic-key'),
+    saveAnthropicKey: (key, expires) =>
+      call('PUT', '/api/anthropic-key', expires ? { key, expires } : { key }),
     subscribe(onEvent) {
       const stop = new AbortController();
       let lastId: string | undefined;

@@ -3,6 +3,7 @@
   import type { AcediaClient } from '../client.ts';
   import { errorText } from '../mail/format.ts';
   import type { LabelView } from '../types.ts';
+  import AnthropicKey from './AnthropicKey.svelte';
   import Boxes from './Boxes.svelte';
   import Devices from './Devices.svelte';
   import GoogleAccount from './GoogleAccount.svelte';
@@ -36,6 +37,7 @@
   <Boxes {client} bind:labels />
   <Rules {client} {labels} />
   <Threshold {client} />
+  <AnthropicKey {client} />
   <Devices {client} {onSelfRevoked} />
 </div>
 

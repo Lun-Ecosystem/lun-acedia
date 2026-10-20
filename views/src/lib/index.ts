@@ -4,6 +4,7 @@ export const VIEWS_PACKAGE = '@lun-ecosystem/lunacedia-views';
 export { ApiError, httpClient, UnauthorizedError } from './client.ts';
 export type {
   AcediaClient,
+  AnthropicKeyStatus,
   AuthorizationRequest,
   EventDraft,
   LinkedClient,

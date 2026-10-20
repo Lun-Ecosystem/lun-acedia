@@ -143,6 +143,13 @@ export function fakeClient(opts: { mails?: MailSummary[]; journal?: JournalEntry
     ]),
     revokeClient: vi.fn<AcediaClient['revokeClient']>(async () => {}),
     authorize: vi.fn<AcediaClient['authorize']>(notUsed),
+    getAnthropicKey: vi.fn<AcediaClient['getAnthropicKey']>(async () => ({
+      state: 'ok',
+      last4: '7f3a',
+      expires: '2026-12-31',
+      source: 'saved',
+    })),
+    saveAnthropicKey: vi.fn<AcediaClient['saveAnthropicKey']>(notUsed),
     subscribe: vi.fn<AcediaClient['subscribe']>(() => () => {}),
   } satisfies AcediaClient;
   return { client, mails };
