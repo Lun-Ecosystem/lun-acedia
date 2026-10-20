@@ -30,7 +30,8 @@ Ne jamais écrire cette adresse dans le dépôt, une PR ou une issue (dépôt pu
 1. Sur le téléphone Android (dans le même tailnet), ouvrir l'adresse dans Chrome.
 2. Écran d'appairage : entrer un code à 6 chiffres, donné à tout moment par `npm run pair-code` sur
    le poste qui fait tourner Acedia. Au tout premier lancement, il est aussi dans les journaux du
-   serveur ; ensuite, Réglages → Appairage sur un appareil déjà relié.
+   serveur ; ensuite, sur un appareil déjà relié, Réglages → Appareils et applications →
+   « Relier un appareil » affiche un code.
 3. Menu de Chrome → « Installer l'application ». Lun'Acedia apparaît avec son icône de lune.
 
 Le jeton de l'appareil reste dans le navigateur du téléphone. S'il est révoqué, l'app revient à
