@@ -47,33 +47,51 @@ export function pair(
   const row = db.prepare('SELECT expires_at, used_at FROM pairing_codes WHERE code = ?').get(code) as
     { expires_at: string; used_at: string | null } | undefined;
   if (!row || row.used_at || new Date(row.expires_at) < now) return null;
-  const token = randomBytes(32).toString('base64url');
   db.prepare('UPDATE pairing_codes SET used_at = ? WHERE code = ?').run(now.toISOString(), code);
+  return { token: createClient(db, clientName, kind, now) };
+}
+
+/** Registers a client and returns its bearer token; only the token's hash is stored. */
+export function createClient(db: DatabaseSync, name: string, kind: ClientKind, now: Date): string {
+  const token = randomBytes(32).toString('base64url');
   db.prepare('INSERT INTO clients (name, kind, token_hash, created_at) VALUES (?, ?, ?, ?)').run(
-    clientName,
+    name,
     kind,
     hashToken(token),
     now.toISOString(),
   );
-  return { token };
+  return token;
 }
 
 /**
  * Records a failed `POST /lun/v1/pair`. The fifth failure within a sliding 10-minute window voids
- * every pending code, starts the count over and re-issues the first-run code if no client exists.
- * The count lives in the database: the `pair-code` command and the server share it.
+ * every pending pairing and authorization code, starts the count over and re-issues the first-run
+ * code if no client exists. The count lives in the database: the `pair-code` command and the server
+ * share it, hence one write transaction from the count to the voiding.
  */
 export function recordPairingFailure(db: DatabaseSync, now: Date, log: (line: string) => void): void {
-  db.prepare('INSERT INTO pairing_failures (at) VALUES (?)').run(now.toISOString());
-  db.prepare('DELETE FROM pairing_failures WHERE at <= ?').run(
-    new Date(now.getTime() - LOCK_WINDOW_MS).toISOString(),
-  );
-  const { n } = db.prepare('SELECT COUNT(*) AS n FROM pairing_failures').get() as { n: number };
-  if (n < LOCK_FAILURES) return;
-  db.exec('DELETE FROM pairing_codes WHERE used_at IS NULL');
-  db.exec('DELETE FROM pairing_failures');
-  log('Appairage verrouillé : 5 codes faux en 10 min, codes en cours annulés.');
-  bootstrapPairing(db, now, log);
+  // Logged after the commit only: a rolled-back lock must not announce a code that does not exist.
+  const lines: string[] = [];
+  db.exec('BEGIN IMMEDIATE');
+  try {
+    db.prepare('INSERT INTO pairing_failures (at) VALUES (?)').run(now.toISOString());
+    db.prepare('DELETE FROM pairing_failures WHERE at <= ?').run(
+      new Date(now.getTime() - LOCK_WINDOW_MS).toISOString(),
+    );
+    const { n } = db.prepare('SELECT COUNT(*) AS n FROM pairing_failures').get() as { n: number };
+    if (n >= LOCK_FAILURES) {
+      db.exec('DELETE FROM pairing_codes WHERE used_at IS NULL');
+      db.exec('DELETE FROM authorization_codes WHERE used_at IS NULL');
+      db.exec('DELETE FROM pairing_failures');
+      lines.push('Appairage verrouillé : 5 codes faux en 10 min, codes en cours annulés.');
+      bootstrapPairing(db, now, (line) => lines.push(line));
+    }
+    db.exec('COMMIT');
+  } catch (err) {
+    db.exec('ROLLBACK');
+    throw err;
+  }
+  lines.forEach((line) => log(line));
 }
 
 export interface ClientRow {

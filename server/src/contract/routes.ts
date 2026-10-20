@@ -4,6 +4,7 @@ import type { AppDeps } from '../app.ts';
 import { SATELLITE } from '../identity.ts';
 import { DegradedError, InvalidInputError } from './actions.ts';
 import { pair, recordPairingFailure, requireToken } from './auth.ts';
+import { authorizationPage, exchangeAuthorizationCode, readAuthorizationRequest } from './authorize.ts';
 import { costsSince } from './costs.ts';
 import { eventsSince, subscribe, type LunEvent } from './events.ts';
 import { getState, setPaused, statusOf } from './state.ts';
@@ -23,21 +24,37 @@ export function contractRoutes(deps: AppDeps): Hono {
   const r = new Hono();
 
   r.post('/pair', async (c) => {
-    let body: { code?: unknown; client?: unknown };
+    let body: { code?: unknown; client?: unknown; code_verifier?: unknown };
     try {
       body = (await readJson(c.req.raw)) as typeof body;
     } catch {
       return c.json({ error: 'Corps JSON invalide' }, 400);
     }
-    const result =
-      typeof body.code === 'string'
-        ? pair(db, body.code, typeof body.client === 'string' ? body.client : 'client', clock())
-        : null;
+    const byAuthorization = body.code_verifier !== undefined;
+    let result: { token: string } | null = null;
+    if (typeof body.code === 'string') {
+      if (byAuthorization)
+        result =
+          typeof body.code_verifier === 'string'
+            ? exchangeAuthorizationCode(db, body.code, body.code_verifier, clock())
+            : null;
+      else result = pair(db, body.code, typeof body.client === 'string' ? body.client : 'client', clock());
+    }
     if (!result) {
       recordPairingFailure(db, clock(), log);
-      return c.json({ error: "Code d'appairage invalide, déjà utilisé ou expiré" }, 401);
+      const error = byAuthorization
+        ? "Code d'autorisation invalide, déjà utilisé, expiré ou code_verifier faux"
+        : "Code d'appairage invalide, déjà utilisé ou expiré";
+      return c.json({ error }, 401);
     }
     return c.json({ token: result.token, satellite: { ...SATELLITE, version: deps.version } });
+  });
+
+  // Public, like /pair: the front's page then tests its own device token.
+  r.get('/authorize', (c) => {
+    const read = readAuthorizationRequest(c.req.query());
+    if ('error' in read) return c.text(read.error, 400);
+    return c.redirect(authorizationPage(read.request), 302);
   });
 
   r.use('*', requireToken(db));

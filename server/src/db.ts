@@ -129,6 +129,14 @@ const MIGRATIONS: string[] = [
    );`,
   `ALTER TABLE clients ADD COLUMN kind TEXT NOT NULL DEFAULT 'device' CHECK (kind IN ('device', 'app'));
    CREATE TABLE pairing_failures (at TEXT NOT NULL);`,
+  `CREATE TABLE authorization_codes (
+     code TEXT PRIMARY KEY,
+     client TEXT NOT NULL,
+     redirect_uri TEXT NOT NULL,
+     code_challenge TEXT NOT NULL,
+     expires_at TEXT NOT NULL,
+     used_at TEXT
+   );`,
 ];
 
 export function openDb(path: string): DatabaseSync {

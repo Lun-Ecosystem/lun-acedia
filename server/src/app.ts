@@ -12,6 +12,7 @@ import {
   requireToken,
   revokeClient,
 } from './contract/auth.ts';
+import { allowAuthorization, denyAuthorization, readAuthorizationRequest } from './contract/authorize.ts';
 import { contractRoutes } from './contract/routes.ts';
 import { gmailRoutes, sendAsRoutes } from './gmail/routes.ts';
 import { createGoogleClient, type GoogleClient, type GoogleDeps } from './google/client.ts';
@@ -61,6 +62,24 @@ export function createApp(deps: AppDeps): Hono {
     if (!Number.isInteger(id) || !revokeClient(deps.db, id, deps.clock()))
       return c.json({ error: 'Client inconnu' }, 404);
     return c.body(null, 204);
+  });
+  api.post('/authorizations', async (c) => {
+    const mine = hashToken(bearerToken(c.req.header('authorization')));
+    if (listClients(deps.db).find((client) => client.tokenHash === mine)?.kind !== 'device')
+      return c.json({ error: 'Seul un appareil relié peut autoriser une application' }, 403);
+    let body: Record<string, unknown>;
+    try {
+      body = (await c.req.json()) as Record<string, unknown>;
+    } catch {
+      return c.json({ error: 'Corps JSON invalide' }, 400);
+    }
+    if (body === null || typeof body !== 'object') return c.json({ error: 'Corps JSON invalide' }, 400);
+    const read = readAuthorizationRequest(body);
+    if ('error' in read) return c.json({ error: read.error }, 400);
+    if (body.decision === 'allow')
+      return c.json({ redirect: allowAuthorization(deps.db, read.request, deps.clock()) });
+    if (body.decision === 'deny') return c.json({ redirect: denyAuthorization(read.request) });
+    return c.json({ error: "decision attendue : 'allow' ou 'deny'" }, 400);
   });
   app.route('/api', api);
 
