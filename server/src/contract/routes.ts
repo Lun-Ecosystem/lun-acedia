@@ -3,7 +3,7 @@ import { streamSSE } from 'hono/streaming';
 import type { AppDeps } from '../app.ts';
 import { SATELLITE } from '../identity.ts';
 import { DegradedError, InvalidInputError } from './actions.ts';
-import { pair, requireToken } from './auth.ts';
+import { pair, recordPairingFailure, requireToken } from './auth.ts';
 import { costsSince } from './costs.ts';
 import { eventsSince, subscribe, type LunEvent } from './events.ts';
 import { getState, setPaused, statusOf } from './state.ts';
@@ -19,6 +19,7 @@ async function readJson(req: Request): Promise<unknown> {
 /** The satellite contract v1 (`standards/contrat-satellite.md` in lun-docs). */
 export function contractRoutes(deps: AppDeps): Hono {
   const { db, clock, actions } = deps;
+  const log = deps.log ?? ((line: string) => console.warn(line));
   const r = new Hono();
 
   r.post('/pair', async (c) => {
@@ -32,7 +33,10 @@ export function contractRoutes(deps: AppDeps): Hono {
       typeof body.code === 'string'
         ? pair(db, body.code, typeof body.client === 'string' ? body.client : 'client', clock())
         : null;
-    if (!result) return c.json({ error: "Code d'appairage invalide, déjà utilisé ou expiré" }, 401);
+    if (!result) {
+      recordPairingFailure(db, clock(), log);
+      return c.json({ error: "Code d'appairage invalide, déjà utilisé ou expiré" }, 401);
+    }
     return c.json({ token: result.token, satellite: { ...SATELLITE, version: deps.version } });
   });
 

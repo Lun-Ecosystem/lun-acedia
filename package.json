@@ -14,6 +14,7 @@
   "scripts": {
     "build": "npm run build --workspaces --if-present",
     "dev": "npm run dev -w @lun-acedia/server",
+    "pair-code": "npm run -s pair-code -w @lun-acedia/server",
     "test": "vitest run",
     "lint": "eslint .",
     "format": "prettier --write .",

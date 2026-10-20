@@ -3,7 +3,15 @@ import { Hono } from 'hono';
 import { agendaRoutes } from './agenda/routes.ts';
 import type { ActionRegistry } from './contract/actions.ts';
 import { registerCatalog } from './contract/catalog.ts';
-import { codeExpiry, issuePairingCode, requireToken } from './contract/auth.ts';
+import {
+  bearerToken,
+  codeExpiry,
+  hashToken,
+  issuePairingCode,
+  listClients,
+  requireToken,
+  revokeClient,
+} from './contract/auth.ts';
 import { contractRoutes } from './contract/routes.ts';
 import { gmailRoutes, sendAsRoutes } from './gmail/routes.ts';
 import { createGoogleClient, type GoogleClient, type GoogleDeps } from './google/client.ts';
@@ -22,6 +30,8 @@ export interface AppDeps {
   google?: GoogleDeps | undefined;
   /** The built standalone app (app/dist), served at the root when present. */
   staticDir?: string | undefined;
+  /** Where warnings go (the pairing lock); `console.warn` by default. */
+  log?: ((line: string) => void) | undefined;
 }
 
 export function createApp(deps: AppDeps): Hono {
@@ -37,6 +47,20 @@ export function createApp(deps: AppDeps): Hono {
   api.post('/pairing-codes', (c) => {
     const code = issuePairingCode(deps.db, deps.clock());
     return c.json({ code, expiresAt: codeExpiry(deps.db, code) });
+  });
+  api.get('/clients', (c) => {
+    const mine = hashToken(bearerToken(c.req.header('authorization')));
+    const clients = listClients(deps.db).map(({ tokenHash, ...client }) => ({
+      ...client,
+      current: tokenHash === mine,
+    }));
+    return c.json({ clients });
+  });
+  api.delete('/clients/:id', (c) => {
+    const id = Number(c.req.param('id'));
+    if (!Number.isInteger(id) || !revokeClient(deps.db, id, deps.clock()))
+      return c.json({ error: 'Client inconnu' }, 404);
+    return c.body(null, 204);
   });
   app.route('/api', api);
 

@@ -3,9 +3,18 @@ import type { DatabaseSync } from 'node:sqlite';
 import type { MiddlewareHandler } from 'hono';
 
 const CODE_TTL_MS = 10 * 60_000;
+const LOCK_WINDOW_MS = 10 * 60_000;
+const LOCK_FAILURES = 5;
 
-function hashToken(token: string): string {
+export type ClientKind = 'device' | 'app';
+
+export function hashToken(token: string): string {
   return createHash('sha256').update(token).digest('hex');
+}
+
+/** The token of an `Authorization: Bearer <token>` header, or an empty string. */
+export function bearerToken(header: string | undefined): string {
+  return header?.startsWith('Bearer ') ? header.slice(7) : '';
 }
 
 /** A one-time six-digit code, valid for 10 minutes. */
@@ -33,22 +42,64 @@ export function pair(
   code: string,
   clientName: string,
   now: Date,
+  kind: ClientKind = 'device',
 ): { token: string } | null {
   const row = db.prepare('SELECT expires_at, used_at FROM pairing_codes WHERE code = ?').get(code) as
     { expires_at: string; used_at: string | null } | undefined;
   if (!row || row.used_at || new Date(row.expires_at) < now) return null;
   const token = randomBytes(32).toString('base64url');
   db.prepare('UPDATE pairing_codes SET used_at = ? WHERE code = ?').run(now.toISOString(), code);
-  db.prepare('INSERT INTO clients (name, token_hash, created_at) VALUES (?, ?, ?)').run(
+  db.prepare('INSERT INTO clients (name, kind, token_hash, created_at) VALUES (?, ?, ?, ?)').run(
     clientName,
+    kind,
     hashToken(token),
     now.toISOString(),
   );
   return { token };
 }
 
-export function revokeClient(db: DatabaseSync, id: number): void {
-  db.prepare('UPDATE clients SET revoked_at = ? WHERE id = ?').run(new Date().toISOString(), id);
+/**
+ * Records a failed `POST /lun/v1/pair`. The fifth failure within a sliding 10-minute window voids
+ * every pending code, starts the count over and re-issues the first-run code if no client exists.
+ * The count lives in the database: the `pair-code` command and the server share it.
+ */
+export function recordPairingFailure(db: DatabaseSync, now: Date, log: (line: string) => void): void {
+  db.prepare('INSERT INTO pairing_failures (at) VALUES (?)').run(now.toISOString());
+  db.prepare('DELETE FROM pairing_failures WHERE at <= ?').run(
+    new Date(now.getTime() - LOCK_WINDOW_MS).toISOString(),
+  );
+  const { n } = db.prepare('SELECT COUNT(*) AS n FROM pairing_failures').get() as { n: number };
+  if (n < LOCK_FAILURES) return;
+  db.exec('DELETE FROM pairing_codes WHERE used_at IS NULL');
+  db.exec('DELETE FROM pairing_failures');
+  log('Appairage verrouillé : 5 codes faux en 10 min, codes en cours annulés.');
+  bootstrapPairing(db, now, log);
+}
+
+export interface ClientRow {
+  id: number;
+  name: string;
+  kind: ClientKind;
+  createdAt: string;
+  tokenHash: string;
+}
+
+/** Clients that still have access (devices and apps), oldest first. */
+export function listClients(db: DatabaseSync): ClientRow[] {
+  return db
+    .prepare(
+      `SELECT id, name, kind, created_at AS createdAt, token_hash AS tokenHash
+       FROM clients WHERE revoked_at IS NULL ORDER BY id`,
+    )
+    .all() as unknown as ClientRow[];
+}
+
+/** Soft revocation; `false` when the client is unknown or already revoked. */
+export function revokeClient(db: DatabaseSync, id: number, now = new Date()): boolean {
+  const { changes } = db
+    .prepare('UPDATE clients SET revoked_at = ? WHERE id = ? AND revoked_at IS NULL')
+    .run(now.toISOString(), id);
+  return Number(changes) > 0;
 }
 
 export function isValidToken(db: DatabaseSync, token: string): boolean {
@@ -59,8 +110,7 @@ export function isValidToken(db: DatabaseSync, token: string): boolean {
 
 export function requireToken(db: DatabaseSync): MiddlewareHandler {
   return async (c, next) => {
-    const header = c.req.header('authorization') ?? '';
-    const token = header.startsWith('Bearer ') ? header.slice(7) : '';
+    const token = bearerToken(c.req.header('authorization'));
     if (!token || !isValidToken(db, token))
       return c.json({ error: 'Jeton absent, invalide ou révoqué' }, 401);
     await next();

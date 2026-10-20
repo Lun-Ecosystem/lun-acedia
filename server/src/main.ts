@@ -69,4 +69,6 @@ startReminderLoop(db, clock);
 setInterval(() => pruneEvents(db, clock()), 3600_000).unref();
 
 const port = Number(process.env.PORT ?? 8787);
-serve({ fetch: app.fetch, port }, () => console.log(`Lun'Acedia écoute sur le port ${port}`));
+// Loopback by default: a deployment that must be reachable gives its address explicitly.
+const hostname = process.env.HOST?.trim() || '127.0.0.1';
+serve({ fetch: app.fetch, port, hostname }, () => console.log(`Lun'Acedia écoute sur ${hostname}:${port}`));

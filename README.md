@@ -17,7 +17,20 @@ npm install
 npm run dev
 ```
 
-Aucune dépendance au NAS : tout tourne sur le poste. Node `^22.13.0 || >=24`.
+Aucune dépendance au NAS : tout tourne sur le poste. Node `^22.13.0 || >=24`. Le serveur écoute sur
+`127.0.0.1` par défaut (`HOST` dans `.env` pour une autre adresse).
+
+## Relier un appareil
+
+```bash
+npm run pair-code    # Code d'appairage (10 min) : 123456
+```
+
+Le code est à usage unique et vaut 10 minutes, que des appareils soient déjà reliés ou non, serveur
+lancé ou non. Le front le demande sur un appareil inconnu. Après 5 codes faux en 10 minutes sur
+`/lun/v1/pair`, les codes en cours sont annulés et un avertissement est journalisé : redemander un code.
+La liste des appareils et applications reliés, et leur retrait, passent par `GET /api/clients` et
+`DELETE /api/clients/:id`.
 
 ## Organisation
 

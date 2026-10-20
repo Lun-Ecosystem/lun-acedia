@@ -9,13 +9,16 @@ export function makeHarness(extra: Partial<Pick<AppDeps, 'google' | 'staticDir'>
   let now = new Date('2026-11-02T08:00:00.000Z');
   const clock = () => now;
   const actions = new ActionRegistry();
-  const app = createApp({ db, clock, version: '0.0.0-test', actions, ...extra });
+  const logs: string[] = [];
+  const app = createApp({ db, clock, version: '0.0.0-test', actions, log: (l) => logs.push(l), ...extra });
 
   return {
     app,
     db,
     actions,
     clock,
+    /** Warnings the app logged. */
+    logs,
     advance(ms: number) {
       now = new Date(now.getTime() + ms);
     },

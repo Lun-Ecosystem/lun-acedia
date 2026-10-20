@@ -127,12 +127,15 @@ const MIGRATIONS: string[] = [
      queued_at TEXT NOT NULL,
      attempts INTEGER NOT NULL DEFAULT 0
    );`,
+  `ALTER TABLE clients ADD COLUMN kind TEXT NOT NULL DEFAULT 'device' CHECK (kind IN ('device', 'app'));
+   CREATE TABLE pairing_failures (at TEXT NOT NULL);`,
 ];
 
 export function openDb(path: string): DatabaseSync {
   if (path !== ':memory:') mkdirSync(dirname(path), { recursive: true });
   const db = new DatabaseSync(path);
-  db.exec('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;');
+  // busy_timeout: the `pair-code` command writes to the same file while the server runs.
+  db.exec('PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 5000; PRAGMA foreign_keys = ON;');
   db.exec('CREATE TABLE IF NOT EXISTS schema_version (version INTEGER NOT NULL)');
   const row = db.prepare('SELECT version FROM schema_version').get() as { version: number } | undefined;
   let version = row?.version ?? 0;
