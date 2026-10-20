@@ -182,3 +182,57 @@ describe('POST /api/authorizations', () => {
     expect((await exchange(h, await allowCode(h, device))).status).toBe(200);
   });
 });
+
+describe('app token scope', () => {
+  async function appToken(h: Harness): Promise<string> {
+    const device = await h.pairClient('phone');
+    const res = await exchange(h, await allowCode(h, device));
+    return ((await res.json()) as { token: string }).token;
+  }
+
+  it('answers 403 to an app token on the /api admin routes', async () => {
+    const h = makeHarness({ secretKey: 'k'.repeat(64) });
+    const token = await appToken(h);
+    const appId = (h.db.prepare("SELECT id FROM clients WHERE kind = 'app'").get() as { id: number }).id;
+    for (const [method, path, body] of [
+      ['POST', '/api/pairing-codes', undefined],
+      ['DELETE', `/api/clients/${appId}`, undefined],
+      ['PUT', '/api/anthropic-key', JSON.stringify({ key: 'sk-ant-test-0000' })],
+      ['GET', '/api/google/status', undefined],
+    ] as const) {
+      const res = await h.app.request(path, { method, headers: h.auth(token), body });
+      expect(res.status, `${method} ${path}`).toBe(403);
+      expect(await res.json()).toEqual({
+        error: 'Réservé aux appareils reliés : une application n’a accès qu’au contrat /lun/v1',
+      });
+    }
+    expect(h.db.prepare('SELECT COUNT(*) AS n FROM pairing_codes WHERE used_at IS NULL').get()).toEqual({
+      n: 0,
+    });
+    expect(h.db.prepare('SELECT COUNT(*) AS n FROM clients WHERE revoked_at IS NULL').get()).toEqual({
+      n: 2,
+    });
+    expect(h.anthropicCheck.calls).toEqual([]);
+  });
+
+  it('still lets a device token use /api and an app token use /lun/v1', async () => {
+    const h = makeHarness();
+    const token = await appToken(h);
+    const device = await h.pairClient('laptop');
+    expect(
+      (await h.app.request('/api/pairing-codes', { method: 'POST', headers: h.auth(device) })).status,
+    ).toBe(200);
+    expect((await h.app.request('/api/google/status', { headers: h.auth(device) })).status).toBe(200);
+    expect((await h.app.request('/lun/v1/health', { headers: h.auth(token) })).status).toBe(200);
+    expect((await h.app.request('/lun/v1/costs', { headers: h.auth(token) })).status).toBe(200);
+    expect((await h.app.request('/lun/v1/pause', { method: 'POST', headers: h.auth(token) })).status).toBe(
+      200,
+    );
+  });
+
+  it('keeps answering 401 to a missing or unknown token', async () => {
+    const h = makeHarness();
+    expect((await h.app.request('/api/pairing-codes', { method: 'POST' })).status).toBe(401);
+    expect((await h.app.request('/api/clients', { headers: h.auth('nope') })).status).toBe(401);
+  });
+});

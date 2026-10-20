@@ -135,6 +135,29 @@ export function requireToken(db: DatabaseSync): MiddlewareHandler {
   };
 }
 
+/** The kind of a live client's token; `undefined` when the token is unknown or revoked. */
+export function clientKind(db: DatabaseSync, token: string): ClientKind | undefined {
+  const row = db
+    .prepare('SELECT kind FROM clients WHERE token_hash = ? AND revoked_at IS NULL')
+    .get(hashToken(token)) as { kind: ClientKind } | undefined;
+  return row?.kind;
+}
+
+/**
+ * Runs after `requireToken`: the `/api` surface (pairing, revocation, keys, Google...) belongs to
+ * paired devices; an app token obtained by authorization only reaches the contract under `/lun/v1`.
+ */
+export function requireDevice(db: DatabaseSync): MiddlewareHandler {
+  return async (c, next) => {
+    if (clientKind(db, bearerToken(c.req.header('authorization'))) !== 'device')
+      return c.json(
+        { error: 'Réservé aux appareils reliés : une application n’a accès qu’au contrat /lun/v1' },
+        403,
+      );
+    await next();
+  };
+}
+
 /** First start: with no paired client yet, the pairing code of the first device goes to the logs. */
 export function bootstrapPairing(db: DatabaseSync, now: Date, log: (line: string) => void): void {
   if (db.prepare('SELECT 1 FROM clients WHERE revoked_at IS NULL').get()) return;

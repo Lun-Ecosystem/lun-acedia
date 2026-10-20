@@ -9,6 +9,7 @@ import {
   hashToken,
   issuePairingCode,
   listClients,
+  requireDevice,
   requireToken,
   revokeClient,
 } from './contract/auth.ts';
@@ -58,9 +59,10 @@ export function createApp(deps: AppDeps): Hono {
     : undefined;
   registerCatalog(deps.actions, { db: deps.db, google, clock: deps.clock });
   app.route('/lun/v1', contractRoutes(deps));
+  // Every /api route, whichever module mounts it, is for paired devices only.
+  app.use('/api/*', requireToken(deps.db), requireDevice(deps.db));
 
   const api = new Hono();
-  api.use('*', requireToken(deps.db));
   api.post('/pairing-codes', (c) => {
     const code = issuePairingCode(deps.db, deps.clock());
     return c.json({ code, expiresAt: codeExpiry(deps.db, code) });
@@ -80,9 +82,7 @@ export function createApp(deps: AppDeps): Hono {
     return c.body(null, 204);
   });
   api.post('/authorizations', async (c) => {
-    const mine = hashToken(bearerToken(c.req.header('authorization')));
-    if (listClients(deps.db).find((client) => client.tokenHash === mine)?.kind !== 'device')
-      return c.json({ error: 'Seul un appareil relié peut autoriser une application' }, 403);
+    // Device only, like the whole /api surface (requireDevice above).
     let body: Record<string, unknown>;
     try {
       body = (await c.req.json()) as Record<string, unknown>;
