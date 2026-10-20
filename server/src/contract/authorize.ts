@@ -13,6 +13,10 @@ export interface AuthorizationRequest {
 }
 
 const FIELDS = ['client', 'redirect_uri', 'state', 'code_challenge'] as const;
+const MAX_CLIENT = 64;
+const MAX_STATE = 256;
+/** An S256 challenge: the base64url SHA-256 of the verifier, without padding. */
+const S256_CHALLENGE = /^[A-Za-z0-9_-]{43}$/;
 
 /** Loopback only: `http:`, host exactly `127.0.0.1` or `localhost`, no credentials, any port. */
 export function isLoopbackRedirect(uri: string): boolean {
@@ -30,13 +34,21 @@ export function isLoopbackRedirect(uri: string): boolean {
   );
 }
 
-/** The request when every field is a non-empty string and `redirect_uri` is loopback, else the reason. */
+/**
+ * The request when every field is a non-empty string, `client` and `state` are not too long,
+ * `code_challenge` is an S256 challenge and `redirect_uri` is loopback; else the reason.
+ */
 export function readAuthorizationRequest(
   input: Record<string, unknown>,
 ): { request: AuthorizationRequest } | { error: string } {
   const missing = FIELDS.filter((f) => typeof input[f] !== 'string' || !input[f]);
   if (missing.length) return { error: `Paramètres manquants : ${missing.join(', ')}` };
   const request = Object.fromEntries(FIELDS.map((f) => [f, input[f]])) as unknown as AuthorizationRequest;
+  if (request.client.length > MAX_CLIENT)
+    return { error: `client trop long : ${MAX_CLIENT} caractères au plus` };
+  if (request.state.length > MAX_STATE) return { error: `state trop long : ${MAX_STATE} caractères au plus` };
+  if (!S256_CHALLENGE.test(request.code_challenge))
+    return { error: 'code_challenge refusé : 43 caractères base64url attendus (S256)' };
   if (!isLoopbackRedirect(request.redirect_uri))
     return {
       error: 'redirect_uri refusé : seule une adresse http://127.0.0.1 ou http://localhost est acceptée',

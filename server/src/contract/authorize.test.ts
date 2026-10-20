@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import { makeHarness } from '../testing/harness.ts';
-import { isLoopbackRedirect } from './authorize.ts';
+import { isLoopbackRedirect, readAuthorizationRequest } from './authorize.ts';
 
 const json = { 'content-type': 'application/json' };
 const VERIFIER = 'a-verifier-of-enough-length-for-pkce-0123456789';
@@ -87,6 +87,51 @@ describe('GET /lun/v1/authorize', () => {
       expect(res.headers.get('content-type')).toContain('text/plain');
       expect((await res.text()).length).toBeGreaterThan(0);
     }
+  });
+});
+
+describe('readAuthorizationRequest', () => {
+  const valid = { client: "Lun'Anima", redirect_uri: REDIRECT, state: 'st4te', code_challenge: CHALLENGE };
+
+  it('accepts fields at their maximum length', () => {
+    expect(readAuthorizationRequest({ ...valid, client: 'c'.repeat(64), state: 's'.repeat(256) })).toEqual({
+      request: { ...valid, client: 'c'.repeat(64), state: 's'.repeat(256) },
+    });
+  });
+
+  it('rejects an overlong client or state and a code_challenge that is not S256', () => {
+    for (const [field, value, error] of [
+      ['client', 'c'.repeat(65), 'client trop long : 64 caractères au plus'],
+      ['state', 's'.repeat(257), 'state trop long : 256 caractères au plus'],
+      [
+        'code_challenge',
+        CHALLENGE.slice(1),
+        'code_challenge refusé : 43 caractères base64url attendus (S256)',
+      ],
+      ['code_challenge', `${CHALLENGE}x`, 'code_challenge refusé : 43 caractères base64url attendus (S256)'],
+      [
+        'code_challenge',
+        `${CHALLENGE.slice(1)}=`,
+        'code_challenge refusé : 43 caractères base64url attendus (S256)',
+      ],
+      ['code_challenge', 'plain-verifier', 'code_challenge refusé : 43 caractères base64url attendus (S256)'],
+    ])
+      expect(readAuthorizationRequest({ ...valid, [field]: value }), `${field}=${value}`).toEqual({ error });
+  });
+
+  it('is enforced by GET /lun/v1/authorize and POST /api/authorizations', async () => {
+    const h = makeHarness();
+    const res = await h.app.request(authorizeUrl({ ...valid, client: 'c'.repeat(65) }));
+    expect(res.status).toBe(400);
+    expect(res.headers.get('location')).toBeNull();
+    const device = await h.pairClient('phone');
+    const post = await h.app.request('/api/authorizations', {
+      method: 'POST',
+      headers: h.auth(device),
+      body: JSON.stringify({ ...valid, code_challenge: 'plain-verifier', decision: 'allow' }),
+    });
+    expect(post.status).toBe(400);
+    expect(h.db.prepare('SELECT COUNT(*) AS n FROM authorization_codes').get()).toEqual({ n: 0 });
   });
 });
 
