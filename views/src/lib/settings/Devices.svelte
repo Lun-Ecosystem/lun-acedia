@@ -46,6 +46,9 @@
       clients = clients.filter((x) => x.id !== c.id);
       confirming = false;
       done = `Accès retiré : ${c.current ? 'ce navigateur' : c.name}.`;
+      // No handover: one call with the dead token lets the host's 401 handling (its sign-out)
+      // take over instead of leaving a screen whose every call fails.
+      if (c.current) void client.listClients().catch(() => {});
     } catch (err) {
       error = errorText(err);
     } finally {

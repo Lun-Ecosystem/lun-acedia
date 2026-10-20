@@ -70,6 +70,22 @@ describe('Settings', () => {
     expect(client.listClients).toHaveBeenCalledTimes(1);
   });
 
+  it('without onSelfRevoked, probes the dead token once so the host sees the 401', async () => {
+    const { client } = fakeClient();
+    const user = userEvent.setup();
+    render(Settings, { props: { client } });
+    const section = screen.getByRole('region', { name: 'Appareils et applications' });
+    const self = (await within(section).findByText('Ce navigateur')).closest('li')!;
+    client.listClients.mockRejectedValueOnce(new Error('Jeton absent, invalide ou révoqué'));
+
+    await user.click(within(self).getByRole('button', { name: 'Retirer' }));
+    await user.click(within(section).getByRole('button', { name: 'Retirer ce navigateur' }));
+    expect(client.revokeClient).toHaveBeenCalledWith(1);
+    expect(await within(section).findByRole('status')).toHaveTextContent('Accès retiré : ce navigateur.');
+    expect(client.listClients).toHaveBeenCalledTimes(2);
+    expect(within(section).queryByRole('alert')).not.toBeInTheDocument();
+  });
+
   it('links a device with a 6-digit code and its expiry', async () => {
     const { client, user } = await open();
     client.createPairingCode.mockResolvedValueOnce({ code: '042517', expiresAt: '2026-11-02T08:10:00.000Z' });

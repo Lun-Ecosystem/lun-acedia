@@ -3,7 +3,9 @@ import '@testing-library/jest-dom/vitest';
 import { render, screen, within } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { Settings } from '@lun-ecosystem/lunacedia-views';
 import App from './App.svelte';
+import { createHttpClient } from './httpClient.ts';
 
 const TOKEN_KEY = 'lunacedia.token';
 
@@ -129,5 +131,30 @@ describe('App', () => {
     await user.click(screen.getByRole('button', { name: "Ouvrir Lun'Acedia" }));
     expect(window.location.search).toBe('');
     expect(await screen.findByRole('navigation', { name: 'Sections' })).toBeInTheDocument();
+  });
+});
+
+describe('Settings without onSelfRevoked', () => {
+  it('hands a self-revocation to the client’s 401 handling, once', async () => {
+    const { calls } = fakeServer();
+    const onUnauthorized = vi.fn();
+    const client = createHttpClient('http://acedia.test', 'tok-1', { onUnauthorized });
+    const user = userEvent.setup();
+    render(Settings, { props: { client } });
+
+    const section = await screen.findByRole('region', { name: 'Appareils et applications' });
+    const self = (await within(section).findByText('Ce navigateur')).closest('li')!;
+    // From now on the token is dead.
+    vi.mocked(globalThis.fetch).mockImplementation(async (input, init) => {
+      calls.push(`${init?.method ?? 'GET'} ${new URL(String(input)).pathname}`);
+      return init?.method === 'DELETE'
+        ? new Response(null, { status: 204 })
+        : new Response(JSON.stringify({ error: 'Jeton absent, invalide ou révoqué' }), { status: 401 });
+    });
+    await user.click(within(self).getByRole('button', { name: 'Retirer' }));
+    await user.click(within(section).getByRole('button', { name: 'Retirer ce navigateur' }));
+
+    await vi.waitFor(() => expect(onUnauthorized).toHaveBeenCalledTimes(1));
+    expect(calls.slice(-2)).toEqual(['DELETE /api/clients/1', 'GET /api/clients']);
   });
 });
