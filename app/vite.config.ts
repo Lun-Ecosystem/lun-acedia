@@ -1,5 +1,6 @@
 import { fileURLToPath } from 'node:url';
 import { svelte } from '@sveltejs/vite-plugin-svelte';
+import { svelteTesting } from '@testing-library/svelte/vite';
 import { VitePWA } from 'vite-plugin-pwa';
 import { defineConfig } from 'vitest/config';
 
@@ -8,6 +9,8 @@ const views = (path: string) => fileURLToPath(new URL(`../views/src/lib/${path}`
 export default defineConfig({
   plugins: [
     svelte(),
+    // Component tests: browser build of Svelte and cleanup between tests (no effect on the build).
+    ...(process.env.VITEST ? [svelteTesting()] : []),
     VitePWA({
       registerType: 'autoUpdate',
       // Only the app shell is cached: mail and agenda always come live from the server.

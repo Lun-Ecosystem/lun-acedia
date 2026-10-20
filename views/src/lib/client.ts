@@ -52,9 +52,26 @@ export interface TaskDraft {
   notes?: string;
 }
 
+/** A device or an app that holds a token; `current` is the one asking. */
+export interface LinkedClient {
+  id: number;
+  name: string;
+  kind: 'device' | 'app';
+  createdAt: string;
+  current: boolean;
+}
+
+/** An app asking for access (`GET /lun/v1/authorize`), as the authorization page received it. */
+export interface AuthorizationRequest {
+  client: string;
+  redirect_uri: string;
+  state: string;
+  code_challenge: string;
+}
+
 /**
  * Everything the views can ask of Lun'Acedia. The views know only this interface: the standalone
- * app and the Lun'Anima apps each give them an implementation (usually `httpClient`).
+ * app and each app that integrates the views give them an implementation (usually `httpClient`).
  */
 export interface AcediaClient {
   listMail(view: string, opts?: { q?: string; cursor?: string }): Promise<MailPage>;
@@ -96,6 +113,10 @@ export interface AcediaClient {
   googleAuthUrl(): Promise<{ url: string }>;
   googleDisconnect(): Promise<void>;
   createPairingCode(): Promise<{ code: string; expiresAt: string }>;
+  listClients(): Promise<LinkedClient[]>;
+  revokeClient(id: number): Promise<void>;
+  /** Records the decision of a linked device; returns where to send the browser back. */
+  authorize(req: AuthorizationRequest & { decision: 'allow' | 'deny' }): Promise<{ redirect: string }>;
   /** Calls `onEvent` for each satellite event; returns the function that stops listening. */
   subscribe(onEvent: (e: LunEvent) => void): () => void;
 }
@@ -203,6 +224,11 @@ export function httpClient(opts: { baseUrl: string; token: string; fetch?: typeo
       await call('POST', '/api/google/disconnect', {});
     },
     createPairingCode: () => call('POST', '/api/pairing-codes', {}),
+    listClients: async () => (await call<{ clients: LinkedClient[] }>('GET', '/api/clients')).clients,
+    revokeClient: async (id) => {
+      await call('DELETE', `/api/clients/${id}`);
+    },
+    authorize: (req) => call('POST', '/api/authorizations', req),
     subscribe(onEvent) {
       const stop = new AbortController();
       let lastId: string | undefined;

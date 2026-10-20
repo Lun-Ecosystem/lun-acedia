@@ -4,12 +4,19 @@
   import { errorText } from '../mail/format.ts';
   import type { LabelView } from '../types.ts';
   import Boxes from './Boxes.svelte';
+  import Devices from './Devices.svelte';
   import GoogleAccount from './GoogleAccount.svelte';
-  import Pairing from './Pairing.svelte';
   import Rules from './Rules.svelte';
   import Threshold from './Threshold.svelte';
 
-  let { client }: { client: AcediaClient } = $props();
+  let {
+    client,
+    onSelfRevoked,
+  }: {
+    client: AcediaClient;
+    /** Called once this browser revoked its own access (Appareils et applications). */
+    onSelfRevoked?: (() => void) | undefined;
+  } = $props();
 
   let labels = $state<LabelView[]>([]);
   let error = $state<string | null>(null);
@@ -29,7 +36,7 @@
   <Boxes {client} bind:labels />
   <Rules {client} {labels} />
   <Threshold {client} />
-  <Pairing {client} />
+  <Devices {client} {onSelfRevoked} />
 </div>
 
 <style>

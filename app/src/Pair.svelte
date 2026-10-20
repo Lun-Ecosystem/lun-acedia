@@ -4,8 +4,15 @@
   let {
     baseUrl,
     notice = null,
+    authorizing = false,
     onPaired,
-  }: { baseUrl: string; notice?: string | null; onPaired: (token: string) => void } = $props();
+  }: {
+    baseUrl: string;
+    notice?: string | null;
+    /** An app is waiting for an authorization: the page resumes it once this browser is paired. */
+    authorizing?: boolean;
+    onPaired: (token: string) => void;
+  } = $props();
 
   let code = $state('');
   let busy = $state(false);
@@ -26,15 +33,27 @@
 </script>
 
 <main class="pair lun-acedia">
-  <h1>Lun'Acedia</h1>
+  {#if authorizing}
+    <p class="brand">Lun'Acedia</p>
+    <h1 class="step">Confirmer depuis le serveur</h1>
+  {:else}
+    <h1>Lun'Acedia</h1>
+  {/if}
   {#if notice}<p class="notice" role="status">{notice}</p>{/if}
-  <p>
-    Entre le code d’appairage à 6 chiffres : au premier lancement il est dans les journaux du serveur, ensuite
-    dans Réglages, Appairage, sur un appareil déjà relié.
-  </p>
+  {#if authorizing}
+    <p>
+      Lun'Acedia ne connaît pas ce navigateur. Saisir le code donné par <code>npm run pair-code</code> sur la machine
+      qui héberge Lun'Acedia.
+    </p>
+  {:else}
+    <p>
+      Saisir le code d’appairage à 6 chiffres, donné par <code>npm run pair-code</code> sur la machine qui héberge
+      Lun'Acedia, ou dans Réglages, Appareils et applications, sur un appareil déjà relié.
+    </p>
+  {/if}
   <form onsubmit={submit}>
     <label
-      >Code d’appairage
+      >{authorizing ? 'Code à 6 chiffres' : 'Code d’appairage'}
       <input
         bind:value={code}
         inputmode="numeric"
@@ -43,7 +62,7 @@
         required
       />
     </label>
-    <button type="submit" disabled={busy}>Relier cet appareil</button>
+    <button type="submit" disabled={busy}>{authorizing ? 'Continuer' : 'Relier cet appareil'}</button>
   </form>
   {#if error}<p class="error" role="alert">{error}</p>{/if}
 </main>
@@ -62,9 +81,24 @@
     font-size: 2.6rem;
     margin: 0 0 1rem;
   }
+  .brand {
+    font-family: var(--serif);
+    font-weight: 500;
+    font-size: 1.35rem;
+    margin: 0 0 1.25rem;
+  }
+  h1.step {
+    font-size: 2rem;
+    line-height: 1.2;
+  }
   p {
     color: var(--lune);
     line-height: 1.5;
+  }
+  code {
+    font-family: inherit;
+    font-weight: 400;
+    color: var(--ivoire);
   }
   form {
     display: flex;

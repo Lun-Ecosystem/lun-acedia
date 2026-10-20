@@ -25,6 +25,36 @@ describe('createHttpClient', () => {
     expect(onUnauthorized).toHaveBeenCalledOnce();
   });
 
+  it('lists, revokes and authorizes clients on their routes', async () => {
+    const clients = [
+      { id: 2, name: 'Assistant local', kind: 'app', createdAt: '2026-10-20T09:30:00Z', current: false },
+    ];
+    const fetch = vi.fn<typeof globalThis.fetch>(async (url) => {
+      if (String(url).endsWith('/api/clients')) return json({ clients });
+      if (String(url).endsWith('/api/authorizations'))
+        return json({ redirect: 'http://127.0.0.1:5/cb?code=c' });
+      return new Response(null, { status: 204 });
+    });
+    const client = createHttpClient(BASE, 'tok-1', { fetch });
+    expect(await client.listClients()).toEqual(clients);
+    await client.revokeClient(2);
+    const req = {
+      client: 'Assistant local',
+      redirect_uri: 'http://127.0.0.1:5/cb',
+      state: 's',
+      code_challenge: 'c',
+      decision: 'allow' as const,
+    };
+    expect(await client.authorize(req)).toEqual({ redirect: 'http://127.0.0.1:5/cb?code=c' });
+    const calls = fetch.mock.calls.map(([url, init]) => [init?.method, String(url)]);
+    expect(calls).toEqual([
+      ['GET', `${BASE}/api/clients`],
+      ['DELETE', `${BASE}/api/clients/2`],
+      ['POST', `${BASE}/api/authorizations`],
+    ]);
+    expect(JSON.parse(String(fetch.mock.calls[2]![1]?.body))).toEqual(req);
+  });
+
   it('receives a streamed event and stops when unsubscribed', async () => {
     const event = {
       id: '7',
