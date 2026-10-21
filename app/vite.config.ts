@@ -46,6 +46,11 @@ export default defineConfig({
       { find: /^@lun-ecosystem\/lunacedia-views$/, replacement: views('index.ts') },
     ],
   },
+  build: {
+    // Only the app is built. catalogue.html (components in every state) is a development page: Vite dev
+    // serves any root html file, the build takes this input alone.
+    rolldownOptions: { input: fileURLToPath(new URL('index.html', import.meta.url)) },
+  },
   server: {
     proxy: {
       '/api': 'http://localhost:8787',
@@ -57,5 +62,7 @@ export default defineConfig({
     name: 'app',
     environment: 'node',
     include: ['src/**/*.test.ts'],
+    // Svelte libraries ship .svelte sources (Bits UI, Lucide icons one by one): compile them in tests.
+    server: { deps: { inline: [/bits-ui/, /@lucide\/svelte/, /svelte-toolbelt/, /runed/] } },
   },
 });

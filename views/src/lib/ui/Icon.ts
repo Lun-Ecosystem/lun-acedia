@@ -1,0 +1,37 @@
+/*
+ * The Lucide icons of the views, from one place. Screens import their icons here, so the set stays
+ * consistent (thin stroke, same sizes) and a missing icon is added once.
+ */
+import type { LucideProps } from '@lucide/svelte';
+import type { Component } from 'svelte';
+
+export type IconComponent = Component<LucideProps>;
+
+/** Stroke of every icon, as on plate 10. */
+export const ICON_STROKE = 1.75;
+
+export { default as Archive } from '@lucide/svelte/icons/archive';
+export { default as Bell } from '@lucide/svelte/icons/bell';
+export { default as Calendar } from '@lucide/svelte/icons/calendar';
+export { default as Check } from '@lucide/svelte/icons/check';
+export { default as ChevronDown } from '@lucide/svelte/icons/chevron-down';
+export { default as ChevronRight } from '@lucide/svelte/icons/chevron-right';
+export { default as Clock } from '@lucide/svelte/icons/clock';
+export { default as Ellipsis } from '@lucide/svelte/icons/ellipsis';
+export { default as Folder } from '@lucide/svelte/icons/folder';
+export { default as Inbox } from '@lucide/svelte/icons/inbox';
+export { default as Key } from '@lucide/svelte/icons/key-round';
+export { default as Link } from '@lucide/svelte/icons/link';
+export { default as List } from '@lucide/svelte/icons/list';
+export { default as Mail } from '@lucide/svelte/icons/mail';
+export { default as Minus } from '@lucide/svelte/icons/minus';
+export { default as Pencil } from '@lucide/svelte/icons/pencil';
+export { default as Plus } from '@lucide/svelte/icons/plus';
+export { default as Reply } from '@lucide/svelte/icons/reply';
+export { default as Search } from '@lucide/svelte/icons/search';
+export { default as Settings } from '@lucide/svelte/icons/settings';
+export { default as Sparkles } from '@lucide/svelte/icons/sparkles';
+export { default as Tag } from '@lucide/svelte/icons/tag';
+export { default as Trash } from '@lucide/svelte/icons/trash-2';
+export { default as TriangleAlert } from '@lucide/svelte/icons/triangle-alert';
+export { default as X } from '@lucide/svelte/icons/x';
