@@ -93,6 +93,27 @@ describe('CodeInput', () => {
     expect(input).toHaveValue('482917');
   });
 
+  it('a key typed into a full code sends nothing more', async () => {
+    const user = userEvent.setup();
+    const oncomplete = vi.fn();
+    render(CodeInput, { props: { oncomplete } });
+    const input = screen.getByRole('textbox', { name: 'Code à 6 chiffres' });
+    await user.type(input, '482917');
+    expect(oncomplete).toHaveBeenCalledOnce();
+    await user.type(input, '3');
+    await user.type(input, '45');
+    expect(oncomplete).toHaveBeenCalledOnce();
+    expect(input).toHaveValue('482917');
+  });
+
+  it('a full code given by the parent, then a key typed: nothing sent', async () => {
+    const user = userEvent.setup();
+    const oncomplete = vi.fn();
+    render(CodeInput, { props: { value: '482917', oncomplete } });
+    await user.type(screen.getByRole('textbox', { name: 'Code à 6 chiffres' }), '3');
+    expect(oncomplete).not.toHaveBeenCalled();
+  });
+
   it('keeps only the digits typed, and completes at the sixth', async () => {
     const user = userEvent.setup();
     const oncomplete = vi.fn();

@@ -43,12 +43,25 @@
   /** The box the next digit goes to (the last one when full). */
   const active = $derived(Math.min(value.length, LENGTH - 1));
 
+  /** The entry being typed replaces the whole content (all selected): a new entry, even if equal. */
+  let replacing = false;
+
+  function onBeforeInput(event: InputEvent & { currentTarget: HTMLInputElement }) {
+    const field = event.currentTarget;
+    replacing =
+      field.value.length > 0 && field.selectionStart === 0 && field.selectionEnd === field.value.length;
+  }
+
   function onInput(event: Event & { currentTarget: HTMLInputElement }) {
     const kept = event.currentTarget.value.replace(/\D/g, '').slice(0, LENGTH);
     event.currentTarget.value = kept;
+    const pasted = event instanceof InputEvent && /^insertFrom|^insertReplacement/.test(event.inputType);
+    // Completes once per entry: a new code, or the same code pasted or typed again over the whole
+    // content (retry). A key typed into a full code changes nothing and sends nothing.
+    const entry = kept !== value || pasted || replacing;
+    replacing = false;
     value = kept;
-    // Every entry that gives six digits completes, the same code again included (retry).
-    if (kept.length === LENGTH) oncomplete?.(kept);
+    if (kept.length === LENGTH && entry) oncomplete?.(kept);
   }
 </script>
 
@@ -64,6 +77,7 @@
     aria-invalid={invalid || undefined}
     {disabled}
     {value}
+    onbeforeinput={onBeforeInput}
     oninput={onInput}
     onfocus={() => (focused = true)}
     onblur={() => (focused = false)}

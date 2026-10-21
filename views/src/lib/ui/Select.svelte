@@ -140,7 +140,7 @@
     box-shadow: 0 0 0 3px var(--danger-doux);
   }
   /* Focused or open while invalid: the strong danger border, as the text field and the code. */
-  .entree.erreur:focus-visible,
+  .entree.erreur:focus,
   .entree.erreur[data-etat='focus'],
   .entree.erreur[data-state='open'] {
     border-color: var(--danger);
