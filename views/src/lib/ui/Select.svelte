@@ -139,11 +139,12 @@
     border-color: var(--danger-bord);
     box-shadow: 0 0 0 3px var(--danger-doux);
   }
-  /* An invalid select still shows where the focus is, as the text field does. */
+  /* Focused or open while invalid: the strong danger border, as the text field and the code. */
   .entree.erreur:focus-visible,
   .entree.erreur[data-etat='focus'],
   .entree.erreur[data-state='open'] {
-    border-color: var(--accent-texte);
+    border-color: var(--danger);
+    box-shadow: 0 0 0 3px var(--danger-doux);
   }
   .entree:disabled {
     opacity: 0.42;

@@ -78,8 +78,10 @@
     border-color: var(--danger-bord);
     box-shadow: 0 0 0 3px var(--danger-doux);
   }
-  .entree.erreur:focus-within {
+  .entree.erreur:focus-within,
+  .entree.erreur:has(input[data-etat='focus']) {
     border-color: var(--danger);
+    box-shadow: 0 0 0 3px var(--danger-doux);
   }
   .entree[data-disabled] {
     opacity: 0.42;

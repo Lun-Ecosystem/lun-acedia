@@ -46,9 +46,9 @@
   function onInput(event: Event & { currentTarget: HTMLInputElement }) {
     const kept = event.currentTarget.value.replace(/\D/g, '').slice(0, LENGTH);
     event.currentTarget.value = kept;
-    const changed = kept !== value;
     value = kept;
-    if (changed && kept.length === LENGTH) oncomplete?.(kept);
+    // Every entry that gives six digits completes, the same code again included (retry).
+    if (kept.length === LENGTH) oncomplete?.(kept);
   }
 </script>
 

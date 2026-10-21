@@ -386,6 +386,9 @@
           <Field label="Boîte des factures" error="Cette boîte n’existe plus dans Gmail.">
             <Select items={boxes} value="archives" />
           </Field>
+          <Field label="Boîte des factures, focus" error="Cette boîte n’existe plus dans Gmail.">
+            <Select items={boxes} value="archives" data-etat="focus" />
+          </Field>
           <Field label="Boîte des spams">
             <Select items={boxes} value="newsletters" disabled />
           </Field>

@@ -81,6 +81,18 @@ describe('CodeInput', () => {
     expect(input).toHaveValue('482917');
   });
 
+  it('a refused code pasted again completes again (retry)', async () => {
+    const user = userEvent.setup();
+    const oncomplete = vi.fn();
+    render(CodeInput, { props: { value: '482917', error: true, oncomplete } });
+    const input = screen.getByRole('textbox', { name: 'Code à 6 chiffres' });
+    await user.click(input);
+    await user.keyboard('{Control>}a{/Control}');
+    await user.paste('482 917');
+    expect(oncomplete).toHaveBeenCalledExactlyOnceWith('482917');
+    expect(input).toHaveValue('482917');
+  });
+
   it('keeps only the digits typed, and completes at the sixth', async () => {
     const user = userEvent.setup();
     const oncomplete = vi.fn();
