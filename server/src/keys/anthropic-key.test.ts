@@ -54,6 +54,7 @@ describe('Anthropic key', () => {
           tagIds: [],
           importance: 'normal',
           confidence: 50,
+          reason: 'Test.',
           usage: { inputTokens: 1, outputTokens: 1 },
         }),
       };

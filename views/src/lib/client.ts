@@ -112,7 +112,7 @@ export interface AcediaClient {
   journal(cursor?: number): Promise<{ items: JournalEntry[]; cursor?: number }>;
   undo(journalId: number): Promise<LabelChange>;
   getSettings(): Promise<Settings>;
-  putSettings(patch: Partial<Settings>): Promise<Settings>;
+  updateSettings(patch: Partial<Settings>): Promise<Settings>;
   agenda(from: string, to: string): Promise<AgendaItem[]>;
   undatedTasks(): Promise<AgendaTask[]>;
   listCalendars(): Promise<{ id: string; title: string }[]>;
@@ -213,7 +213,7 @@ export function httpClient(opts: { baseUrl: string; token: string; fetch?: typeo
     journal: (cursor) => call('GET', `/api/journal${cursor ? `?cursor=${cursor}` : ''}`),
     undo: (journalId) => call('POST', `/api/journal/${journalId}/undo`, {}),
     getSettings: () => call('GET', '/api/settings'),
-    putSettings: (patch) => call('PUT', '/api/settings', patch),
+    updateSettings: (patch) => call('PUT', '/api/settings', patch),
     agenda: (from, to) => items(`/api/agenda?${new URLSearchParams({ from, to })}`),
     undatedTasks: () => items('/api/tasks?undated=1'),
     listCalendars: () => items('/api/calendars'),

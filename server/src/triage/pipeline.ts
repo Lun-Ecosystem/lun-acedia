@@ -53,6 +53,9 @@ export const DEFAULT_THRESHOLD = 100;
 /** A mail never goes to spam on a lower confidence, whatever the threshold. */
 export const SPAM_CONFIDENCE = 95;
 
+/** Confidence from which « Tout valider » validates a proposal; never above the threshold. */
+export const DEFAULT_BULK_THRESHOLD = 85;
+
 export const getThreshold = (db: DatabaseSync) => getSetting(db, 'threshold', DEFAULT_THRESHOLD);
 
 const isUrgentName = (name: string) =>
@@ -227,6 +230,7 @@ async function triageOne(deps: TriageDeps, id: string, useAi: boolean): Promise<
     tagIds,
     importance: c.importance,
     confidence: c.confidence,
+    reason: c.reason,
     source: 'ai',
     status: auto ? 'auto' : 'pending',
   });

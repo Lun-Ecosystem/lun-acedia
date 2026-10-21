@@ -21,7 +21,7 @@ describe('Settings', () => {
     await user.clear(input);
     await user.type(input, '80');
     await user.click(within(section).getByRole('button', { name: 'Enregistrer' }));
-    expect(client.putSettings).toHaveBeenCalledWith({ threshold: 80 });
+    expect(client.updateSettings).toHaveBeenCalledWith({ threshold: 80 });
   });
 
   it('creates a box', async () => {

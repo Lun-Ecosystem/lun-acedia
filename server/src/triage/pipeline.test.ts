@@ -35,6 +35,7 @@ function fakeClassifier(answer: (input: ClassifyInput) => Partial<Classification
         tagIds: [],
         importance: 'normal',
         confidence: 50,
+        reason: 'Expéditeur déjà vu.',
         usage: { inputTokens: 1000, outputTokens: 50 },
         ...a,
       };
@@ -76,7 +77,18 @@ describe('triageNew', () => {
       tagIds: [],
       confidence: 99,
       status: 'pending',
+      reason: 'Expéditeur déjà vu.',
     });
+  });
+
+  it('a proposal without a reason (rule, or older) has no reason in the list', async () => {
+    let box = '';
+    const s = await setup(() => ({ boxId: box, confidence: 50 }));
+    box = s.ecole;
+    await s.triage(await s.deliver({ id: 'm1' }));
+    s.h.db.prepare('UPDATE proposals SET reason = NULL WHERE message_id = ?').run('m1');
+    const item = (await s.h.call('GET', '/api/mail?view=pending')).body.items[0];
+    expect('reason' in item.proposal).toBe(false);
   });
 
   it('threshold 100: even a 100 % proposal waits, for a box, the trash or spam', async () => {
@@ -268,9 +280,36 @@ describe('triageNew', () => {
 
   it('reads and changes the threshold', async () => {
     const s = await setup(() => ({}));
-    expect((await s.h.call('GET', '/api/settings')).body).toEqual({ threshold: 100 });
-    expect((await s.h.call('PUT', '/api/settings', { threshold: 80 })).body).toEqual({ threshold: 80 });
+    expect((await s.h.call('GET', '/api/settings')).body).toEqual({ threshold: 100, bulkThreshold: 85 });
+    expect((await s.h.call('PUT', '/api/settings', { threshold: 90 })).body).toEqual({
+      threshold: 90,
+      bulkThreshold: 85,
+    });
     expect((await s.h.call('PUT', '/api/settings', { threshold: 120 })).status).toBe(400);
+  });
+
+  it('changes the bulk threshold alone, and refuses one above the threshold', async () => {
+    const s = await setup(() => ({}));
+    expect((await s.h.call('PUT', '/api/settings', { bulkThreshold: 70 })).body).toEqual({
+      threshold: 100,
+      bulkThreshold: 70,
+    });
+    const refused = await s.h.call('PUT', '/api/settings', { threshold: 80, bulkThreshold: 90 });
+    expect(refused.status).toBe(400);
+    expect(refused.body.error).toBe(
+      'Le seuil de « Tout valider » ne peut pas dépasser le seuil d’auto-rangement',
+    );
+    expect((await s.h.call('GET', '/api/settings')).body).toEqual({ threshold: 100, bulkThreshold: 70 });
+    expect((await s.h.call('PUT', '/api/settings', { bulkThreshold: 101 })).status).toBe(400);
+  });
+
+  it('lowering the threshold below the bulk threshold clamps the bulk threshold', async () => {
+    const s = await setup(() => ({}));
+    expect((await s.h.call('PUT', '/api/settings', { threshold: 80 })).body).toEqual({
+      threshold: 80,
+      bulkThreshold: 80,
+    });
+    expect((await s.h.call('GET', '/api/settings')).body).toEqual({ threshold: 80, bulkThreshold: 80 });
   });
 
   it('never sends a mail to spam below 95 %', async () => {

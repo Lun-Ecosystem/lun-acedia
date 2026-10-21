@@ -111,9 +111,10 @@ export function fakeClient(opts: { mails?: MailSummary[]; journal?: JournalEntry
     deleteRule: vi.fn<AcediaClient['deleteRule']>(notUsed),
     journal: vi.fn<AcediaClient['journal']>(async () => ({ items: structuredClone(journal) })),
     undo: vi.fn<AcediaClient['undo']>(notUsed),
-    getSettings: vi.fn<AcediaClient['getSettings']>(async () => ({ threshold: 100 })),
-    putSettings: vi.fn<AcediaClient['putSettings']>(async (patch: { threshold?: number }) => ({
+    getSettings: vi.fn<AcediaClient['getSettings']>(async () => ({ threshold: 100, bulkThreshold: 85 })),
+    updateSettings: vi.fn<AcediaClient['updateSettings']>(async (patch) => ({
       threshold: patch.threshold ?? 100,
+      bulkThreshold: patch.bulkThreshold ?? 85,
     })),
     agenda: vi.fn<AcediaClient['agenda']>(async () => []),
     undatedTasks: vi.fn<AcediaClient['undatedTasks']>(async () => []),

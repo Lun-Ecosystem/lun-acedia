@@ -15,6 +15,8 @@ export interface ProposalView {
   tagIds: string[];
   confidence: number;
   status: 'pending' | 'auto' | 'accepted' | 'corrected';
+  /** Why the AI proposed this box (160 characters at most); absent for a rule or an older proposal. */
+  reason?: string;
 }
 
 export interface MailSummary {
@@ -165,6 +167,8 @@ export interface JournalEntry {
 export interface Settings {
   /** Confidence (0 to 100) the AI needs to file a mail on its own. */
   threshold: number;
+  /** Confidence (0 to 100, never above `threshold`) from which « Tout valider » validates. */
+  bulkThreshold: number;
 }
 
 export interface GoogleStatus {

@@ -137,6 +137,7 @@ const MIGRATIONS: string[] = [
      expires_at TEXT NOT NULL,
      used_at TEXT
    );`,
+  'ALTER TABLE proposals ADD COLUMN reason TEXT',
 ];
 
 export function openDb(path: string): DatabaseSync {

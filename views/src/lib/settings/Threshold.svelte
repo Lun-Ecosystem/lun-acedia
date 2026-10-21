@@ -22,7 +22,7 @@
     error = null;
     saved = false;
     try {
-      threshold = (await client.putSettings({ threshold })).threshold;
+      threshold = (await client.updateSettings({ threshold })).threshold;
       saved = true;
     } catch (err) {
       error = errorText(err);

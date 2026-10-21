@@ -18,6 +18,7 @@ interface Row {
   importance: ImportanceLevel;
   confidence: number;
   source: 'rule' | 'ai';
+  reason: string | null;
   status: ProposalStatus | 'processing';
   created_at: string;
 }
@@ -43,12 +44,23 @@ export function release(db: DatabaseSync, messageId: string): void {
 
 export function saveProposal(
   db: DatabaseSync,
-  p: Pick<Proposal, 'messageId' | 'boxId' | 'tagIds' | 'importance' | 'confidence' | 'source' | 'status'>,
+  p: Pick<Proposal, 'messageId' | 'boxId' | 'tagIds' | 'importance' | 'confidence' | 'source' | 'status'> & {
+    reason?: string;
+  },
 ): void {
   db.prepare(
-    `UPDATE proposals SET box_id = ?, tag_ids = ?, importance = ?, confidence = ?, source = ?, status = ?
+    `UPDATE proposals SET box_id = ?, tag_ids = ?, importance = ?, confidence = ?, source = ?, status = ?, reason = ?
      WHERE message_id = ?`,
-  ).run(p.boxId, JSON.stringify(p.tagIds), p.importance, p.confidence, p.source, p.status, p.messageId);
+  ).run(
+    p.boxId,
+    JSON.stringify(p.tagIds),
+    p.importance,
+    p.confidence,
+    p.source,
+    p.status,
+    p.reason ?? null,
+    p.messageId,
+  );
 }
 
 export function setProposalStatus(db: DatabaseSync, messageId: string, status: ProposalStatus): void {
@@ -69,6 +81,7 @@ export function getProposal(db: DatabaseSync, messageId: string): Proposal | und
     importance: row.importance,
     confidence: row.confidence,
     source: row.source,
+    ...(row.reason ? { reason: row.reason } : {}),
     status: row.status,
     createdAt: row.created_at,
   };
@@ -76,5 +89,11 @@ export function getProposal(db: DatabaseSync, messageId: string): Proposal | und
 
 /** What the mail list shows of a proposal. */
 export function proposalView(p: Proposal): ProposalView {
-  return { boxId: p.boxId, tagIds: p.tagIds, confidence: p.confidence, status: p.status };
+  return {
+    boxId: p.boxId,
+    tagIds: p.tagIds,
+    confidence: p.confidence,
+    status: p.status,
+    ...(p.reason ? { reason: p.reason } : {}),
+  };
 }

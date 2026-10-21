@@ -25,7 +25,11 @@ const Answer = z.object({
   tagIds: z.array(z.string()),
   importance: z.enum(['urgent', 'normal', 'info', 'none']),
   confidence: z.number(),
+  reason: z.string(),
 });
+
+/** Longest justification kept (and asked for). */
+export const MAX_REASON = 160;
 
 function schemaFor(input: ClassifyInput) {
   return {
@@ -35,8 +39,12 @@ function schemaFor(input: ClassifyInput) {
       tagIds: { type: 'array', items: { type: 'string' } },
       importance: { type: 'string', enum: ['urgent', 'normal', 'info', 'none'] },
       confidence: { type: 'integer' },
+      reason: {
+        type: 'string',
+        description: `Une phrase factuelle en français, ${MAX_REASON} caractères au plus, sans donnée personnelle recopiée`,
+      },
     },
-    required: ['boxId', 'tagIds', 'importance', 'confidence'],
+    required: ['boxId', 'tagIds', 'importance', 'confidence', 'reason'],
     additionalProperties: false,
   };
 }
@@ -49,6 +57,8 @@ const SYSTEM = `Tu tries les mails d'une boîte personnelle. Pour chaque mail, c
 - importance : "urgent" si le mail demande une action rapide (échéance proche, problème), "normal" s'il
   mérite d'être lu, "info" s'il est seulement informatif, "none" s'il n'a aucun intérêt.
 - confidence : ta certitude, de 0 à 100. Sois honnête : en cas de doute, donne une valeur basse.
+- reason : une seule phrase factuelle, en français, de 160 caractères au plus, sur ce qui justifie la
+  boîte (expéditeur déjà vu, contenu du mail). Ne recopie aucune donnée personnelle (adresse, numéro, montant).
 Les exemples montrent comment la personne a rangé des mails semblables : suis-les en priorité.`;
 
 function prompt(input: ClassifyInput): string {
@@ -119,6 +129,7 @@ export function createAnthropicClassifier(opts: {
         tagIds: parsed.tagIds.filter((t) => knownTags.has(t)),
         importance: parsed.importance,
         confidence: Math.max(0, Math.min(100, Math.round(parsed.confidence))),
+        reason: parsed.reason.trim().slice(0, MAX_REASON),
         usage: { inputTokens: res.usage.input_tokens, outputTokens: res.usage.output_tokens },
       };
       return result;
