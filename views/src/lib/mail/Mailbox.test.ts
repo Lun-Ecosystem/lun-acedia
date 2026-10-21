@@ -81,6 +81,26 @@ describe('Mailbox', () => {
 });
 
 describe('Journal', () => {
+  it('names the origin of each entry', async () => {
+    const entry = (id: number, origin: 'ai' | 'rule' | 'user') => ({
+      id,
+      at: '2026-11-02T08:00:00.000Z',
+      messageId: 'm1',
+      subject: 'Sujet 1',
+      origin,
+      action: 'file',
+      before: ['INBOX'],
+      after: ['L-ecole'],
+      undoneAt: null,
+    });
+    const { client } = fakeClient({ journal: [entry(1, 'ai'), entry(2, 'rule'), entry(3, 'user')] });
+    render(Journal, { props: { client } });
+    await screen.findAllByRole('button', { name: 'Annuler' });
+    expect(screen.getByText('IA')).toBeInTheDocument();
+    expect(screen.getByText('Règle')).toBeInTheDocument();
+    expect(screen.getByText('À la main')).toBeInTheDocument();
+  });
+
   it('says so when the mail changed since the automatic action', async () => {
     const { client } = fakeClient({
       journal: [

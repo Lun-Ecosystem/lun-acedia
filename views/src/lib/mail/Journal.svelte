@@ -4,6 +4,8 @@
   import type { JournalEntry, LabelView } from '../types.ts';
   import { errorText, shortDate } from './format.ts';
 
+  const ORIGINS = { ai: 'IA', rule: 'Règle', user: 'À la main' } as const;
+
   let { client }: { client: AcediaClient } = $props();
 
   let items = $state<JournalEntry[]>([]);
@@ -60,7 +62,7 @@
     {#each items as e (e.id)}
       <li class:undone={e.undoneAt}>
         <span class="date">{shortDate(e.at)}</span>
-        <span class="origin">{e.origin === 'ai' ? 'IA' : 'Règle'}</span>
+        <span class="origin">{ORIGINS[e.origin]}</span>
         <span class="subject">{e.subject || e.messageId}</span>
         <span class="what">{describe(e)}</span>
         {#if e.undoneAt}

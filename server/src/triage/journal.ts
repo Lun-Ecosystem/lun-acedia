@@ -10,6 +10,7 @@ import { getStoredMessage, setStoredLabels, upsertMessage } from '../gmail/store
 import { fetchMetadata } from '../gmail/sync.ts';
 import type { Origin, JournalEntry, TodayStats } from '../types.ts';
 import { restoreExample, type Example } from './examples.ts';
+import { deleteRule } from './rules.ts';
 import { setProposalStatus, type ProposalStatus } from './proposals.ts';
 
 export type { Origin, JournalEntry };
@@ -20,6 +21,8 @@ export type UserAction = 'validate' | 'correct' | 'file' | 'archive' | 'trash' |
 export interface Previous {
   proposalStatus: ProposalStatus;
   example: (Example & { at?: string }) | null;
+  /** The rule "remember this sender" created, removed again by the undo. */
+  createdRuleId?: number;
 }
 
 export class ConflictError extends Error {
@@ -145,12 +148,21 @@ export async function undo(deps: ActionDeps, journalId: number): Promise<LabelCh
   const change =
     add.length || remove.length ? await modifyLabels(deps, row.message_id, add, remove) : undefined;
   if (!change) setStoredLabels(deps.db, row.message_id, labels);
-  if (row.restore) {
-    const previous = JSON.parse(row.restore) as Previous;
-    setProposalStatus(deps.db, row.message_id, previous.proposalStatus);
-    restoreExample(deps.db, row.message_id, previous.example, deps.now());
+  // The local writes go together: a failure leaves none of them.
+  deps.db.exec('BEGIN');
+  try {
+    if (row.restore) {
+      const previous = JSON.parse(row.restore) as Previous;
+      setProposalStatus(deps.db, row.message_id, previous.proposalStatus);
+      restoreExample(deps.db, row.message_id, previous.example, deps.now());
+      if (previous.createdRuleId !== undefined) deleteRule(deps.db, previous.createdRuleId);
+    }
+    deps.db.prepare('UPDATE journal SET undone_at = ? WHERE id = ?').run(deps.now().toISOString(), journalId);
+    deps.db.exec('COMMIT');
+  } catch (err) {
+    deps.db.exec('ROLLBACK');
+    throw err;
   }
-  deps.db.prepare('UPDATE journal SET undone_at = ? WHERE id = ?').run(deps.now().toISOString(), journalId);
   return { id: row.message_id, before: after, after: change?.after ?? labels };
 }
 

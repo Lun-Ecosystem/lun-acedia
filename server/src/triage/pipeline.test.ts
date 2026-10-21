@@ -270,6 +270,23 @@ describe('triageNew', () => {
     expect(rules[0]).toMatchObject({ field: 'from', op: 'equals', value: 'julie@mail.fr', boxId: s.perso });
   });
 
+  it('undoing a correction removes the rule it created, never a pre-existing one', async () => {
+    const s = await setup(() => ({ boxId: null, confidence: 50 }));
+    await s.triage(await s.deliver({ id: 'm1', from: 'Julie <julie@mail.fr>' }));
+    await s.triage(await s.deliver({ id: 'm2', from: 'Julie <julie@mail.fr>' }));
+    const body = { boxId: s.perso, tagIds: [], rememberSender: true };
+    const first = await s.h.call('POST', '/api/mail/m1/correct', body);
+    expect(listRules(s.h.db)).toHaveLength(1);
+    expect((await s.h.call('POST', `/api/journal/${first.body.journalId}/undo`)).status).toBe(200);
+    expect(listRules(s.h.db)).toHaveLength(0);
+    // A rule that already existed is not the correction's: it survives the undo.
+    createRule(s.h.db, { field: 'from', op: 'equals', value: 'julie@mail.fr', boxId: s.perso });
+    const second = await s.h.call('POST', '/api/mail/m2/correct', body);
+    expect(listRules(s.h.db)).toHaveLength(1);
+    await s.h.call('POST', `/api/journal/${second.body.journalId}/undo`);
+    expect(listRules(s.h.db)).toHaveLength(1);
+  });
+
   it('correcting without rememberSender creates no rule', async () => {
     const s = await setup(() => ({ boxId: null, confidence: 50 }));
     await s.triage(await s.deliver({ id: 'm1' }));
