@@ -150,7 +150,7 @@ export interface Rule {
   position: number;
 }
 
-export type Origin = 'rule' | 'ai';
+export type Origin = 'rule' | 'ai' | 'user';
 
 export interface JournalEntry {
   id: number;
@@ -175,3 +175,14 @@ export interface GoogleStatus {
   connected: boolean;
   email?: string;
 }
+
+/** What happened today (a calendar day in `Europe/Paris`), from the journal minus the undone entries. */
+export interface TodayStats {
+  /** Mails filed by a rule or by the AI. */
+  autoFiled: number;
+  validated: number;
+  corrected: number;
+}
+
+/** A label change recorded in the journal, so that it can be undone. */
+export type JournaledChange = LabelChange & { journalId: number };

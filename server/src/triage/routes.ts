@@ -5,7 +5,7 @@ import { stripUndefined } from '../util.ts';
 import { requireToken } from '../contract/auth.ts';
 import { BadRequestError, NotFoundError, type ActionDeps } from '../gmail/actions.ts';
 import type { GoogleClient } from '../google/client.ts';
-import { ConflictError, listJournal, undo } from './journal.ts';
+import { ConflictError, listJournal, todayStats, undo } from './journal.ts';
 import { createLabel, listLabels, setRole } from './labels.ts';
 import { getSetting, putSetting } from '../db.ts';
 import { correct, DEFAULT_BULK_THRESHOLD, DEFAULT_THRESHOLD, validate } from './pipeline.ts';
@@ -90,14 +90,28 @@ export function triageRoutes(deps: AppDeps, google: GoogleClient | undefined): H
   });
   r.post('/journal/:id/undo', (c) => answer(c, () => undo(actionDeps(), Number(c.req.param('id')))));
 
+  r.get('/stats/today', (c) => c.json(todayStats(deps.db, deps.clock())));
+
   r.post('/mail/:id/validate', (c) => answer(c, () => validate(actionDeps(), c.req.param('id'))));
   r.post('/mail/:id/correct', async (c) => {
     const input = await body(
       c,
-      z.object({ boxId: z.string().min(1), tagIds: z.array(z.string()).default([]) }),
+      z.object({
+        boxId: z.string().min(1),
+        tagIds: z.array(z.string()).default([]),
+        rememberSender: z.boolean().optional(),
+      }),
     );
     if (input instanceof Response) return input;
-    return answer(c, () => correct(actionDeps(), c.req.param('id'), input.boxId, input.tagIds));
+    return answer(c, () =>
+      correct(
+        actionDeps(),
+        c.req.param('id'),
+        input.boxId,
+        input.tagIds,
+        stripUndefined({ rememberSender: input.rememberSender }),
+      ),
+    );
   });
 
   r.get('/settings', (c) => c.json(settings(deps)));

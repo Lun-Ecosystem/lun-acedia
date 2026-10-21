@@ -1,6 +1,13 @@
 import { vi } from 'vitest';
 import { ApiError, type AcediaClient } from '../lib/client.ts';
-import type { JournalEntry, LabelChange, LabelView, MailDetail, MailSummary } from '../lib/types.ts';
+import type {
+  JournalEntry,
+  JournaledChange,
+  LabelChange,
+  LabelView,
+  MailDetail,
+  MailSummary,
+} from '../lib/types.ts';
 
 export const LABELS: LabelView[] = [
   { id: 'INBOX', name: 'INBOX', type: 'system' },
@@ -48,6 +55,8 @@ export function fakeClient(opts: { mails?: MailSummary[]; journal?: JournalEntry
     m.unread = m.labels.includes('UNREAD');
     return { id, before, after: [...m.labels] };
   };
+  let nextJournalId = 1;
+  const journaled = (change: LabelChange): JournaledChange => ({ ...change, journalId: nextJournalId++ });
   const boxes = () => LABELS.filter((l) => l.role === 'box').map((l) => l.id);
   const inView = (view: string, m: MailSummary) => {
     if (view === 'inbox') return m.labels.includes('INBOX');
@@ -73,12 +82,12 @@ export function fakeClient(opts: { mails?: MailSummary[]; journal?: JournalEntry
     }),
     attachment: vi.fn<AcediaClient['attachment']>(async () => new Blob(['contenu'])),
     file: vi.fn<AcediaClient['file']>(async (id: string, boxId: string) =>
-      relabel(id, [boxId], ['INBOX', ...boxes().filter((b) => b !== boxId)]),
+      journaled(relabel(id, [boxId], ['INBOX', ...boxes().filter((b) => b !== boxId)])),
     ),
-    trash: vi.fn<AcediaClient['trash']>(async (id: string) => relabel(id, ['TRASH'], ['INBOX'])),
+    trash: vi.fn<AcediaClient['trash']>(async (id: string) => journaled(relabel(id, ['TRASH'], ['INBOX']))),
     untrash: vi.fn<AcediaClient['untrash']>(async (id: string) => relabel(id, [], ['TRASH'])),
-    archive: vi.fn<AcediaClient['archive']>(async (id: string) => relabel(id, [], ['INBOX'])),
-    spam: vi.fn<AcediaClient['spam']>(async (id: string) => relabel(id, ['SPAM'], ['INBOX'])),
+    archive: vi.fn<AcediaClient['archive']>(async (id: string) => journaled(relabel(id, [], ['INBOX']))),
+    spam: vi.fn<AcediaClient['spam']>(async (id: string) => journaled(relabel(id, ['SPAM'], ['INBOX']))),
     setTags: vi.fn<AcediaClient['setTags']>(async (id: string, add: string[], remove: string[]) =>
       relabel(id, add, remove),
     ),
@@ -95,13 +104,13 @@ export function fakeClient(opts: { mails?: MailSummary[]; journal?: JournalEntry
       const m = mails.find((x) => x.id === id)!;
       relabel(id, [m.proposal!.boxId!], ['INBOX']);
       m.proposal = { ...m.proposal!, status: 'accepted' };
-      return m.proposal;
+      return { ...m.proposal, journalId: nextJournalId++ };
     }),
     correct: vi.fn<AcediaClient['correct']>(async (id: string, boxId: string, tagIds: string[]) => {
       const m = mails.find((x) => x.id === id)!;
       relabel(id, [boxId, ...tagIds], ['INBOX']);
       m.proposal = { boxId, tagIds, confidence: m.proposal?.confidence ?? 0, status: 'corrected' };
-      return m.proposal;
+      return { ...m.proposal, journalId: nextJournalId++ };
     }),
     listLabels: vi.fn<AcediaClient['listLabels']>(async () => structuredClone(LABELS)),
     createLabel: vi.fn<AcediaClient['createLabel']>(notUsed),
@@ -111,6 +120,7 @@ export function fakeClient(opts: { mails?: MailSummary[]; journal?: JournalEntry
     deleteRule: vi.fn<AcediaClient['deleteRule']>(notUsed),
     journal: vi.fn<AcediaClient['journal']>(async () => ({ items: structuredClone(journal) })),
     undo: vi.fn<AcediaClient['undo']>(notUsed),
+    todayStats: vi.fn<AcediaClient['todayStats']>(async () => ({ autoFiled: 0, validated: 0, corrected: 0 })),
     getSettings: vi.fn<AcediaClient['getSettings']>(async () => ({ threshold: 100, bulkThreshold: 85 })),
     updateSettings: vi.fn<AcediaClient['updateSettings']>(async (patch) => ({
       threshold: patch.threshold ?? 100,

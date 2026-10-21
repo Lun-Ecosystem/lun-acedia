@@ -138,6 +138,7 @@ const MIGRATIONS: string[] = [
      used_at TEXT
    );`,
   'ALTER TABLE proposals ADD COLUMN reason TEXT',
+  'ALTER TABLE journal ADD COLUMN restore TEXT',
 ];
 
 export function openDb(path: string): DatabaseSync {

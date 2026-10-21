@@ -12,6 +12,7 @@ import {
   setTags,
   trashMail,
   type ActionDeps,
+  type BatchOp,
   type LabelChange,
 } from '../gmail/actions.ts';
 import { plainText } from '../gmail/body.ts';
@@ -25,8 +26,8 @@ import {
   type Classification,
   type Classifier,
 } from './classifier.ts';
-import { pickExamples, recordExample } from './examples.ts';
-import { ConflictError, logAuto } from './journal.ts';
+import { getExample, pickExamples, recordExample } from './examples.ts';
+import { ConflictError, logAuto, logUser, type Previous, type UserAction } from './journal.ts';
 import { listBoxes, listTags } from './labels.ts';
 import { costOf } from './prices.ts';
 import {
@@ -39,7 +40,7 @@ import {
   type Proposal,
 } from './proposals.ts';
 import { dequeue, enqueue, failedAttempt, queuedIds } from './queue.ts';
-import { listRules, matchRule } from './rules.ts';
+import { createRule, listRules, matchRule } from './rules.ts';
 
 export { getProposal };
 
@@ -291,13 +292,46 @@ function remember(deps: ActionDeps, id: string, boxId: string | null, tagIds: st
   if (mail) recordExample(deps.db, mail, boxId ?? 'none', tagIds, deps.now());
 }
 
+/** What an undo has to put back besides the labels. */
+function snapshot(db: DatabaseSync, id: string): Previous {
+  return { proposalStatus: getProposal(db, id)?.status ?? 'pending', example: getExample(db, id) };
+}
+
+/** The change a gesture made, or an empty one (same labels) when it moved nothing. */
+const changeOf = (deps: ActionDeps, id: string, change: LabelChange | undefined): LabelChange => {
+  if (change) return change;
+  const labels = getStoredMessage(deps.db, id)?.labels ?? [];
+  return { id, before: labels, after: labels };
+};
+
 /** CrOliX accepts the proposal as it is. */
-export async function validate(deps: ActionDeps, id: string): Promise<Proposal> {
+export async function validate(deps: ActionDeps, id: string): Promise<Proposal & { journalId: number }> {
   const p = pendingProposal(deps.db, id);
-  await applyTarget(deps, id, p.boxId, p.tagIds);
+  const previous = snapshot(deps.db, id);
+  const change = await applyTarget(deps, id, p.boxId, p.tagIds);
   setProposalStatus(deps.db, id, 'accepted');
   remember(deps, id, p.boxId, p.tagIds);
-  return getProposal(deps.db, id)!;
+  const journalId = logUser(deps.db, changeOf(deps, id, change), 'validate', deps.now(), previous);
+  return { ...getProposal(deps.db, id)!, journalId };
+}
+
+/** The sender's bare address, lower case; `undefined` when none can be read. */
+function senderAddress(deps: ActionDeps, id: string): string | undefined {
+  const addr = getStoredMessage(deps.db, id)?.from.addr.trim().toLowerCase();
+  return addr && /^[^\s@<>]+@[^\s@<>]+$/.test(addr) ? addr : undefined;
+}
+
+/** Files every mail of a sender in a box: one rule, last in line, unless the same one exists. */
+function ruleForSender(deps: ActionDeps, id: string, boxId: string): void {
+  // The rules only take boxes: the trash and the spam stay a gesture, never a standing order.
+  if (!boxIds(deps.db).includes(boxId)) return;
+  const addr = senderAddress(deps, id);
+  if (!addr) return;
+  const exists = listRules(deps.db).some(
+    (r) =>
+      r.field === 'from' && r.op === 'equals' && r.value.trim().toLowerCase() === addr && r.boxId === boxId,
+  );
+  if (!exists) createRule(deps.db, { field: 'from', op: 'equals', value: addr, boxId });
 }
 
 /** CrOliX files the mail elsewhere than proposed: the mail gets exactly these box and tags. */
@@ -306,17 +340,21 @@ export async function correct(
   id: string,
   boxId: string,
   tagIds: string[],
-): Promise<Proposal> {
+  opts: { rememberSender?: boolean } = {},
+): Promise<Proposal & { journalId: number }> {
   if (!getProposal(deps.db, id)) throw new NotFoundError('Aucune proposition pour ce mail');
   if (boxId !== 'trash' && boxId !== 'spam' && !boxIds(deps.db).includes(boxId))
     throw new BadRequestError(`« ${boxId} » n’est pas une boîte`);
   const tags = new Set(listTags(deps.db).map((t) => t.id));
   const unknown = tagIds.find((t) => !tags.has(t));
   if (unknown) throw new BadRequestError(`« ${unknown} » n’est pas une étiquette`);
-  await applyTarget(deps, id, boxId, tagIds, true);
+  const previous = snapshot(deps.db, id);
+  const change = await applyTarget(deps, id, boxId, tagIds, true);
   setProposalStatus(deps.db, id, 'corrected');
   remember(deps, id, boxId, tagIds);
-  return getProposal(deps.db, id)!;
+  if (opts.rememberSender) ruleForSender(deps, id, boxId);
+  const journalId = logUser(deps.db, changeOf(deps, id, change), 'correct', deps.now(), previous);
+  return { ...getProposal(deps.db, id)!, journalId };
 }
 
 /**
@@ -329,6 +367,26 @@ export function onManualFile(deps: ActionDeps, id: string, boxId: string): void 
   recordExample(deps.db, mail, boxId, tagIdsOf(deps.db, mail.labels), deps.now());
   const p = getProposal(deps.db, id);
   if (p?.status === 'pending') setProposalStatus(deps.db, id, p.boxId === boxId ? 'accepted' : 'corrected');
+}
+
+const JOURNALED: Partial<Record<BatchOp['kind'], UserAction>> = {
+  file: 'file',
+  archive: 'archive',
+  trash: 'trash',
+  spam: 'spam',
+};
+
+/**
+ * Called after a mail action done by hand: a filing is learned (`onManualFile`), then the gesture is
+ * journaled so that it can be undone. Returns its journal id, or `undefined` for the actions the
+ * journal does not keep (read, tags, untrash).
+ */
+export function afterUserAction(deps: ActionDeps, change: LabelChange, op: BatchOp): number | undefined {
+  const action = JOURNALED[op.kind];
+  if (!action) return undefined;
+  const previous = snapshot(deps.db, change.id);
+  if (op.kind === 'file') onManualFile(deps, change.id, op.boxId);
+  return logUser(deps.db, change, action, deps.now(), previous);
 }
 
 /** Adds its proposal to a listed mail. */

@@ -6,6 +6,7 @@ import type {
   Draft,
   GoogleStatus,
   JournalEntry,
+  JournaledChange,
   LabelChange,
   LabelView,
   LunEvent,
@@ -18,6 +19,7 @@ import type {
   RuleOp,
   SendAsAddress,
   Settings,
+  TodayStats,
 } from './types.ts';
 
 export interface RuleDraft {
@@ -91,18 +93,24 @@ export interface AcediaClient {
   getMail(id: string): Promise<MailDetail>;
   /** An attachment's content, by its part id (`AttachmentMeta.id`). */
   attachment(id: string, partId: string): Promise<Blob>;
-  file(id: string, boxId: string): Promise<LabelChange>;
-  trash(id: string): Promise<LabelChange>;
+  file(id: string, boxId: string): Promise<JournaledChange>;
+  trash(id: string): Promise<JournaledChange>;
   untrash(id: string): Promise<LabelChange>;
-  archive(id: string): Promise<LabelChange>;
-  spam(id: string): Promise<LabelChange>;
+  archive(id: string): Promise<JournaledChange>;
+  spam(id: string): Promise<JournaledChange>;
   setTags(id: string, add: string[], remove: string[]): Promise<LabelChange>;
   markRead(id: string, read: boolean): Promise<LabelChange>;
-  batch(ids: string[], op: BatchOp): Promise<LabelChange[]>;
+  /** `journalId` is present for the filing, archive, trash and spam operations. */
+  batch(ids: string[], op: BatchOp): Promise<(LabelChange & { journalId?: number })[]>;
   send(draft: Draft): Promise<{ id: string; threadId: string }>;
   sendAs(replyTo?: string): Promise<{ addresses: SendAsAddress[]; default: string }>;
-  validate(id: string): Promise<ProposalView>;
-  correct(id: string, boxId: string, tagIds: string[]): Promise<ProposalView>;
+  validate(id: string): Promise<ProposalView & { journalId: number }>;
+  correct(
+    id: string,
+    boxId: string,
+    tagIds: string[],
+    opts?: { rememberSender?: boolean },
+  ): Promise<ProposalView & { journalId: number }>;
   listLabels(): Promise<LabelView[]>;
   createLabel(name: string, role: Role): Promise<LabelView>;
   updateLabel(id: string, patch: { role: Role | null }): Promise<LabelView>;
@@ -113,6 +121,7 @@ export interface AcediaClient {
   undo(journalId: number): Promise<LabelChange>;
   getSettings(): Promise<Settings>;
   updateSettings(patch: Partial<Settings>): Promise<Settings>;
+  todayStats(): Promise<TodayStats>;
   agenda(from: string, to: string): Promise<AgendaItem[]>;
   undatedTasks(): Promise<AgendaTask[]>;
   listCalendars(): Promise<{ id: string; title: string }[]>;
@@ -200,7 +209,8 @@ export function httpClient(opts: { baseUrl: string; token: string; fetch?: typeo
     send: (draft) => call('POST', '/api/mail/send', draft),
     sendAs: (replyTo) => call('GET', `/api/send-as${replyTo ? `?replyTo=${enc(replyTo)}` : ''}`),
     validate: (id) => call('POST', `/api/mail/${enc(id)}/validate`, {}),
-    correct: (id, boxId, tagIds) => call('POST', `/api/mail/${enc(id)}/correct`, { boxId, tagIds }),
+    correct: (id, boxId, tagIds, opts) =>
+      call('POST', `/api/mail/${enc(id)}/correct`, { boxId, tagIds, ...opts }),
     listLabels: async () => (await call<{ labels: LabelView[] }>('GET', '/api/labels')).labels,
     createLabel: (name, role) => call('POST', '/api/labels', { name, role }),
     updateLabel: (id, patch) => call('PATCH', `/api/labels/${enc(id)}`, patch),
@@ -214,6 +224,7 @@ export function httpClient(opts: { baseUrl: string; token: string; fetch?: typeo
     undo: (journalId) => call('POST', `/api/journal/${journalId}/undo`, {}),
     getSettings: () => call('GET', '/api/settings'),
     updateSettings: (patch) => call('PUT', '/api/settings', patch),
+    todayStats: () => call('GET', '/api/stats/today'),
     agenda: (from, to) => items(`/api/agenda?${new URLSearchParams({ from, to })}`),
     undatedTasks: () => items('/api/tasks?undated=1'),
     listCalendars: () => items('/api/calendars'),

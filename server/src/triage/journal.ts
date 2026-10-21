@@ -8,9 +8,19 @@ import {
 } from '../gmail/actions.ts';
 import { getStoredMessage, setStoredLabels, upsertMessage } from '../gmail/store.ts';
 import { fetchMetadata } from '../gmail/sync.ts';
-import type { Origin, JournalEntry } from '../types.ts';
+import type { Origin, JournalEntry, TodayStats } from '../types.ts';
+import { restoreExample, type Example } from './examples.ts';
+import { setProposalStatus, type ProposalStatus } from './proposals.ts';
 
 export type { Origin, JournalEntry };
+
+export type UserAction = 'validate' | 'correct' | 'file' | 'archive' | 'trash' | 'spam';
+
+/** The state an undo puts back besides the labels. */
+export interface Previous {
+  proposalStatus: ProposalStatus;
+  example: (Example & { at?: string }) | null;
+}
 
 export class ConflictError extends Error {
   constructor(message: string) {
@@ -47,6 +57,30 @@ export function logAuto(
   return Number(info.lastInsertRowid);
 }
 
+/** Records a gesture of CrOliX; `previous` is what an undo restores besides the labels. */
+export function logUser(
+  db: DatabaseSync,
+  change: LabelChange,
+  action: UserAction,
+  now: Date,
+  previous?: Previous,
+): number {
+  const info = db
+    .prepare(
+      'INSERT INTO journal (at, message_id, origin, action, before, after, restore) VALUES (?, ?, ?, ?, ?, ?, ?)',
+    )
+    .run(
+      now.toISOString(),
+      change.id,
+      'user',
+      action,
+      JSON.stringify(change.before),
+      JSON.stringify(change.after),
+      previous ? JSON.stringify(previous) : null,
+    );
+  return Number(info.lastInsertRowid);
+}
+
 interface Row {
   id: number;
   at: string;
@@ -56,6 +90,7 @@ interface Row {
   before: string;
   after: string;
   undone_at: string | null;
+  restore: string | null;
 }
 
 function toEntry(db: DatabaseSync, r: Row): JournalEntry {
@@ -110,6 +145,70 @@ export async function undo(deps: ActionDeps, journalId: number): Promise<LabelCh
   const change =
     add.length || remove.length ? await modifyLabels(deps, row.message_id, add, remove) : undefined;
   if (!change) setStoredLabels(deps.db, row.message_id, labels);
+  if (row.restore) {
+    const previous = JSON.parse(row.restore) as Previous;
+    setProposalStatus(deps.db, row.message_id, previous.proposalStatus);
+    restoreExample(deps.db, row.message_id, previous.example, deps.now());
+  }
   deps.db.prepare('UPDATE journal SET undone_at = ? WHERE id = ?').run(deps.now().toISOString(), journalId);
   return { id: row.message_id, before: after, after: change?.after ?? labels };
+}
+
+const PARIS = 'Europe/Paris';
+
+/** Offset of Paris from UTC at an instant, in ms (DST included). */
+function parisOffset(at: number): number {
+  const p = Object.fromEntries(
+    new Intl.DateTimeFormat('en-GB', {
+      timeZone: PARIS,
+      hourCycle: 'h23',
+      year: 'numeric',
+      month: 'numeric',
+      day: 'numeric',
+      hour: 'numeric',
+      minute: 'numeric',
+      second: 'numeric',
+    })
+      .formatToParts(new Date(at))
+      .map((x) => [x.type, Number(x.value)]),
+  ) as Record<string, number>;
+  return Date.UTC(p.year!, p.month! - 1, p.day!, p.hour, p.minute, p.second) - Math.floor(at / 1000) * 1000;
+}
+
+/** The instant at which the calendar day of `now`, in Paris, began. */
+export function parisDayStart(now: Date): Date {
+  const o = parisOffset(now.getTime());
+  const local = new Date(now.getTime() + o);
+  const midnight = Date.UTC(local.getUTCFullYear(), local.getUTCMonth(), local.getUTCDate());
+  // The offset can differ at midnight from the one at `now` (the clocks change at night).
+  return new Date(midnight - parisOffset(midnight - o));
+}
+
+/** The first instant of the next calendar day in Paris. */
+function parisDayEnd(now: Date): Date {
+  const start = parisDayStart(now).getTime();
+  // 36 h after a day start is always inside the next day, whatever the clocks did.
+  return parisDayStart(new Date(start + 36 * 3_600_000));
+}
+
+/** What was done today (a Paris calendar day); undone entries do not count. */
+export function todayStats(db: DatabaseSync, now: Date): TodayStats {
+  const rows = db
+    .prepare(
+      `SELECT origin, action, COUNT(*) AS n FROM journal
+       WHERE undone_at IS NULL AND at >= ? AND at < ? GROUP BY origin, action`,
+    )
+    .all(parisDayStart(now).toISOString(), parisDayEnd(now).toISOString()) as {
+    origin: Origin;
+    action: string;
+    n: number;
+  }[];
+  const stats: TodayStats = { autoFiled: 0, validated: 0, corrected: 0 };
+  for (const r of rows) {
+    if (r.origin === 'user') {
+      if (r.action === 'validate') stats.validated += r.n;
+      if (r.action === 'correct') stats.corrected += r.n;
+    } else stats.autoFiled += r.n;
+  }
+  return stats;
 }

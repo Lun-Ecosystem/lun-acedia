@@ -18,7 +18,7 @@ import { getProposal, triageNew } from './pipeline.ts';
 import { getSetting } from '../db.ts';
 import { claim } from './proposals.ts';
 import { queuedIds, recoverQueue } from './queue.ts';
-import { createRule } from './rules.ts';
+import { createRule, listRules } from './rules.ts';
 
 /** A classifier that answers what the test decides and counts its calls. */
 function fakeClassifier(answer: (input: ClassifyInput) => Partial<Classification> | Error) {
@@ -254,6 +254,27 @@ describe('triageNew', () => {
     await s.deliver({ id: 'm2', from: 'Julie <julie@mail.fr>' });
     const examples = pickExamples(s.h.db, getStoredMessage(s.h.db, 'm2')!);
     expect(examples[0]).toMatchObject({ from: 'julie@mail.fr', boxId: s.perso });
+  });
+
+  it('rememberSender creates one rule for the sender, even when asked twice', async () => {
+    let box = '';
+    const s = await setup(() => ({ boxId: box, confidence: 50 }));
+    box = s.ecole;
+    await s.triage(await s.deliver({ id: 'm1', from: 'Julie <Julie@Mail.fr>' }));
+    await s.triage(await s.deliver({ id: 'm2', from: 'Julie <julie@mail.fr>' }));
+    const body = { boxId: s.perso, tagIds: [], rememberSender: true };
+    expect((await s.h.call('POST', '/api/mail/m1/correct', body)).status).toBe(200);
+    expect((await s.h.call('POST', '/api/mail/m2/correct', body)).status).toBe(200);
+    const rules = listRules(s.h.db);
+    expect(rules).toHaveLength(1);
+    expect(rules[0]).toMatchObject({ field: 'from', op: 'equals', value: 'julie@mail.fr', boxId: s.perso });
+  });
+
+  it('correcting without rememberSender creates no rule', async () => {
+    const s = await setup(() => ({ boxId: null, confidence: 50 }));
+    await s.triage(await s.deliver({ id: 'm1' }));
+    await s.h.call('POST', '/api/mail/m1/correct', { boxId: s.perso, tagIds: [] });
+    expect(listRules(s.h.db)).toHaveLength(0);
   });
 
   it('validating applies the proposal and keeps it as an example', async () => {
