@@ -9,8 +9,6 @@ function sources(dir: string): string[] {
   return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
     const path = join(dir, entry.name);
     if (entry.isDirectory()) return sources(path);
-    // tokens.css is the generated copy of the shared reference, which names every world.
-    if (entry.name === 'tokens.css') return [];
     return /\.(ts|svelte|css|html)$/.test(entry.name) && !/\.test\.ts$/.test(entry.name) ? [path] : [];
   });
 }

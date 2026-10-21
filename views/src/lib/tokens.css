@@ -1,5 +1,5 @@
 /* Copie générée depuis lun-docs/design/tokens.css : ne pas modifier ici */
-/* Jetons de référence de l'écosystème Lun' (règle B : socle commun, accent du monde).
+/* Jetons de référence de l’écosystème Lun' (règle B : socle commun, accent du monde).
    Seule source : les dépôts en gardent une copie générée par tools/sync-tokens.mjs. */
 :root {
   /* socle Lun' : identique pour toutes les interfaces */
@@ -21,15 +21,12 @@
   --serif:'Cormorant Garamond',Georgia,serif; --sans:'Inter',system-ui,sans-serif;
 }
 
-/* monde : seule couche qui change d'une interface à l'autre.
-   data-monde se pose sur la racine de chaque vue, pas sur la page. */
+/* monde : seule couche qui change d’une interface à l’autre.
+   data-monde se pose sur la racine de chaque vue, pas sur la page.
+   Chaque monde est encadré par @monde / @fin-monde : tools/sync-tokens.mjs --monde le filtre. */
+
 [data-monde='acedia'] {
   --accent:#3A6080; --accent-survol:#45719A; --accent-texte:#9DBEDA;
   --accent-doux:rgba(58,96,128,.24); --accent-bord:rgba(110,155,195,.45);
 }
 
-/* rouge Anima jamais en texte : --accent-texte reprend le texte du socle */
-[data-monde='anima'] {
-  --accent:#7A1818; --accent-survol:#8E2020; --accent-texte:var(--texte);
-  --accent-doux:rgba(122,24,24,.26); --accent-bord:rgba(224,180,172,.32);
-}

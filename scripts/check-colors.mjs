@@ -5,7 +5,17 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const EXTENSIONS = ['.svelte', '.ts', '.css'];
-const COLOR = /#[0-9a-fA-F]{8}\b|#[0-9a-fA-F]{6}\b|#[0-9a-fA-F]{3,4}\b|\b(?:rgba?|hsla?)\(/;
+const FUNCTION = /\b(?:rgba?|hsla?)\(/;
+// A hex only counts as a color in a CSS declaration (`prop: ... #fff`, also in style=) or as a whole
+// quoted string (`'#fff'`); anchors and ids (href="#fade", a#dead) are not colors.
+const HEX = '#(?:[0-9a-fA-F]{8}|[0-9a-fA-F]{6}|[0-9a-fA-F]{3,4})';
+const DECLARATION = new RegExp(String.raw`[\w-]+\s*:\s*[^;{}]*${HEX}\b`);
+const QUOTED = new RegExp(String.raw`(?<!\b(?:href|id|for|name)\s*=\s*)(['"\x60])${HEX}\1`);
+
+function isColor(line) {
+  if (FUNCTION.test(line) || QUOTED.test(line)) return true;
+  return DECLARATION.test(line) && !/\{\s*$/.test(line);
+}
 
 // Blanks comments but keeps newlines, so line numbers stay exact.
 function stripComments(text) {
@@ -27,7 +37,7 @@ export function findHardcodedColors(files) {
     if (isIgnored(file)) continue;
     const lines = stripComments(fs.readFileSync(file, 'utf8')).split('\n');
     lines.forEach((text, i) => {
-      if (COLOR.test(text)) hits.push({ file, line: i + 1 });
+      if (isColor(text)) hits.push({ file, line: i + 1 });
     });
   }
   return hits;

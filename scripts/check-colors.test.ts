@@ -50,6 +50,25 @@ describe('findHardcodedColors', () => {
     expect(findHardcodedColors([file])).toEqual([]);
   });
 
+  it('does not flag anchors and ids that look like hex', () => {
+    const file = write(
+      'F.svelte',
+      '<a href="#fade">x</a>\n<a href="#add">y</a>\n<p id="#dead">z</p>\n<style>\n  a#dead:hover {\n    margin: 0;\n  }\n  .x #bad {\n  }\n</style>\n',
+    );
+    expect(findHardcodedColors([file])).toEqual([]);
+  });
+
+  it('flags a declaration and a quoted hex', () => {
+    const file = write(
+      'G.svelte',
+      "<style>\n a { color: #fff; }\n</style>\n<script>\n  const c = '#3A6080';\n</script>\n",
+    );
+    expect(findHardcodedColors([file])).toEqual([
+      { file, line: 2 },
+      { file, line: 5 },
+    ]);
+  });
+
   it('keeps the line numbers after a multi-line comment', () => {
     const file = write('E.svelte', '/* a\nb\nc */\nx { color: #abc; }\n');
     expect(findHardcodedColors([file])).toEqual([{ file, line: 4 }]);
