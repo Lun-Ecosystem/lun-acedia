@@ -139,6 +139,12 @@
     border-color: var(--danger-bord);
     box-shadow: 0 0 0 3px var(--danger-doux);
   }
+  /* An invalid select still shows where the focus is, as the text field does. */
+  .entree.erreur:focus-visible,
+  .entree.erreur[data-etat='focus'],
+  .entree.erreur[data-state='open'] {
+    border-color: var(--accent-texte);
+  }
   .entree:disabled {
     opacity: 0.42;
     cursor: not-allowed;

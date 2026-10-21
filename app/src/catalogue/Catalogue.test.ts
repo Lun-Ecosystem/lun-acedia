@@ -18,7 +18,18 @@ describe('catalogue page', () => {
   it('shows every section under the world of the app', () => {
     const { container } = render(Catalogue);
     expect(container.querySelector('[data-monde="acedia"]')).not.toBeNull();
-    for (const name of ['Boutons', 'Champs', 'Bascules et cases', 'Pastilles et filtres', 'Clavier']) {
+    for (const name of [
+      'Boutons',
+      'Champs',
+      'Bascules et cases',
+      'Pastilles et filtres',
+      'Clavier',
+      'L’IA visible et contrôlable',
+      'Ce qui flotte : menus, info-bulles, dialogues, toasts',
+      'Structures : listes, cartes de réglages, états vides, chargement',
+      'Navigation : rail, onglets, palette de commandes',
+      'Mobile et pages seules',
+    ]) {
       expect(screen.getByRole('heading', { level: 2, name })).toBeInTheDocument();
     }
   });

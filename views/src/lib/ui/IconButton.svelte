@@ -1,8 +1,8 @@
 <script lang="ts">
-  import { Tooltip } from 'bits-ui';
   import type { HTMLButtonAttributes } from 'svelte/elements';
+  import { mergeProps } from 'svelte-toolbelt';
   import { ICON_STROKE, type IconComponent } from './Icon.ts';
-  import Kbd from './Kbd.svelte';
+  import Tooltip from './Tooltip.svelte';
   import type { ButtonVariant, Size } from './types.ts';
 
   type Props = Omit<HTMLButtonAttributes, 'children' | 'aria-label' | 'title'> & {
@@ -27,36 +27,20 @@
   }: Props = $props();
 </script>
 
-<Tooltip.Provider delayDuration={350} skipDelayDuration={250}>
-  <Tooltip.Root>
-    <Tooltip.Trigger>
-      {#snippet child({ props })}
-        <button
-          {...props}
-          {...rest}
-          {type}
-          class={['btn', variant, size, className]}
-          aria-label={label}
-          aria-keyshortcuts={shortcut}
-        >
-          <Icon size={size === 'petit' ? 15 : 16} strokeWidth={ICON_STROKE} aria-hidden="true" />
-        </button>
-      {/snippet}
-    </Tooltip.Trigger>
-    <Tooltip.Portal>
-      <Tooltip.Content sideOffset={6}>
-        {#snippet child({ wrapperProps, props })}
-          <div {...wrapperProps}>
-            <div {...props} class="bulle">
-              {label}
-              {#if shortcut}<Kbd>{shortcut}</Kbd>{/if}
-            </div>
-          </div>
-        {/snippet}
-      </Tooltip.Content>
-    </Tooltip.Portal>
-  </Tooltip.Root>
-</Tooltip.Provider>
+<Tooltip {label} {shortcut}>
+  {#snippet children({ props })}
+    <!-- Both the tooltip's handlers and the caller's run (a menu trigger, an onclick). -->
+    <button
+      {...mergeProps(props, rest)}
+      {type}
+      class={['btn', variant, size, className]}
+      aria-label={label}
+      aria-keyshortcuts={shortcut}
+    >
+      <Icon size={size === 'petit' ? 15 : 16} strokeWidth={ICON_STROKE} aria-hidden="true" />
+    </button>
+  {/snippet}
+</Tooltip>
 
 <style>
   .btn {
@@ -141,6 +125,11 @@
     border-color: var(--danger-plein);
     color: var(--texte);
   }
+  .danger-plein:enabled:hover,
+  .danger-plein[data-etat='survol'] {
+    background: color-mix(in srgb, var(--danger-plein) 86%, var(--texte));
+    border-color: color-mix(in srgb, var(--danger-plein) 86%, var(--texte));
+  }
 
   .btn:focus-visible,
   .btn[data-etat='focus'] {
@@ -150,18 +139,5 @@
   .btn:disabled {
     opacity: 0.42;
     cursor: not-allowed;
-  }
-
-  .bulle {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    padding: 5px 9px;
-    border-radius: var(--r-1);
-    background: var(--surface-3);
-    color: var(--texte);
-    font: 400 12px/1.4 var(--sans);
-    white-space: nowrap;
-    box-shadow: var(--ombre-2);
   }
 </style>

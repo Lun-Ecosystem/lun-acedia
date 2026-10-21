@@ -6,3 +6,6 @@ globalThis.ResizeObserver ??= class {
   unobserve() {}
   disconnect() {}
 };
+
+// jsdom has no scrollIntoView; Bits Command scrolls the highlighted entry into view.
+Element.prototype.scrollIntoView ??= function scrollIntoView() {};
