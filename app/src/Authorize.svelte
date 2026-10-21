@@ -37,7 +37,7 @@
   }
 </script>
 
-<main class="authorize lun-acedia">
+<main class="authorize lun-acedia" data-monde="acedia">
   <p class="brand">Lun'Acedia</p>
   <h1>{request.client} demande l’accès à Lun'Acedia</h1>
   <p>Une fois reliée, cette application pourra :</p>

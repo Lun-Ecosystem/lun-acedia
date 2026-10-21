@@ -52,7 +52,7 @@
   }
 </script>
 
-<section class="journal" aria-label="Journal du tri">
+<section class="journal" data-monde="acedia" aria-label="Journal du tri">
   <h2>Journal du tri</h2>
   {#if error}<p class="error" role="alert">{error}</p>{/if}
   {#if items.length === 0}<p class="empty">Aucune action automatique pour l’instant.</p>{/if}

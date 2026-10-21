@@ -30,7 +30,7 @@
   });
 </script>
 
-<div class="settings lun-acedia">
+<div class="settings lun-acedia" data-monde="acedia">
   <h2>Réglages</h2>
   {#if error}<p class="error" role="alert">{error}</p>{/if}
   <GoogleAccount {client} />

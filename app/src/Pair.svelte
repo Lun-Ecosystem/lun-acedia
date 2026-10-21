@@ -32,7 +32,7 @@
   }
 </script>
 
-<main class="pair lun-acedia">
+<main class="pair lun-acedia" data-monde="acedia">
   {#if authorizing}
     <p class="brand">Lun'Acedia</p>
     <h1 class="step">Confirmer depuis le serveur</h1>

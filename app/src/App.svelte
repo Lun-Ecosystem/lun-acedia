@@ -59,7 +59,7 @@
 </script>
 
 {#if authorization && 'error' in authorization}
-  <main class="refused lun-acedia">
+  <main class="refused lun-acedia" data-monde="acedia">
     <p class="brand">Lun'Acedia</p>
     <p class="error" role="alert">{authorization.error}</p>
     <button type="button" onclick={leaveAuthorization}>Ouvrir Lun'Acedia</button>
@@ -67,7 +67,7 @@
 {:else if client && authorization}
   <Authorize {client} request={authorization.request} />
 {:else if client}
-  <div class="shell lun-acedia">
+  <div class="shell lun-acedia" data-monde="acedia">
     <nav aria-label="Sections">
       <span class="name">Lun'Acedia</span>
       {#each TABS as t (t.id)}

@@ -83,7 +83,7 @@
   }
 </script>
 
-<div class="agenda lun-acedia">
+<div class="agenda lun-acedia" data-monde="acedia">
   <header class="bar">
     <div class="nav">
       <button type="button" aria-label="Précédent" onclick={() => (cursor = step(mode, cursor, -1))}>‹</button

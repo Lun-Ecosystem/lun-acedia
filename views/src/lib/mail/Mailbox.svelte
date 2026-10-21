@@ -138,7 +138,7 @@
   }
 </script>
 
-<div class="mailbox lun-acedia" class:reading={openId !== null || composing !== null}>
+<div class="mailbox lun-acedia" data-monde="acedia" class:reading={openId !== null || composing !== null}>
   <aside class="side">
     <button type="button" class="compose" onclick={() => ((composing = {}), close())}>Nouveau message</button>
     <MailboxNav {view} {boxes} {pendingCount} onselect={select} />

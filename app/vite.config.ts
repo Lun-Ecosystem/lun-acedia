@@ -41,7 +41,7 @@ export default defineConfig({
   resolve: {
     // One copy of each view: the app compiles them straight from views/.
     alias: [
-      { find: '@lun-ecosystem/lunacedia-views/styles.css', replacement: views('tokens.css') },
+      { find: '@lun-ecosystem/lunacedia-views/styles.css', replacement: views('styles.css') },
       { find: '@lun-ecosystem/lunacedia-views/client', replacement: views('client.ts') },
       { find: /^@lun-ecosystem\/lunacedia-views$/, replacement: views('index.ts') },
     ],

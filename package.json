@@ -19,6 +19,7 @@
     "lint": "eslint .",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
+    "check:colors": "node scripts/check-colors.mjs",
     "typecheck": "tsc --noEmit && npm run check -w @lun-ecosystem/lunacedia-views && npm run check -w @lun-acedia/app"
   },
   "devDependencies": {
