@@ -20,6 +20,11 @@ npm run dev
 Aucune dépendance au NAS : tout tourne sur le poste. Node `^22.13.0 || >=24`. Le serveur écoute sur
 `127.0.0.1` par défaut (`HOST` dans `.env` pour une autre adresse).
 
+## Voir l'app sur des données fictives
+
+`npm run build && npm run demo` lance une démo (développement seulement) sur `localhost:8797` : faux Gmail,
+faux agenda, faux tri, aucun compte Google, aucun réseau. La commande affiche le jeton d'appareil à coller dans la console du navigateur.
+
 ## Relier un appareil
 
 ```bash
