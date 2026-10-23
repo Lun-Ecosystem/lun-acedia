@@ -29,7 +29,7 @@ export default defineConfig({
         start_url: '/',
         display: 'standalone',
         theme_color: '#3A6080',
-        background_color: '#070C14',
+        background_color: '#0D0B09',
         icons: [
           { src: 'icon-192.png', sizes: '192x192', type: 'image/png' },
           { src: 'icon-512.png', sizes: '512x512', type: 'image/png' },

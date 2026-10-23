@@ -10,7 +10,9 @@ export type IconComponent = Component<LucideProps>;
 /** Stroke of every icon, as on plate 10. */
 export const ICON_STROKE = 1.75;
 
+export { default as ArrowLeft } from '@lucide/svelte/icons/arrow-left';
 export { default as Archive } from '@lucide/svelte/icons/archive';
+export { default as Ban } from '@lucide/svelte/icons/ban';
 export { default as Bell } from '@lucide/svelte/icons/bell';
 export { default as Calendar } from '@lucide/svelte/icons/calendar';
 export { default as Check } from '@lucide/svelte/icons/check';
@@ -20,6 +22,7 @@ export { default as CircleAlert } from '@lucide/svelte/icons/circle-alert';
 export { default as Clock } from '@lucide/svelte/icons/clock';
 export { default as Ellipsis } from '@lucide/svelte/icons/ellipsis';
 export { default as Eye } from '@lucide/svelte/icons/eye';
+export { default as FileText } from '@lucide/svelte/icons/file-text';
 export { default as Folder } from '@lucide/svelte/icons/folder';
 export { default as Funnel } from '@lucide/svelte/icons/funnel';
 export { default as Inbox } from '@lucide/svelte/icons/inbox';
@@ -30,6 +33,7 @@ export { default as Mail } from '@lucide/svelte/icons/mail';
 export { default as Minus } from '@lucide/svelte/icons/minus';
 export { default as Pause } from '@lucide/svelte/icons/pause';
 export { default as Pencil } from '@lucide/svelte/icons/pencil';
+export { default as Play } from '@lucide/svelte/icons/play';
 export { default as Plus } from '@lucide/svelte/icons/plus';
 export { default as Reply } from '@lucide/svelte/icons/reply';
 export { default as Search } from '@lucide/svelte/icons/search';

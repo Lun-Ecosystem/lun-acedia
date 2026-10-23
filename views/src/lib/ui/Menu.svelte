@@ -17,7 +17,9 @@
     /** Placeholder (and name) of the filter field; no filter without it. */
     filter?: string | undefined;
     /** The trigger: spread `props` on a button (Button, IconButton or a bare one). */
-    trigger: Snippet<[{ props: Record<string, unknown> }]>;
+    trigger?: Snippet<[{ props: Record<string, unknown> }]> | undefined;
+    /** Element the menu opens from, when it has no trigger of its own (a row, a shortcut). */
+    anchor?: HTMLElement | null | undefined;
     open?: boolean | undefined;
     onselect?: ((id: string) => void) | undefined;
     side?: 'top' | 'right' | 'bottom' | 'left' | undefined;
@@ -32,6 +34,7 @@
     sections,
     filter,
     trigger,
+    anchor: customAnchor = null,
     open = $bindable(false),
     onselect,
     side = 'bottom',
@@ -43,7 +46,7 @@
   let query = $state('');
   let input = $state<HTMLInputElement | null>(null);
   let anchor = $state<HTMLElement | null>(null);
-  const monde = $derived(mondeOf(anchor));
+  const monde = $derived(mondeOf(anchor ?? customAnchor));
 
   /** Lower case, without accents: « Boîte » and « boite » match. */
   const fold = (text: string) =>
@@ -110,17 +113,26 @@
 </script>
 
 <DropdownMenu.Root bind:open>
-  <DropdownMenu.Trigger>
-    {#snippet child({ props })}
-      <span class="ancre" bind:this={anchor}>{@render trigger({ props })}</span>
-    {/snippet}
-  </DropdownMenu.Trigger>
+  {#if trigger}
+    <DropdownMenu.Trigger>
+      {#snippet child({ props })}
+        <span class="ancre" bind:this={anchor}>{@render trigger({ props })}</span>
+      {/snippet}
+    </DropdownMenu.Trigger>
+  {/if}
   <DropdownMenu.Portal>
     <DropdownMenu.Content
       {side}
       {align}
       sideOffset={6}
       collisionPadding={8}
+      {...customAnchor && !trigger ? { customAnchor } : {}}
+      onCloseAutoFocus={(event) => {
+        // Without a trigger, the focus goes back to the element the menu came from.
+        if (trigger || !customAnchor?.isConnected) return;
+        event.preventDefault();
+        customAnchor.focus();
+      }}
       onOpenAutoFocus={(event) => {
         if (!filter) return;
         event.preventDefault();

@@ -3,50 +3,112 @@
   import { SvelteSet } from 'svelte/reactivity';
   import type { AcediaClient } from '../client.ts';
   import type { BatchOp, LabelView, MailDetail, MailSummary } from '../types.ts';
+  import Banner from '../ui/Banner.svelte';
+  import Button from '../ui/Button.svelte';
+  import Chip from '../ui/Chip.svelte';
+  import Dialog from '../ui/Dialog.svelte';
+  import Field from '../ui/Field.svelte';
+  import { Plus, X } from '../ui/Icon.ts';
+  import IconButton from '../ui/IconButton.svelte';
+  import { shellOf } from '../ui/shell.ts';
+  import { bindShortcuts } from '../ui/shortcuts.ts';
+  import Tabs from '../ui/Tabs.svelte';
+  import TextInput from '../ui/TextInput.svelte';
+  import { toast } from '../ui/toasts.svelte.ts';
+  import BoxMenu from './BoxMenu.svelte';
   import Composer from './Composer.svelte';
-  import { errorText } from './format.ts';
+  import { errorText, targetName } from './format.ts';
   import MailboxNav from './MailboxNav.svelte';
   import MailList from './MailList.svelte';
   import MailReader from './MailReader.svelte';
+  import SelectionBar from './SelectionBar.svelte';
 
-  let { client }: { client: AcediaClient } = $props();
+  /*
+   * The mail screen (plate 03). Without an open mail the list takes the whole width; the reading pane
+   * exists only while a mail is open (a second screen on a phone). Inside an app shell, its main action
+   * and its boxes go into the shell's rail; alone, it shows them in a column of its own.
+   */
 
-  let view = $state('inbox');
+  interface Props {
+    client: AcediaClient;
+    /** View shown first: `inbox`, `pending`, `box:<id>`, `archive`… */
+    start?: string | undefined;
+    /** Something changed in the mails (an action, an undo): counters around can refresh. */
+    onchange?: (() => void) | undefined;
+  }
+  let { client, start = 'inbox', onchange }: Props = $props();
+
+  // svelte-ignore state_referenced_locally
+  let view = $state(start);
   let query = $state('');
   let items = $state<MailSummary[]>([]);
   let cursor = $state<string | undefined>();
   let labels = $state<LabelView[]>([]);
-  let pendingCount = $state(0);
+  let loading = $state(true);
+  let threshold = $state(100);
   let openId = $state<string | null>(null);
   let detail = $state<MailDetail | null>(null);
   let composing = $state<{ replyTo?: MailDetail } | null>(null);
   let error = $state<string | null>(null);
+  let filter = $state('tout');
+  /** Mail of the keyboard (J, K), when none is open. */
+  let current = $state<string | null>(null);
   const selected = new SvelteSet<string>();
 
+  let menu = $state<{ open: boolean; anchor: HTMLElement | null; ids: string[] }>({
+    open: false,
+    anchor: null,
+    ids: [],
+  });
+  let creating = $state<{ open: boolean; name: string; ids: string[]; error?: string }>({
+    open: false,
+    name: '',
+    ids: [],
+  });
+
   const boxes = $derived(labels.filter((l) => l.role === 'box'));
-  const open = $derived(items.find((m) => m.id === openId));
   const searching = $derived(query.trim() !== '');
+  const shown = $derived(
+    filter === 'nonlus'
+      ? items.filter((m) => m.unread)
+      : filter === 'proposes'
+        ? items.filter((m) => m.proposal?.status === 'pending')
+        : items,
+  );
+  const open = $derived(items.find((m) => m.id === openId));
+  const narrow = $derived(openId !== null || composing !== null);
+  const menuMails = $derived(items.filter((m) => menu.ids.includes(m.id)));
+  /** The AI's box for the mail of the menu, on top of it. */
+  const suggested = $derived(
+    menuMails.length === 1 && menuMails[0]!.proposal?.status === 'pending'
+      ? menuMails[0]!.proposal.boxId
+      : null,
+  );
+  const position = $derived.by(() => {
+    const index = shown.findIndex((m) => m.id === openId);
+    return index < 0 ? '' : `${index + 1} sur ${shown.length}`;
+  });
 
   const fail = (err: unknown) => (error = errorText(err));
 
+  /** Only the last load asked shows: an older answer arriving late is dropped. */
+  let loads = 0;
+
   async function load(more = false) {
+    const seq = ++loads;
+    loading = true;
     try {
       const page = await client.listMail(view, {
         ...(searching ? { q: query.trim() } : {}),
         ...(more && cursor ? { cursor } : {}),
       });
+      if (seq !== loads) return;
       items = more ? [...items, ...page.items] : page.items;
       cursor = page.cursor;
     } catch (err) {
       fail(err);
-    }
-  }
-
-  async function refreshPending() {
-    try {
-      pendingCount = (await client.listMail('pending')).items.length;
-    } catch {
-      // The count is a hint; the list itself reports its errors.
+    } finally {
+      if (seq === loads) loading = false;
     }
   }
 
@@ -55,29 +117,39 @@
       .listLabels()
       .then((l) => (labels = l))
       .catch(fail);
+    client
+      .getSettings()
+      .then((s) => (threshold = s.threshold))
+      .catch(() => {
+        // Without it, the proposal card simply says nothing of the threshold.
+      });
     void load();
-    void refreshPending();
     return client.subscribe((e) => {
-      if (!e.type.startsWith('mail.')) return;
-      void refreshPending();
       // Never reshuffle the list under a mail being read.
-      if (openId === null) void load();
+      if (e.type.startsWith('mail.') && openId === null) void load();
     });
   });
 
   function select(next: string) {
     view = next;
     query = '';
+    filter = 'tout';
     close();
     selected.clear();
     void load();
   }
 
-  function search(event: SubmitEvent) {
-    event.preventDefault();
+  function search(q: string) {
+    query = q;
+    filter = 'tout';
     close();
     selected.clear();
     void load();
+  }
+
+  function compose() {
+    close();
+    composing = {};
   }
 
   function close() {
@@ -88,6 +160,7 @@
   async function openMail(m: MailSummary) {
     composing = null;
     openId = m.id;
+    current = m.id;
     detail = null;
     try {
       const d = await client.getMail(m.id);
@@ -102,175 +175,425 @@
     }
   }
 
+  type Journaled = { journalId?: number | undefined };
+
   /**
-   * Removes the mails from the list at once and goes back to it; puts them back and says so if the
-   * server refuses.
+   * Removes the mails from the list at once and goes back to it, then offers to undo (6 s, or Z). Puts
+   * them back and says so if the server refuses.
    */
-  async function act(ids: string[], run: () => Promise<unknown>) {
+  async function act(
+    ids: string[],
+    run: () => Promise<Journaled | Journaled[]>,
+    message: string,
+    keep = false,
+  ) {
     error = null;
     const before = items;
-    items = items.filter((m) => !ids.includes(m.id));
+    if (!keep) items = items.filter((m) => !ids.includes(m.id));
     for (const id of ids) selected.delete(id);
     if (openId && ids.includes(openId)) close();
     try {
-      await run();
-      void refreshPending();
+      const journal = [await run()].flat().flatMap((r) => (r.journalId === undefined ? [] : [r.journalId]));
+      onchange?.();
+      toast(
+        message,
+        journal.length
+          ? {
+              undo: async () => {
+                for (const id of journal) await client.undo(id);
+                await load();
+                onchange?.();
+              },
+            }
+          : {},
+      );
     } catch (err) {
       items = before;
       fail(err);
     }
   }
 
-  /** Filing into the box being viewed keeps the mail in the list. */
+  const many = (n: number, one: string, more: string) => (n > 1 ? `${n} mails ${more}` : one);
+
+  /** Files the mails; for a mail that waits on a proposal, it validates or corrects it. */
   function file(ids: string[], boxId: string) {
-    if (view === `box:${boxId}`) return act([], () => client.batch(ids, { kind: 'file', boxId }));
-    return ids.length === 1
-      ? act(ids, () => client.file(ids[0]!, boxId))
-      : batch(ids, { kind: 'file', boxId });
+    const name = targetName(boxId, labels);
+    const message =
+      boxId === 'trash'
+        ? 'Mis à la corbeille'
+        : many(ids.length, `Rangé dans ${name}`, `rangés dans ${name}`);
+    const keep = view === `box:${boxId}`;
+    const mail = ids.length === 1 ? items.find((m) => m.id === ids[0]) : undefined;
+    const pending = mail?.proposal?.status === 'pending' ? mail.proposal : undefined;
+    if (mail && pending)
+      return act(
+        ids,
+        () =>
+          boxId === pending.boxId ? client.validate(mail.id) : client.correct(mail.id, boxId, pending.tagIds),
+        message,
+        keep,
+      );
+    if (mail) return act(ids, () => client.file(mail.id, boxId), message, keep);
+    return batch(ids, { kind: 'file', boxId }, message, keep);
   }
 
-  const batch = (ids: string[], op: BatchOp) => act(ids, () => client.batch(ids, op));
+  const batch = (ids: string[], op: BatchOp, message: string, keep = false) =>
+    act(ids, () => client.batch(ids, op), message, keep);
 
-  async function markUnread(m: MailSummary) {
+  function validate(m: MailSummary) {
+    const boxId = m.proposal?.boxId ?? null;
+    return act([m.id], () => client.validate(m.id), `Rangé dans ${targetName(boxId, labels)}`);
+  }
+  const archive = (ids: string[]) =>
+    ids.length === 1
+      ? act(ids, () => client.archive(ids[0]!), 'Archivé')
+      : batch(ids, { kind: 'archive' }, many(ids.length, 'Archivé', 'archivés'));
+  const trash = (ids: string[]) =>
+    ids.length === 1
+      ? act(ids, () => client.trash(ids[0]!), 'Mis à la corbeille')
+      : batch(ids, { kind: 'trash' }, many(ids.length, 'Mis à la corbeille', 'mis à la corbeille'));
+  const spam = (id: string) => act([id], () => client.spam(id), 'Signalé comme spam');
+
+  function markRead(ids: string[]) {
+    items = items.map((m) => (ids.includes(m.id) ? { ...m, unread: false } : m));
+    selected.clear();
+    client
+      .batch(ids, { kind: 'read', read: true })
+      .then(() => onchange?.())
+      .catch(fail);
+  }
+
+  function markUnread(m: MailSummary) {
     close();
     items = items.map((x) => (x.id === m.id ? { ...x, unread: true } : x));
-    client.markRead(m.id, false).catch(fail);
+    client
+      .markRead(m.id, false)
+      .then(() => onchange?.())
+      .catch(fail);
   }
+
+  function openMenu(ids: string[], anchor: HTMLElement | null) {
+    menu = { open: true, anchor, ids };
+  }
+
+  function createBox(ids: string[]) {
+    menu.open = false;
+    creating = { open: true, name: '', ids };
+  }
+
+  async function saveBox(event: SubmitEvent) {
+    event.preventDefault();
+    const name = creating.name.trim();
+    if (!name) return;
+    try {
+      const box = await client.createLabel(name, 'box');
+      labels = [...labels, box];
+      const ids = creating.ids;
+      creating.open = false;
+      if (ids.length) void file(ids, box.id);
+    } catch (err) {
+      creating.error = errorText(err);
+    }
+  }
+
+  // ---- Keyboard: J, K, Enter (on the row), Escape, V, C, R, E, #, X. Never from a menu or a window.
+  const target = () => items.find((m) => m.id === (openId ?? current));
+  const rowOf = (id: string) => document.getElementById(`mail-${id}`);
+
+  function move(step: number) {
+    if (!shown.length) return;
+    const index = shown.findIndex((m) => m.id === (openId ?? current));
+    const next = shown[Math.min(shown.length - 1, Math.max(0, index < 0 ? 0 : index + step))]!;
+    current = next.id;
+    if (openId) void openMail(next);
+    rowOf(next.id)?.focus();
+  }
+
+  /** A menu or a window has the keyboard: the screen's shortcuts wait. */
+  const overlay = () => Boolean(document.activeElement?.closest('[role="menu"], [role="dialog"]'));
+
+  $effect(() => {
+    const when = (run: () => void) => () => {
+      if (!overlay() && !composing) run();
+    };
+    const on = (run: (m: MailSummary) => void) =>
+      when(() => {
+        const m = target();
+        if (m) run(m);
+      });
+    return bindShortcuts({
+      j: when(() => move(1)),
+      k: when(() => move(-1)),
+      Escape: () => {
+        if (overlay()) return;
+        if (composing) composing = null;
+        else if (openId) close();
+        else selected.clear();
+      },
+      v: on((m) => m.proposal?.status === 'pending' && validate(m)),
+      c: on((m) => openMenu([m.id], rowOf(m.id))),
+      r: when(() => detail && (composing = { replyTo: detail })),
+      e: on((m) => archive([m.id])),
+      '#': on((m) => trash([m.id])),
+      x: on((m) => (selected.has(m.id) ? selected.delete(m.id) : selected.add(m.id))),
+    });
+  });
+
+  // ---- The shell around, if any, gets the main action and the boxes.
+  const shell = shellOf();
+  $effect(() => {
+    if (!shell) return;
+    shell({
+      action: newMessage,
+      rail: nav,
+      compose,
+      search,
+      get home() {
+        return view === 'inbox' && !searching;
+      },
+      goHome: () => select('inbox'),
+    });
+    return () => shell(null);
+  });
+
+  const emptyText = $derived(
+    searching
+      ? `Aucun résultat pour « ${query.trim()} »`
+      : filter === 'tout'
+        ? 'Aucun mail ici'
+        : 'Aucun mail de ce filtre',
+  );
 </script>
 
-<div class="mailbox lun-acedia" data-monde="acedia" class:reading={openId !== null || composing !== null}>
-  <aside class="side">
-    <button type="button" class="compose" onclick={() => ((composing = {}), close())}>Nouveau message</button>
-    <MailboxNav {view} {boxes} {pendingCount} onselect={select} />
-  </aside>
+{#snippet newMessage()}
+  <Button variant="principal" icon={Plus} class="nouveau" onclick={compose}>Nouveau message</Button>
+{/snippet}
 
-  <div class="listing">
-    <form class="search" role="search" onsubmit={search}>
-      <input
-        type="search"
-        placeholder="Rechercher (syntaxe Gmail)"
-        aria-label="Rechercher"
-        bind:value={query}
-      />
-    </form>
-    {#if error}
-      <p class="error" role="alert">
-        {error}
-        <button type="button" aria-label="Fermer le message" onclick={() => (error = null)}>×</button>
-      </p>
-    {/if}
-    <MailList
-      {items}
-      {labels}
-      {selected}
-      {openId}
-      hasMore={cursor !== undefined}
-      onopen={openMail}
-      onvalidate={(m) => act([m.id], () => client.validate(m.id))}
-      oncorrect={(m, boxId) => act([m.id], () => client.correct(m.id, boxId, m.proposal?.tagIds ?? []))}
-      onfileselected={(boxId) => file([...selected], boxId)}
-      onarchiveselected={() => batch([...selected], { kind: 'archive' })}
-      ontrashselected={() => batch([...selected], { kind: 'trash' })}
-      onmore={() => load(true)}
-    />
-  </div>
+{#snippet nav()}
+  <MailboxNav {view} {boxes} onselect={select} oncreate={() => createBox([])} />
+{/snippet}
 
-  <div class="pane">
-    {#if composing}
-      {#key composing}
-        <Composer
-          {client}
-          replyTo={composing.replyTo}
-          onclose={() => (composing = null)}
-          onsent={() => (composing = null)}
-        />
-      {/key}
-    {:else if open}
-      <MailReader
-        {client}
-        mail={open}
-        {detail}
-        {labels}
-        onback={close}
-        onfile={(boxId) => file([open.id], boxId)}
-        onvalidate={() => act([open.id], () => client.validate(open.id))}
-        onarchive={() => act([open.id], () => client.archive(open.id))}
-        ontrash={() => act([open.id], () => client.trash(open.id))}
-        onspam={() => act([open.id], () => client.spam(open.id))}
-        onunread={() => markUnread(open)}
-        onreply={() => detail && (composing = { replyTo: detail })}
-        onerror={fail}
+<div class={['mailbox', 'lun-acedia', { seul: !shell }]} data-monde="acedia">
+  {#if !shell}
+    <aside class="cote">
+      {@render newMessage()}
+      {@render nav()}
+    </aside>
+  {/if}
+
+  <div class={['liste', { etroite: narrow }]}>
+    <div class="pastilles" role="group" aria-label="Filtres">
+      <Chip on={view === 'inbox' && filter === 'tout' && !searching} onclick={() => select('inbox')}
+        >Réception</Chip
+      >
+      <Chip on={filter === 'nonlus'} onclick={() => (filter = filter === 'nonlus' ? 'tout' : 'nonlus')}
+        >Non lus</Chip
+      >
+      {#each boxes as box (box.id)}
+        <Chip on={view === `box:${box.id}`} onclick={() => select(`box:${box.id}`)}>{box.name}</Chip>
+      {/each}
+    </div>
+    {#if selected.size > 0}
+      <SelectionBar
+        count={selected.size}
+        onclear={() => selected.clear()}
+        onfile={(anchor) => openMenu([...selected], anchor)}
+        onarchive={() => archive([...selected])}
+        onread={() => markRead([...selected])}
+        ontrash={() => trash([...selected])}
       />
     {:else}
-      <p class="placeholder">Choisir un mail à lire.</p>
+      <div class="onglets">
+        <Tabs
+          label="Filtrer les mails"
+          bind:value={filter}
+          items={[
+            { value: 'tout', label: 'Tout' },
+            { value: 'nonlus', label: 'Non lus', count: items.filter((m) => m.unread).length },
+            {
+              value: 'proposes',
+              label: 'Proposés',
+              count: items.filter((m) => m.proposal?.status === 'pending').length,
+            },
+          ]}
+        >
+          {#snippet tools()}
+            {#if searching}
+              <span class="recherche">Résultats pour « {query.trim()} »</span>
+              <IconButton icon={X} label="Effacer la recherche" size="petit" onclick={() => search('')} />
+            {/if}
+          {/snippet}
+        </Tabs>
+      </div>
     {/if}
+    {#if error}
+      <Banner title={error} class="erreur">
+        {#snippet action()}
+          <IconButton icon={X} label="Fermer le message" size="petit" onclick={() => (error = null)} />
+        {/snippet}
+      </Banner>
+    {/if}
+    <div class="defile">
+      <MailList
+        items={shown}
+        {labels}
+        {selected}
+        {openId}
+        {loading}
+        compact={narrow}
+        empty={emptyText}
+        hasMore={cursor !== undefined}
+        onopen={openMail}
+        onvalidate={validate}
+        onfile={(m, anchor) => openMenu([m.id], anchor)}
+        onarchive={(m) => archive([m.id])}
+        ontrash={(m) => trash([m.id])}
+        onmore={() => load(true)}
+      />
+    </div>
   </div>
+
+  {#if composing}
+    {#key composing}
+      <Composer
+        {client}
+        replyTo={composing.replyTo}
+        onclose={() => (composing = null)}
+        onsent={() => {
+          composing = null;
+          toast('Message envoyé');
+        }}
+      />
+    {/key}
+  {:else if open}
+    <MailReader
+      {client}
+      mail={open}
+      {detail}
+      {labels}
+      {threshold}
+      {position}
+      onback={close}
+      onfile={(anchor) => openMenu([open.id], anchor)}
+      onvalidate={() => validate(open)}
+      onarchive={() => archive([open.id])}
+      ontrash={() => trash([open.id])}
+      onspam={() => spam(open.id)}
+      onunread={() => markUnread(open)}
+      onreply={() => detail && (composing = { replyTo: detail })}
+      onerror={(message) => (error = message)}
+    />
+  {/if}
 </div>
+
+<BoxMenu
+  bind:open={menu.open}
+  anchor={menu.anchor}
+  {boxes}
+  {suggested}
+  withTrash={menuMails.some((m) => m.proposal?.status === 'pending')}
+  onpick={(boxId) => file(menu.ids, boxId)}
+  oncreate={() => createBox(menu.ids)}
+/>
+
+<Dialog
+  title="Nouvelle boîte"
+  description="Elle devient un libellé Gmail."
+  bind:open={creating.open}
+  width={400}
+>
+  <form id="nouvelle-boite" onsubmit={saveBox}>
+    <Field label="Nom de la boîte" error={creating.error}>
+      <TextInput bind:value={creating.name} placeholder="Factures" required />
+    </Field>
+  </form>
+  {#snippet footer({ close: cancel })}
+    <Button variant="fantome" onclick={cancel}>Annuler</Button>
+    <Button type="submit" variant="principal" form="nouvelle-boite" disabled={!creating.name.trim()}
+      >Créer</Button
+    >
+  {/snippet}
+</Dialog>
 
 <style>
   .mailbox {
-    display: grid;
-    grid-template-columns: 13rem minmax(22rem, 2fr) 3fr;
+    display: flex;
     height: 100%;
     min-height: 0;
   }
-  .side {
-    border-right: 1px solid var(--bordure);
-    overflow-y: auto;
-  }
-  .compose {
-    margin: 0.75rem 0.5rem 0;
-    width: calc(100% - 1rem);
-    border-color: var(--monde-accent);
-  }
-  .listing {
-    overflow-y: auto;
-    border-right: 1px solid var(--bordure);
-  }
-  .search {
-    padding: 0.6rem 0.75rem;
-  }
-  .search input {
-    width: 100%;
-    box-sizing: border-box;
-  }
-  .pane {
-    min-height: 0;
-    overflow: hidden;
-  }
-  .placeholder {
-    padding: 2rem;
-    color: var(--lune);
-  }
-  .error {
+  .cote {
     display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin: 0 0.75rem 0.5rem;
-    padding: 0.5rem 0.75rem;
-    border-radius: var(--rayon);
-    background: rgba(122, 24, 24, 0.35);
+    flex: none;
+    flex-direction: column;
+    gap: 2px;
+    width: 232px;
+    padding: 14px 10px;
+    box-sizing: border-box;
+    overflow-y: auto;
+    border-right: 1px solid var(--bordure);
   }
-  /* Under 900 px: one column; the reader takes the whole screen with its back button. */
-  @media (max-width: 899px) {
-    .mailbox {
-      grid-template-columns: 1fr;
-      grid-template-rows: auto 1fr;
+  :global(.nouveau) {
+    width: 100%;
+    height: 38px;
+  }
+  .liste {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    min-width: 0;
+    min-height: 0;
+  }
+  .liste.etroite {
+    flex: 0 0 430px;
+    border-right: 1px solid var(--bordure);
+  }
+  .onglets {
+    padding: 0 18px;
+  }
+  .etroite .onglets {
+    padding: 0 10px;
+  }
+  .recherche {
+    max-width: 260px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .pastilles {
+    display: none;
+  }
+  .liste :global(.erreur) {
+    margin: 10px 14px 0;
+  }
+  .defile {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+  }
+
+  /* Phone: the list alone, filters in chips that scroll; the reading is a screen of its own. */
+  @media (max-width: 767.98px) {
+    .cote {
+      display: none;
     }
-    .side {
+    .liste,
+    .liste.etroite {
+      flex: 1 1 auto;
       border-right: 0;
-      border-bottom: 1px solid var(--bordure);
     }
-    .pane {
+    .onglets {
       display: none;
     }
-    .reading .side,
-    .reading .listing {
-      display: none;
+    .pastilles {
+      display: flex;
+      gap: 6px;
+      padding: 0 14px 8px;
+      overflow-x: auto;
+      scrollbar-width: none;
     }
-    .reading .pane {
-      display: block;
-      grid-row: 1 / -1;
+    /* Room for the floating button and the bottom bar of the shell. */
+    .defile {
+      padding-bottom: 72px;
     }
   }
 </style>

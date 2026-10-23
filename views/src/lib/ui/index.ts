@@ -43,6 +43,7 @@ export * as icons from './Icon.ts';
 export { ICON_STROKE, type IconComponent } from './Icon.ts';
 export { mondeOf } from './monde.ts';
 export { bindShortcuts } from './shortcuts.ts';
+export { provideShell, shellOf, type ScreenParts, type ShellRegister } from './shell.ts';
 export { dismiss, dismissAll, toast, TOAST_DURATION, type ToastOptions } from './toasts.svelte.ts';
 export type {
   ButtonVariant,

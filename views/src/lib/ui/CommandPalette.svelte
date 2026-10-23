@@ -18,6 +18,8 @@
     placeholder?: string | undefined;
     /** Binds Ctrl K on the window (one palette per page). */
     shortcut?: boolean | undefined;
+    /** What is typed in the search field (a command can depend on it: « Rechercher … »). */
+    search?: string | undefined;
   };
 
   let {
@@ -25,11 +27,11 @@
     open = $bindable(false),
     placeholder = 'Rechercher une commande',
     shortcut = true,
+    search = $bindable(''),
   }: Props = $props();
 
   let probe = $state<HTMLElement | null>(null);
   const monde = $derived(mondeOf(probe) ?? 'acedia');
-  let search = $state('');
   let input = $state<HTMLInputElement | null>(null);
 
   $effect(() => {

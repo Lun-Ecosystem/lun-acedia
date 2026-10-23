@@ -142,6 +142,11 @@ export interface AcediaClient {
   getAnthropicKey(): Promise<AnthropicKeyStatus>;
   /** Checks the key with Anthropic, then saves it; rejects (nothing changed) when refused or unreachable. */
   saveAnthropicKey(key: string, expires?: string): Promise<AnthropicKeyStatus>;
+  /** State of the service (`GET /lun/v1/health`): sorting active, paused, or degraded. */
+  health(): Promise<{ status: 'ok' | 'paused' | 'degraded'; reason?: string }>;
+  /** Pauses everything automatic (the AI and the rules); what is asked by hand still runs. */
+  pause(): Promise<void>;
+  resume(): Promise<void>;
   /** Calls `onEvent` for each satellite event; returns the function that stops listening. */
   subscribe(onEvent: (e: LunEvent) => void): () => void;
 }
@@ -259,6 +264,13 @@ export function httpClient(opts: { baseUrl: string; token: string; fetch?: typeo
     getAnthropicKey: () => call('GET', '/api/anthropic-key'),
     saveAnthropicKey: (key, expires) =>
       call('PUT', '/api/anthropic-key', expires ? { key, expires } : { key }),
+    health: () => call('GET', '/lun/v1/health'),
+    pause: async () => {
+      await call('POST', '/lun/v1/pause', {});
+    },
+    resume: async () => {
+      await call('POST', '/lun/v1/resume', {});
+    },
     subscribe(onEvent) {
       const stop = new AbortController();
       let lastId: string | undefined;

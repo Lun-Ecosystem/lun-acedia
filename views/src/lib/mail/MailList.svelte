@@ -1,107 +1,116 @@
 <script lang="ts">
   import type { SvelteSet } from 'svelte/reactivity';
   import type { LabelView, MailSummary } from '../types.ts';
-  import BoxMenu from './BoxMenu.svelte';
+  import Button from '../ui/Button.svelte';
+  import DayGroup from '../ui/DayGroup.svelte';
+  import EmptyState from '../ui/EmptyState.svelte';
+  import { Inbox } from '../ui/Icon.ts';
+  import Skeleton from '../ui/Skeleton.svelte';
+  import { dayLabel } from './format.ts';
   import MailRow from './MailRow.svelte';
+
+  /** The mails, grouped by day, newest first as the server gives them. */
 
   interface Props {
     items: MailSummary[];
     labels: LabelView[];
     selected: SvelteSet<string>;
     openId: string | null;
+    compact: boolean;
+    loading: boolean;
     hasMore: boolean;
+    /** What the empty list says (« Aucun mail ici. », « Aucun résultat pour … »). */
+    empty: string;
     onopen: (m: MailSummary) => void;
     onvalidate: (m: MailSummary) => void;
-    oncorrect: (m: MailSummary, boxId: string) => void;
-    onfileselected: (boxId: string) => void;
-    onarchiveselected: () => void;
-    ontrashselected: () => void;
+    onfile: (m: MailSummary, anchor: HTMLElement) => void;
+    onarchive: (m: MailSummary) => void;
+    ontrash: (m: MailSummary) => void;
     onmore: () => void;
   }
-  let {
-    items,
-    labels,
-    selected,
-    openId,
-    hasMore,
-    onopen,
-    onvalidate,
-    oncorrect,
-    onfileselected,
-    onarchiveselected,
-    ontrashselected,
-    onmore,
-  }: Props = $props();
+  let { items, labels, selected, openId, compact, loading, hasMore, empty, onmore, ...on }: Props = $props();
 
-  const boxes = $derived(labels.filter((l) => l.role === 'box'));
+  const days = $derived.by(() => {
+    const groups: { label: string; mails: MailSummary[] }[] = [];
+    for (const mail of items) {
+      const label = dayLabel(mail.date);
+      const last = groups.at(-1);
+      if (last?.label === label) last.mails.push(mail);
+      else groups.push({ label, mails: [mail] });
+    }
+    return groups;
+  });
 
   function toggle(id: string) {
     if (selected.has(id)) selected.delete(id);
     else selected.add(id);
   }
-
-  /** Selects every listed mail from the senders already selected. */
-  function sameSenders() {
-    const senders = new Set(items.filter((m) => selected.has(m.id)).map((m) => m.from.addr.toLowerCase()));
-    for (const m of items) if (senders.has(m.from.addr.toLowerCase())) selected.add(m.id);
-  }
 </script>
 
-{#if selected.size > 0}
-  <div class="batch" role="toolbar" aria-label="Actions groupées">
-    <span>{selected.size} sélectionné{selected.size > 1 ? 's' : ''}</span>
-    <BoxMenu label="Ranger" {boxes} onpick={onfileselected} />
-    <button type="button" onclick={onarchiveselected}>Archiver</button>
-    <button type="button" onclick={ontrashselected}>Corbeille</button>
-    <button type="button" onclick={sameSenders}>Tout cet expéditeur</button>
-    <button type="button" onclick={() => selected.clear()}>Désélectionner</button>
-  </div>
-{/if}
-
-{#if items.length === 0}
-  <p class="empty">Aucun mail ici.</p>
-{/if}
-<ul class="list" aria-label="Mails">
-  {#each items as mail (mail.id)}
-    <MailRow
-      {mail}
-      {labels}
-      checked={selected.has(mail.id)}
-      active={mail.id === openId}
-      onopen={() => onopen(mail)}
-      ontoggle={() => toggle(mail.id)}
-      onvalidate={() => onvalidate(mail)}
-      oncorrect={(boxId) => oncorrect(mail, boxId)}
-    />
+<div class="mails" role="group" aria-label="Mails" aria-busy={loading}>
+  {#if loading && items.length === 0}
+    {#each [1, 2, 3, 4, 5] as n (n)}
+      <div class="fantome">
+        <Skeleton shape="rond" />
+        <div class="lignes"><Skeleton width="30%" /><Skeleton width="{90 - n * 8}%" /></div>
+      </div>
+    {/each}
+  {:else if items.length === 0}
+    <EmptyState title={empty} icon={Inbox} tone="neutre" />
+  {/if}
+  {#each days as day (day.label)}
+    <DayGroup label={day.label}>
+      <ul>
+        {#each day.mails as mail (mail.id)}
+          <MailRow
+            {mail}
+            {labels}
+            {compact}
+            checked={selected.has(mail.id)}
+            active={mail.id === openId}
+            onopen={() => on.onopen(mail)}
+            ontoggle={() => toggle(mail.id)}
+            onvalidate={() => on.onvalidate(mail)}
+            onfile={(anchor) => on.onfile(mail, anchor)}
+            onarchive={() => on.onarchive(mail)}
+            ontrash={() => on.ontrash(mail)}
+          />
+        {/each}
+      </ul>
+    </DayGroup>
   {/each}
-</ul>
-{#if hasMore}
-  <button type="button" class="more" onclick={onmore}>Mails plus anciens</button>
-{/if}
+  {#if hasMore}
+    <div class="plus">
+      <Button variant="fantome" size="petit" onclick={onmore}>Mails plus anciens</Button>
+    </div>
+  {/if}
+</div>
 
 <style>
-  .list {
-    list-style: none;
+  ul {
     margin: 0;
     padding: 0;
   }
-  .batch {
-    position: sticky;
-    top: 0;
-    z-index: 2;
+  .fantome {
     display: flex;
-    flex-wrap: wrap;
     align-items: center;
-    gap: 0.5rem;
-    padding: 0.5rem 0.75rem;
-    background: var(--surface-2);
-    border-bottom: 1px solid var(--monde-accent);
+    gap: 12px;
+    min-height: 60px;
+    padding: 8px 18px;
+    border-bottom: 1px solid var(--bordure);
   }
-  .empty {
-    padding: 1.5rem 0.75rem;
-    color: var(--lune);
+  .lignes {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    gap: 8px;
   }
-  .more {
-    margin: 0.75rem;
+  .mails > :global(.vide) {
+    margin: 48px auto;
+  }
+  .plus {
+    display: flex;
+    justify-content: center;
+    padding: 12px;
   }
 </style>

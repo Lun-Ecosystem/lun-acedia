@@ -12,6 +12,7 @@ const TOKEN_KEY = 'lunacedia.token';
 /** A fake Lun'Acedia server: records each call as `METHOD /path`. */
 function fakeServer() {
   const calls: string[] = [];
+  let paused = false;
   const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status });
   const fetch = vi.fn<typeof globalThis.fetch>(async (input, init) => {
     const key = `${init?.method ?? 'GET'} ${new URL(String(input)).pathname}`;
@@ -46,6 +47,11 @@ function fakeServer() {
         });
       case 'DELETE /api/clients/1':
         return new Response(null, { status: 204 });
+      case 'GET /lun/v1/health':
+        return json({ status: paused ? 'paused' : 'ok' });
+      case 'POST /lun/v1/pause':
+        paused = true;
+        return json({ status: 'paused' });
       case 'POST /lun/v1/pair':
         return json({ token: 'tok-2', satellite: {} });
       default:
@@ -64,6 +70,14 @@ const authorizeQuery = (redirect = 'http://127.0.0.1:53682/callback') =>
     state: 'state-1',
     code_challenge: 'challenge-1',
   })}`;
+
+// jsdom has neither: Bits Command measures and scrolls its entries.
+globalThis.ResizeObserver ??= class {
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+};
+Element.prototype.scrollIntoView ??= function scrollIntoView() {};
 
 beforeEach(() => {
   localStorage.clear();
@@ -131,6 +145,34 @@ describe('App', () => {
     await user.click(screen.getByRole('button', { name: "Ouvrir Lun'Acedia" }));
     expect(window.location.search).toBe('');
     expect(await screen.findByRole('navigation', { name: 'Sections' })).toBeInTheDocument();
+  });
+});
+
+describe('Shell', () => {
+  it('pauses the sorting from the top bar, and the rail says so', async () => {
+    const { calls } = fakeServer();
+    localStorage.setItem(TOKEN_KEY, 'tok-1');
+    const user = userEvent.setup();
+    render(App);
+    const rail = await screen.findByRole('navigation', { name: 'Sections' });
+    expect(within(rail).getByRole('link', { name: 'Réception' })).toHaveAttribute('aria-current', 'page');
+    await user.click(screen.getByRole('button', { name: 'Mettre le tri en pause' }));
+    expect(calls).toContain('POST /lun/v1/pause');
+    expect(await within(rail).findByText('Tri en pause')).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: 'Reprendre le tri' })).toBeInTheDocument();
+  });
+
+  it('opens the palette with Ctrl K and goes to a screen', async () => {
+    fakeServer();
+    localStorage.setItem(TOKEN_KEY, 'tok-1');
+    const user = userEvent.setup();
+    render(App);
+    await screen.findByRole('navigation', { name: 'Sections' });
+    await user.keyboard('{Control>}k{/Control}');
+    const palette = await screen.findByRole('dialog', { name: 'Palette de commandes' });
+    expect(within(palette).getByText('Nouveau message')).toBeInTheDocument();
+    await user.click(within(palette).getByText('Journal'));
+    expect(window.location.hash).toBe('#/journal');
   });
 });
 
