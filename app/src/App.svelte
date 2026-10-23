@@ -33,11 +33,13 @@
   let screen = $state(screenOf(window.location.hash));
   /** Mail to open on reaching the mail screen (the eye of « À valider »). */
   let opening = $state<string | undefined>();
+  /** View the mail screen starts on (a box chosen in the rail from another screen). */
+  let mailView = $state<string | undefined>();
   $effect(() => {
     const follow = () => {
       screen = screenOf(window.location.hash);
       // Opened once: back on the mail later, the list shows alone.
-      if (screen !== 'mail') opening = undefined;
+      if (screen !== 'mail') opening = mailView = undefined;
     };
     window.addEventListener('hashchange', follow);
     return () => window.removeEventListener('hashchange', follow);
@@ -154,7 +156,7 @@
     {#key client}
       {#key screen}
         {#if screen === 'mail'}
-          <Mailbox {client} {opening} onchange={() => refresh(client)} />
+          <Mailbox {client} {opening} start={mailView} onchange={() => refresh(client)} />
         {:else if screen === 'a-valider'}
           <Pending
             {client}
@@ -164,6 +166,10 @@
               location.hash = HREF.mail;
             }}
             onjournal={() => (location.hash = HREF.journal)}
+            onview={(view) => {
+              mailView = view;
+              location.hash = HREF.mail;
+            }}
           />
         {:else if screen === 'agenda' || screen === 'taches'}
           <Agenda {client} />

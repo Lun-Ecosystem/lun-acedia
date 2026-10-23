@@ -1,18 +1,23 @@
 <script lang="ts">
-  import { onMount, untrack } from 'svelte';
+  import { onMount, tick, untrack } from 'svelte';
   import type { AcediaClient } from '../client.ts';
   import type { LabelView, MailSummary, TodayStats } from '../types.ts';
   import Banner from '../ui/Banner.svelte';
   import Button from '../ui/Button.svelte';
+  import Dialog from '../ui/Dialog.svelte';
   import EmptyState from '../ui/EmptyState.svelte';
+  import Field from '../ui/Field.svelte';
   import { Ban, Check, ChevronDown, Clock, Eye, ICON_STROKE, Sparkles, Trash, X } from '../ui/Icon.ts';
   import IconButton from '../ui/IconButton.svelte';
   import Menu from '../ui/Menu.svelte';
+  import { shellOf } from '../ui/shell.ts';
   import { bindShortcuts } from '../ui/shortcuts.ts';
   import Skeleton from '../ui/Skeleton.svelte';
+  import TextInput from '../ui/TextInput.svelte';
   import { toast } from '../ui/toasts.svelte.ts';
   import Avatar from './Avatar.svelte';
   import CorrectPanel from './CorrectPanel.svelte';
+  import MailboxNav from './MailboxNav.svelte';
   import { boxColor, errorText, sender, shortDate, targetName } from './format.ts';
 
   /*
@@ -30,8 +35,10 @@
     onopen?: ((id: string) => void) | undefined;
     /** Opens the journal, from the empty queue. */
     onjournal?: (() => void) | undefined;
+    /** Shows a view of the mail screen (a box of the rail: `box:<id>`, `archive`…). */
+    onview?: ((view: string) => void) | undefined;
   }
-  let { client, onchange, onopen, onjournal }: Props = $props();
+  let { client, onchange, onopen, onjournal, onview }: Props = $props();
 
   let items = $state<MailSummary[]>([]);
   let labels = $state<LabelView[]>([]);
@@ -51,7 +58,9 @@
 
   const boxes = $derived(labels.filter((l) => l.role === 'box'));
   const tags = $derived(labels.filter((l) => l.role === 'tag'));
-  const confidence = (m: MailSummary) => Math.round(m.proposal?.confidence ?? 0);
+  const raw = (m: MailSummary) => m.proposal?.confidence ?? 0;
+  // Shown rounded down: a card read « 85 % » is always taken by « Tout valider au-dessus de 85 % ».
+  const confidence = (m: MailSummary) => Math.floor(raw(m));
   const key = (m: MailSummary) => (sort === 'date' ? Date.parse(m.date) : (m.proposal?.confidence ?? 0));
 
   const groups = $derived.by(() => {
@@ -66,7 +75,7 @@
   });
   const ordered = $derived(groups.flatMap((g) => g.mails));
   const active = $derived(ordered.find((m) => m.id === current) ?? ordered[0]);
-  const above = $derived(items.filter((m) => confidence(m) >= bulk));
+  const above = $derived(items.filter((m) => raw(m) >= bulk));
   const oldest = $derived(items.reduce((min, m) => (m.date < min ? m.date : min), items[0]?.date ?? ''));
 
   const fail = (err: unknown) => (error = errorText(err));
@@ -119,10 +128,44 @@
       });
     void load();
     return client.subscribe((e) => {
-      // Never reshuffle the queue under an open correction.
-      if (e.type.startsWith('mail.') && !correcting.open) void load();
+      if (!e.type.startsWith('mail.')) return;
+      // Never reshuffle the queue under an open correction nor mid-batch: once, when it is over.
+      if (correcting.open || busy) stale = true;
+      else void load();
     });
   });
+
+  /** Actions still running, and whether the server changed something meanwhile. */
+  let busy = 0;
+  let stale = false;
+  function settle() {
+    if (busy || correcting.open || !stale) return;
+    stale = false;
+    void load();
+  }
+  let wasOpen = false;
+  $effect(() => {
+    const open = correcting.open;
+    untrack(() => {
+      if (open || !wasOpen) return;
+      settle();
+      // The panel gives the focus back to its anchor, which may have left with its card.
+      setTimeout(() => {
+        if (!document.activeElement || document.activeElement === document.body) void refocus();
+      });
+    });
+    wasOpen = open;
+  });
+
+  /** After an action, the keyboard goes on the card now current, or on the emptied queue's title. */
+  async function refocus() {
+    await tick();
+    const card = current ? document.getElementById(`propo-${current}`) : null;
+    const target = card ?? document.querySelector<HTMLElement>('.pending .vide h2');
+    if (!target) return;
+    if (!card) target.tabIndex = -1;
+    target.focus();
+  }
 
   // Emptied: what the sorting did today, read again each time the queue empties.
   $effect(() => {
@@ -159,6 +202,8 @@
       current = (ordered.slice(index).find((m) => !ids.includes(m.id)) ?? rest.at(-1))?.id ?? null;
     }
     items = items.filter((m) => !ids.includes(m.id));
+    void refocus();
+    busy++;
     const journal: number[] = [];
     try {
       // One after the other: Gmail is asked once at a time.
@@ -179,8 +224,10 @@
       });
     } catch (err) {
       fail(err);
-      void load();
+      stale = true;
     } finally {
+      busy--;
+      settle();
       onchange?.();
     }
   }
@@ -235,8 +282,10 @@
   const SWIPE = 96;
   let swipe = $state<{ id: string; x0: number; dx: number } | null>(null);
 
-  function swipeStart(event: PointerEvent, m: MailSummary) {
+  function swipeStart(event: PointerEvent & { currentTarget: HTMLElement }, m: MailSummary) {
     if (event.pointerType === 'mouse' || (event.target as Element).closest('button')) return;
+    // Captured: a finger that leaves the card still ends the slide on it.
+    event.currentTarget.setPointerCapture?.(event.pointerId);
     swipe = { id: m.id, x0: event.clientX, dx: 0 };
   }
   function swipeMove(event: PointerEvent) {
@@ -250,6 +299,29 @@
   }
   const shift = (m: MailSummary) => (swipe?.id === m.id ? swipe.dx : 0);
 
+  // ---- The shell around, if any, shows the boxes in its rail, as on the mail screen.
+  const shell = shellOf();
+  $effect(() => {
+    if (!shell) return;
+    shell({ rail: nav });
+    return () => shell(null);
+  });
+
+  let creating = $state<{ open: boolean; name: string; error?: string }>({ open: false, name: '' });
+
+  async function saveBox(event: SubmitEvent) {
+    event.preventDefault();
+    const name = creating.name.trim();
+    if (!name) return;
+    try {
+      const box = await client.createLabel(name, 'box');
+      labels = [...labels, box];
+      creating.open = false;
+    } catch (err) {
+      creating.error = errorText(err);
+    }
+  }
+
   const range = (mails: MailSummary[]) => {
     const values = mails.map(confidence);
     const lo = Math.min(...values);
@@ -257,6 +329,15 @@
     return lo === hi ? `${lo} %` : `${lo} à ${hi} %`;
   };
 </script>
+
+{#snippet nav()}
+  <MailboxNav
+    view=""
+    {boxes}
+    onselect={(view) => onview?.(view)}
+    oncreate={() => (creating = { open: true, name: '' })}
+  />
+{/snippet}
 
 {#snippet head()}
   <header class="entete">
@@ -309,7 +390,6 @@
           icon={Check}
           class="tout"
           disabled={above.length === 0}
-          aria-label="Tout valider au-dessus de {bulk} %"
           onclick={() => validate(above)}
         >
           <span class="large">Tout valider au-dessus de {bulk}&nbsp;%</span>
@@ -437,6 +517,7 @@
                 onpointermove={swipeMove}
                 onpointerup={(event) => swipeEnd(m, event.currentTarget)}
                 onpointercancel={() => (swipe = null)}
+                onlostpointercapture={() => (swipe = null)}
               >
                 <Avatar name={sender(m.from)} />
                 <div class="corps">
@@ -511,6 +592,25 @@
   single={correcting.mails.length === 1}
   onapply={(boxId, tagIds, remember) => correct(correcting.mails, boxId, tagIds, remember)}
 />
+
+<Dialog
+  title="Nouvelle boîte"
+  description="Elle devient un libellé Gmail."
+  bind:open={creating.open}
+  width={400}
+>
+  <form id="nouvelle-boite-attente" onsubmit={saveBox}>
+    <Field label="Nom de la boîte" error={creating.error}>
+      <TextInput bind:value={creating.name} placeholder="Factures" required />
+    </Field>
+  </form>
+  {#snippet footer({ close: cancel })}
+    <Button variant="fantome" onclick={cancel}>Annuler</Button>
+    <Button type="submit" variant="principal" form="nouvelle-boite-attente" disabled={!creating.name.trim()}
+      >Créer</Button
+    >
+  {/snippet}
+</Dialog>
 
 <style>
   .pending {

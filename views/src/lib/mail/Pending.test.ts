@@ -2,7 +2,7 @@ import { render, screen, waitFor, within } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it } from 'vitest';
 import { fakeClient } from '../../testing/fake-client.ts';
-import type { MailSummary } from '../types.ts';
+import type { LunEvent, MailSummary } from '../types.ts';
 import { dismissAll } from '../ui/toasts.svelte.ts';
 import Toaster from '../ui/Toaster.svelte';
 import Pending from './Pending.svelte';
@@ -28,9 +28,10 @@ const queue = () => [
   proposed(5, 'L-perso', 85),
 ];
 
-async function open(mails = queue()) {
+async function open(mails = queue(), prepare?: (fake: ReturnType<typeof fakeClient>) => void) {
   const fake = fakeClient({ mails });
   fake.client.getSettings.mockResolvedValue({ threshold: 95, bulkThreshold: 85 });
+  prepare?.(fake);
   const user = userEvent.setup();
   render(Pending, { props: { client: fake.client } });
   render(Toaster);
@@ -149,5 +150,63 @@ describe('Pending', () => {
     expect(screen.getByText('validés')).toBeInTheDocument();
     expect(screen.getByText('1')).toBeInTheDocument();
     expect(screen.getByText('corrigé')).toBeInTheDocument();
+  });
+
+  it('« Tout valider » compares the real confidence: 84.5 % is under 85 %', async () => {
+    const { client, user } = await open([proposed(1, 'L-ecole', 84.5), proposed(2, 'L-ecole', 85)]);
+    expect(card('Sujet 1').querySelector('.valeur')).toHaveTextContent(/84\s%/);
+    await user.click(screen.getByRole('button', { name: /Tout valider au-dessus de 85/ }));
+    await waitFor(() => expect(client.validate).toHaveBeenCalledTimes(1));
+    expect(client.validate).toHaveBeenCalledWith('m2');
+  });
+
+  it('after V the keyboard is on the next card; the last one leaves it on the emptied queue', async () => {
+    const { user } = await open([proposed(1, 'L-ecole', 72), proposed(2, 'L-ecole', 90)]);
+    await user.keyboard('v');
+    await waitFor(() => expect(document.activeElement).toBe(card('Sujet 1')));
+    await user.click(within(card('Sujet 1')).getByRole('button', { name: 'Valider' }));
+    const title = await screen.findByText('Rien à valider');
+    await waitFor(() => expect(document.activeElement).toBe(title));
+  });
+
+  it('after « Corriger », the keyboard is on the next card', async () => {
+    const { user } = await open();
+    await user.click(within(card('Sujet 2')).getByRole('button', { name: /Corriger/ }));
+    const panel = await correctPanel();
+    await user.click(within(panel).getByText('Appliquer'));
+    await waitFor(() => expect(document.activeElement).toBe(card('Sujet 5')));
+  });
+
+  it('reloads once after a batch, not for each mail of it', async () => {
+    let emit: (e: LunEvent) => void = () => {};
+    const event = { id: '1', type: 'mail.filed', importance: 'info', at: '', title: '' } as const;
+    const { client, user } = await open(queue(), ({ client }) => {
+      client.subscribe.mockImplementation((fn) => ((emit = fn), () => {}));
+      const run = client.validate.getMockImplementation()!;
+      client.validate.mockImplementation(async (id) => {
+        const done = await run(id);
+        emit(event);
+        return done;
+      });
+    });
+    const pending = () => client.listMail.mock.calls.filter(([view]) => view === 'pending').length;
+    expect(pending()).toBe(1);
+    await user.click(screen.getByRole('button', { name: /Tout valider au-dessus de 85/ }));
+    await waitFor(() => expect(client.validate).toHaveBeenCalledTimes(3));
+    await waitFor(() => expect(pending()).toBe(2));
+  });
+
+  it('a change arriving under the open « Corriger » panel is shown once it closes', async () => {
+    let emit: (e: LunEvent) => void = () => {};
+    const { client, user } = await open(queue(), ({ client }) => {
+      client.subscribe.mockImplementation((fn) => ((emit = fn), () => {}));
+    });
+    const pending = () => client.listMail.mock.calls.filter(([view]) => view === 'pending').length;
+    await user.click(within(card('Sujet 3')).getByRole('button', { name: /Corriger/ }));
+    const panel = await correctPanel();
+    emit({ id: '1', type: 'mail.filed', importance: 'info', at: '', title: '' });
+    expect(pending()).toBe(1);
+    await user.click(within(panel).getByText('Annuler'));
+    await waitFor(() => expect(pending()).toBe(2));
   });
 });
