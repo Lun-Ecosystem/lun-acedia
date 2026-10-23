@@ -5,7 +5,7 @@ import { fakeClient } from '../../testing/fake-client.ts';
 import type { AgendaItem } from '../types.ts';
 import Agenda from './Agenda.svelte';
 import ItemEditor from './ItemEditor.svelte';
-import { title } from './dates.ts';
+import { title, type Editing } from './dates.ts';
 
 // Instants built in the local zone of the test run, so the grid shows them at these hours.
 const at = (d: number, h: number, m = 0) => new Date(2026, 9, d, h, m).toISOString();
@@ -275,14 +275,14 @@ describe('ItemEditor', () => {
     reminders: [],
   };
 
-  function edit() {
+  function edit(editing: Editing = trip) {
     const { client } = fakeClient();
     client.saveEvent.mockImplementation(async (e) => ({ ...trip, ...e }) as never);
     const user = userEvent.setup();
     render(ItemEditor, {
       props: {
         client,
-        editing: structuredClone(trip),
+        editing: structuredClone(editing),
         calendars: [{ id: 'perso', title: 'Personnel', color: 'var(--ok)' }],
         lists: [],
         onclose: () => {},
@@ -316,5 +316,40 @@ describe('ItemEditor', () => {
     await user.click(within(editor).getByRole('button', { name: 'Enregistrer' }));
     await waitFor(() => expect(client.saveEvent).toHaveBeenCalled());
     expect(client.saveEvent.mock.calls[0]![0]).toMatchObject({ start: trip.start, end: at(26, 18) });
+  });
+
+  async function rename(event: AgendaItem) {
+    const { client, user } = edit(event);
+    const editor = await screen.findByRole('dialog', { name: 'Modifier l’événement' });
+    await user.type(within(editor).getByLabelText('Titre'), ' bis');
+    await user.click(within(editor).getByRole('button', { name: 'Enregistrer' }));
+    await waitFor(() => expect(client.saveEvent).toHaveBeenCalled());
+    return client.saveEvent.mock.calls[0]![0];
+  }
+
+  it('keeps the exact times of a zero-length event on a rename', async () => {
+    const start = at(21, 9);
+    const draft = await rename({ ...trip, start, end: start });
+    expect(draft).toMatchObject({ title: 'Week-end bis', start, end: start });
+  });
+
+  it('keeps the exact times of an event in the hour repeated when the clocks go back', async () => {
+    // 02:15 to 02:45 the second time, on 25 October 2026 in Paris (UTC+1 again).
+    const event = { ...trip, start: '2026-10-25T01:15:00.000Z', end: '2026-10-25T01:45:00.000Z' };
+    const draft = await rename(event);
+    expect(draft).toMatchObject({ start: event.start, end: event.end });
+  });
+
+  it('gives a new timed event an end on another day', async () => {
+    const { client, user } = edit({ kind: 'event', day: new Date(2026, 9, 23), hour: 18 });
+    const editor = await screen.findByRole('dialog', { name: 'Nouvel événement' });
+    await user.type(within(editor).getByLabelText('Titre'), 'Voyage');
+    await user.click(within(editor).getByRole('button', { name: 'Date de fin' }));
+    const end = within(editor).getByLabelText('Date de fin');
+    await user.clear(end);
+    await user.type(end, '2026-10-25');
+    await user.click(within(editor).getByRole('button', { name: 'Enregistrer' }));
+    await waitFor(() => expect(client.saveEvent).toHaveBeenCalled());
+    expect(client.saveEvent.mock.calls[0]![0]).toMatchObject({ start: at(23, 18), end: at(25, 19) });
   });
 });

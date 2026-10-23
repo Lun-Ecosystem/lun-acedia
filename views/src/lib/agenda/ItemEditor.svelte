@@ -74,6 +74,16 @@
       ? toLocalInput(event.end).slice(11)
       : `${pad(Math.min(hour + 1, 23))}:${hour === 23 ? '59' : '00'}`,
   );
+  // The when fields as loaded: untouched, the event keeps its own start and end strings, whatever
+  // they are (zero length, the hour repeated when the clocks go back).
+  const initial = untrack(() => ({ allDay, date, endDate, startTime, endTime }));
+  const whenTouched = () =>
+    allDay !== initial.allDay ||
+    date !== initial.date ||
+    endDate !== initial.endDate ||
+    startTime !== initial.startTime ||
+    endTime !== initial.endTime;
+  let showEnd = $state(untrack(() => endDate !== date));
   let location = $state(event?.location ?? '');
   // Untouched, the reminders stay those of the calendar: they are only sent once changed here.
   let reminders = $state(event?.reminders ?? []);
@@ -119,19 +129,13 @@
 
   /**
    * Start and end of a timed event. On one day, an end time not after the start ends the next day
-   * (a night). Unchanged instants keep the event's own strings: a rename never rewrites the times.
+   * (a night).
    */
   function timedRange() {
     const start = fromLocalInput(`${date}T${startTime}`);
     const endDay = endDate === date && endTime <= startTime ? dayKey(addDays(parseDay(date), 1)) : endDate;
     const end = fromLocalInput(`${endDay}T${endTime}`);
     if (Date.parse(end) <= Date.parse(start)) throw new Error('La fin doit suivre le début.');
-    if (event && !event.allDay) {
-      return {
-        start: Date.parse(start) === Date.parse(event.start) ? event.start : start,
-        end: Date.parse(end) === Date.parse(event.end) ? event.end : end,
-      };
-    }
     return { start, end };
   }
 
@@ -146,9 +150,11 @@
           calendarId,
           title: titleText.trim(),
           allDay,
-          ...(allDay
-            ? { start: date, end: dayKey(addDays(parseDay(endDate < date ? date : endDate), 1)) }
-            : timedRange()),
+          ...(event && !whenTouched()
+            ? { start: event.start, end: event.end }
+            : allDay
+              ? { start: date, end: dayKey(addDays(parseDay(endDate < date ? date : endDate), 1)) }
+              : timedRange()),
         };
         if (event) draft.id = event.id;
         if (location || event?.location) draft.location = location;
@@ -217,8 +223,8 @@
               <span aria-hidden="true">–</span>
               <input class="puce heure" type="time" aria-label="Fin" bind:value={endTime} required />
             </span>
-            {#if endDate !== date}
-              <!-- Shown for an event over several days: its end keeps its own day. -->
+            {#if showEnd || endDate !== date}
+              <!-- An event over several days: its end keeps its own day. -->
               <input
                 class="puce fin"
                 type="date"
@@ -227,6 +233,10 @@
                 min={date}
                 required
               />
+            {:else}
+              <Button variant="fantome" size="petit" icon={Plus} class="fin" onclick={() => (showEnd = true)}
+                >Date de fin</Button
+              >
             {/if}
           {/if}
         </div>
@@ -412,7 +422,8 @@
   }
   @media (max-width: 767.98px) {
     .plage,
-    .fin {
+    .fin,
+    .ligne :global(.fin) {
       margin-left: 26px;
     }
   }
