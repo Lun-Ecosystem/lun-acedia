@@ -35,8 +35,10 @@
     start?: string | undefined;
     /** Something changed in the mails (an action, an undo): counters around can refresh. */
     onchange?: (() => void) | undefined;
+    /** Mail opened once the first view is loaded (coming from « À valider »). */
+    opening?: string | undefined;
   }
-  let { client, start = 'inbox', onchange }: Props = $props();
+  let { client, start = 'inbox', onchange, opening }: Props = $props();
 
   // svelte-ignore state_referenced_locally
   let view = $state(start);
@@ -123,7 +125,10 @@
       .catch(() => {
         // Without it, the proposal card simply says nothing of the threshold.
       });
-    void load();
+    void load().then(() => {
+      const m = items.find((x) => x.id === opening);
+      if (m) void openMail(m);
+    });
     return client.subscribe((e) => {
       // Never reshuffle the list under a mail being read.
       if (e.type.startsWith('mail.') && openId === null) void load();

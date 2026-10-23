@@ -62,6 +62,7 @@
         <div {...wrapperProps}>
           <div
             {...props}
+            role="dialog"
             class={['bulle', className]}
             data-monde={monde}
             aria-label={label}

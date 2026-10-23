@@ -4,6 +4,7 @@
     Agenda,
     Journal,
     Mailbox,
+    Pending,
     Settings,
     toast,
     type AcediaClient,
@@ -30,8 +31,14 @@
   const screenOf = (hash: string): Screen =>
     (Object.keys(HREF) as Screen[]).find((s) => HREF[s] === hash) ?? 'mail';
   let screen = $state(screenOf(window.location.hash));
+  /** Mail to open on reaching the mail screen (the eye of « À valider »). */
+  let opening = $state<string | undefined>();
   $effect(() => {
-    const follow = () => (screen = screenOf(window.location.hash));
+    const follow = () => {
+      screen = screenOf(window.location.hash);
+      // Opened once: back on the mail later, the list shows alone.
+      if (screen !== 'mail') opening = undefined;
+    };
     window.addEventListener('hashchange', follow);
     return () => window.removeEventListener('hashchange', follow);
   });
@@ -146,12 +153,17 @@
   >
     {#key client}
       {#key screen}
-        {#if screen === 'mail' || screen === 'a-valider'}
-          <!-- À valider shows the proposals in the mail screen until its own screen exists. -->
-          <Mailbox
+        {#if screen === 'mail'}
+          <Mailbox {client} {opening} onchange={() => refresh(client)} />
+        {:else if screen === 'a-valider'}
+          <Pending
             {client}
-            start={screen === 'a-valider' ? 'pending' : 'inbox'}
             onchange={() => refresh(client)}
+            onopen={(id) => {
+              opening = id;
+              location.hash = HREF.mail;
+            }}
+            onjournal={() => (location.hash = HREF.journal)}
           />
         {:else if screen === 'agenda' || screen === 'taches'}
           <Agenda {client} />

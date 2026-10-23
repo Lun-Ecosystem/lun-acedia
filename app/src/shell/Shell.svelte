@@ -15,6 +15,7 @@
 <script lang="ts">
   import {
     BottomNav,
+    Button,
     CommandPalette,
     Fab,
     IconButton,
@@ -143,7 +144,17 @@
   <Rail label="Sections" class="rail">
     {#snippet header()}
       <span class="marque"><i aria-hidden="true"></i>Lun'Acedia</span>
-      {@render parts?.action?.()}
+      {#if parts?.action}
+        {@render parts.action()}
+      {:else}
+        <!-- A screen without a main action of its own: writing a message stays one click away. -->
+        <Button
+          variant="principal"
+          icon={icons.Plus}
+          class="nouveau"
+          onclick={() => onMail((p) => p.compose?.())}>Nouveau message</Button
+        >
+      {/if}
     {/snippet}
     <NavLink
       href={HREF.mail}
@@ -242,6 +253,10 @@
     border-radius: 50%;
     background: var(--accent);
     box-shadow: 0 0 0 4px var(--accent-doux);
+  }
+  .coque :global(.nouveau) {
+    width: 100%;
+    height: 38px;
   }
   .zone {
     display: flex;
