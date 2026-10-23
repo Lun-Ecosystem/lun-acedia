@@ -93,6 +93,14 @@ describe('renderBody', () => {
     expect(html).toContain('Envoyé à partir de');
   });
 
+  it('decodes UTF-8 bytes wrongly labelled iso-8859-1', async () => {
+    const { html } = await renderBody(
+      textPart('text/html', Buffer.from('Envoyé', 'utf8'), 'iso-8859-1'),
+      noAttachment,
+    );
+    expect(html).toContain('Envoyé');
+  });
+
   it('still decodes genuine gb2312 bytes', async () => {
     const bytes = Buffer.concat([
       Buffer.from('Envoy'),
