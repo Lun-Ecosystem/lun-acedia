@@ -57,6 +57,14 @@ function decodeText(part: GmailPart): string {
       String.fromCharCode(b >= 0x80 && b <= 0x9f ? CP1252_HIGH[b - 0x80]! : b),
     ).join('');
   }
+  // Outlook for Android labels UTF-8 bytes gb2312: valid non-ASCII UTF-8 is almost never real legacy text.
+  if (charset !== 'utf-8' && charset !== 'utf8' && bytes.some((b) => b >= 0x80)) {
+    try {
+      return new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+    } catch {
+      /* not UTF-8: keep the declared charset */
+    }
+  }
   try {
     return new TextDecoder(charset).decode(bytes);
   } catch {
