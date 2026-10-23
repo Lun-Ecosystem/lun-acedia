@@ -13,7 +13,7 @@
   import { createHttpClient } from './httpClient.ts';
   import Pair from './Pair.svelte';
   import Shell, { HREF, type Screen } from './shell/Shell.svelte';
-  import { readStatus, type ShellStatus } from './shell/status.ts';
+  import { EMPTY_STATUS, readStatus, type ShellStatus } from './shell/status.ts';
   import { clearToken, loadToken, saveToken } from './session.ts';
 
   // The app is served by Lun'Acedia itself (or proxied to it in development).
@@ -62,41 +62,61 @@
 
   const client = $derived(token ? createHttpClient(baseUrl, token, { onUnauthorized: forget }) : null);
 
-  let status = $state<ShellStatus>({
-    counts: { inbox: 0, pending: 0, tasks: 0 },
-    service: 'actif',
-    detail: '',
-  });
+  let status = $state<ShellStatus>(EMPTY_STATUS);
   let account = $state<string | undefined>();
 
-  async function refresh(c: AcediaClient) {
-    const next = await readStatus(c, status);
-    if (c === client) status = next;
+  /*
+   * The counters and the service state, refreshed on server events and after each action. Asks within
+   * REFRESH_DELAY are merged into one read; an older answer arriving late never replaces a newer one.
+   */
+  const REFRESH_DELAY = 400;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let withTasks = false;
+  let reads = 0;
+
+  function refresh(c: AcediaClient, tasks = false) {
+    withTasks ||= tasks;
+    clearTimeout(timer);
+    timer = setTimeout(async () => {
+      const seq = ++reads;
+      const next = await readStatus(
+        c,
+        untrack(() => status),
+        { tasks: withTasks },
+      );
+      withTasks = false;
+      if (seq === reads && c === client) status = next;
+    }, REFRESH_DELAY);
   }
 
   $effect(() => {
     const c = client;
     if (!c) return;
-    // The status read here is the previous value, not a dependency of this effect.
-    void untrack(() => refresh(c));
+    refresh(c, true);
     c.googleStatus()
       .then((g) => (account = g.email))
       .catch(() => {});
-    // The counters follow what happens on the server (sorting, sync).
-    return c.subscribe((e) => {
-      if (e.type.startsWith('mail.') || e.type.startsWith('service.')) void refresh(c);
+    // The counters follow what happens on the server: sorting, agenda sync, key and account state.
+    const stop = c.subscribe((e) => {
+      if (e.type.startsWith('agenda.')) refresh(c, true);
+      else if (/^(mail|key|credit|google)\./.test(e.type)) refresh(c);
     });
+    return () => {
+      stop();
+      clearTimeout(timer);
+    };
   });
 
   async function togglePause(c: AcediaClient) {
-    const pausing = status.service !== 'pause';
+    const pausing = !status.paused;
     try {
       await (pausing ? c.pause() : c.resume());
+      status.paused = pausing;
       toast(pausing ? 'Tri en pause : rien n’est rangé seul' : 'Tri repris');
     } catch (err) {
       toast(err instanceof Error ? err.message : 'Le tri n’a pas changé', { tone: 'danger' });
     }
-    await refresh(c);
+    refresh(c);
   }
 
   function paired(t: string) {
@@ -119,6 +139,7 @@
     current={screen}
     service={status.service}
     serviceDetail={status.detail}
+    paused={status.paused}
     counts={status.counts}
     {account}
     ontogglepause={() => togglePause(client)}

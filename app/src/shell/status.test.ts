@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { fakeClient } from '../../../views/src/testing/fake-client.ts';
-import { readStatus, type ShellStatus } from './status.ts';
+import { EMPTY_STATUS, parisDay, readStatus, type ShellStatus } from './status.ts';
 
-const start: ShellStatus = { counts: { inbox: 0, pending: 0, tasks: 0 }, service: 'actif', detail: '' };
+const start = EMPTY_STATUS;
 const now = new Date('2026-11-02T10:00:00.000Z');
 
 describe('readStatus', () => {
@@ -16,7 +16,7 @@ describe('readStatus', () => {
     client.undatedTasks.mockResolvedValueOnce([
       { kind: 'task', id: 't4', listId: 'l', title: 'Un jour', done: false },
     ]);
-    const status = await readStatus(client, start, now);
+    const status = await readStatus(client, start, { now });
     expect(status.counts).toEqual({ inbox: 5, pending: 1, tasks: 2 });
     expect(status).toMatchObject({ service: 'actif', detail: 'Seuil d’auto-rangement : 100 %' });
   });
@@ -24,9 +24,9 @@ describe('readStatus', () => {
   it('tells a pause, and a refused key before it', async () => {
     const { client } = fakeClient();
     client.health.mockResolvedValue({ status: 'paused' });
-    expect((await readStatus(client, start, now)).service).toBe('pause');
+    expect((await readStatus(client, start, { now })).service).toBe('pause');
     client.getAnthropicKey.mockResolvedValueOnce({ state: 'refused', last4: '7f3a' });
-    expect(await readStatus(client, start, now)).toMatchObject({
+    expect(await readStatus(client, start, { now })).toMatchObject({
       service: 'cle-refusee',
       detail: 'Clé refusée · les règles continuent',
     });
@@ -36,11 +36,45 @@ describe('readStatus', () => {
     const { client } = fakeClient();
     client.listMail.mockRejectedValue(new Error('hors ligne'));
     client.health.mockRejectedValueOnce(new Error('hors ligne'));
-    const last: ShellStatus = { counts: { inbox: 7, pending: 2, tasks: 0 }, service: 'pause', detail: 'x' };
-    expect(await readStatus(client, last, now)).toMatchObject({
+    const last: ShellStatus = {
+      counts: { inbox: 7, pending: 2, tasks: 0 },
+      service: 'pause',
+      detail: 'x',
+      paused: true,
+    };
+    expect(await readStatus(client, last, { now })).toMatchObject({
       counts: { inbox: 7, pending: 2 },
       service: 'pause',
       detail: 'x',
     });
+  });
+
+  it('keeps the pause apart from the card: a refused key and a pause still offer to resume', async () => {
+    const { client } = fakeClient();
+    client.health.mockResolvedValueOnce({ status: 'degraded', reason: 'anthropic-key', paused: true });
+    client.getAnthropicKey.mockResolvedValueOnce({ state: 'refused', last4: '7f3a' });
+    expect(await readStatus(client, start, { now })).toMatchObject({ service: 'cle-refusee', paused: true });
+  });
+
+  it('never shows a degraded service as active', async () => {
+    const { client } = fakeClient();
+    client.health.mockResolvedValueOnce({ status: 'degraded', reason: 'google-reauth' });
+    expect(await readStatus(client, start, { now })).toMatchObject({
+      service: 'pause',
+      detail: 'Compte Google à reconnecter',
+      paused: false,
+    });
+  });
+
+  it('reads the agenda only when asked, over a short range', async () => {
+    const { client } = fakeClient();
+    await readStatus(client, start, { now, tasks: false });
+    expect(client.agenda).not.toHaveBeenCalled();
+    await readStatus(client, start, { now });
+    expect(client.agenda).toHaveBeenCalledWith('2026-10-03', '2026-11-03');
+  });
+
+  it('takes the calendar day in Paris, not in UTC', () => {
+    expect(parisDay(new Date('2026-11-02T23:30:00.000Z'))).toBe('2026-11-03');
   });
 });

@@ -142,8 +142,8 @@ export interface AcediaClient {
   getAnthropicKey(): Promise<AnthropicKeyStatus>;
   /** Checks the key with Anthropic, then saves it; rejects (nothing changed) when refused or unreachable. */
   saveAnthropicKey(key: string, expires?: string): Promise<AnthropicKeyStatus>;
-  /** State of the service (`GET /lun/v1/health`): sorting active, paused, or degraded. */
-  health(): Promise<{ status: 'ok' | 'paused' | 'degraded'; reason?: string }>;
+  /** State of the service (`GET /lun/v1/health`): sorting active, paused, or degraded (`paused` then tells a pause). */
+  health(): Promise<{ status: 'ok' | 'paused' | 'degraded'; reason?: string; paused?: boolean }>;
   /** Pauses everything automatic (the AI and the rules); what is asked by hand still runs. */
   pause(): Promise<void>;
   resume(): Promise<void>;

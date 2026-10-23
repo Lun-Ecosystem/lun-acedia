@@ -16,6 +16,8 @@
     labels: LabelView[];
     selected: SvelteSet<string>;
     openId: string | null;
+    /** The row Tab reaches: the open or current mail, else the first. */
+    focusId: string | null;
     compact: boolean;
     loading: boolean;
     hasMore: boolean;
@@ -27,8 +29,11 @@
     onarchive: (m: MailSummary) => void;
     ontrash: (m: MailSummary) => void;
     onmore: () => void;
+    onmove: (step: number) => void;
+    onfocus: (m: MailSummary) => void;
   }
-  let { items, labels, selected, openId, compact, loading, hasMore, empty, onmore, ...on }: Props = $props();
+  let { items, labels, selected, openId, focusId, compact, loading, hasMore, empty, onmore, ...on }: Props =
+    $props();
 
   const days = $derived.by(() => {
     const groups: { label: string; mails: MailSummary[] }[] = [];
@@ -68,6 +73,9 @@
             {compact}
             checked={selected.has(mail.id)}
             active={mail.id === openId}
+            tabbable={mail.id === (focusId ?? items[0]?.id)}
+            onmove={on.onmove}
+            onfocus={() => on.onfocus(mail)}
             onopen={() => on.onopen(mail)}
             ontoggle={() => toggle(mail.id)}
             onvalidate={() => on.onvalidate(mail)}

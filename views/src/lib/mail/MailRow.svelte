@@ -23,6 +23,11 @@
     /** The mail is open in the reading pane. */
     active: boolean;
     compact: boolean;
+    /** The one row Tab reaches in the list (roving tabindex). */
+    tabbable: boolean;
+    /** Arrow keys on the row: next (1) or previous (-1) mail. */
+    onmove: (step: number) => void;
+    onfocus: () => void;
     onopen: () => void;
     ontoggle: () => void;
     onvalidate: () => void;
@@ -37,6 +42,9 @@
     checked,
     active,
     compact,
+    tabbable,
+    onmove,
+    onfocus,
     onopen,
     ontoggle,
     onvalidate,
@@ -71,12 +79,18 @@
 <li>
   <ListRow
     id="mail-{mail.id}"
-    tabindex={-1}
+    tabindex={tabbable ? 0 : -1}
+    {onfocus}
     selected={active || checked}
     read={!mail.unread}
     {onopen}
     onkeydown={(event) => {
-      if (event.key === 'Enter' && event.target === event.currentTarget) onopen();
+      if (event.target !== event.currentTarget) return;
+      if (event.key === 'Enter') onopen();
+      else if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+        event.preventDefault();
+        onmove(event.key === 'ArrowDown' ? 1 : -1);
+      }
     }}
     class={['mail', { compact }]}
     actions={compact ? undefined : hover}

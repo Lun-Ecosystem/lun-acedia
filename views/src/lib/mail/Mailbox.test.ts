@@ -91,6 +91,40 @@ describe('Mailbox', () => {
     expect(client.undo).toHaveBeenCalledWith(journalId);
   });
 
+  it('the list is one Tab stop: the current row, then arrows and J, K move', async () => {
+    const { user, list } = await open();
+    const rows = () => [...list.querySelectorAll<HTMLElement>('.rangee')];
+    expect(rows().filter((r) => r.tabIndex === 0)).toEqual([rows()[0]]);
+    rows()[0]!.focus();
+    await user.keyboard('{ArrowDown}');
+    expect(document.activeElement).toBe(rows()[1]);
+    await user.keyboard('j');
+    expect(document.activeElement).toBe(rows()[2]);
+    expect(rows().filter((r) => r.tabIndex === 0)).toEqual([rows()[2]]);
+    await user.keyboard('{ArrowUp}{Enter}');
+    expect(await screen.findByRole('region', { name: 'Lecture' })).toHaveTextContent('Sujet 2');
+  });
+
+  it('« Transférer » from « ⋯ » sends the mail under the message, subject « Tr : »', async () => {
+    const { client, user, list } = await open();
+    await user.click(within(list).getByText('Sujet 3'));
+    const reader = await screen.findByRole('region', { name: 'Lecture' });
+    await within(reader).findByTitle('Contenu du mail');
+    await user.click(
+      within(within(reader).getByRole('toolbar')).getByRole('button', { name: 'Plus d’actions' }),
+    );
+    await user.click(await menuEntry('Transférer'));
+    const form = await screen.findByRole('form', { name: 'Transférer' });
+    expect(within(form).getByDisplayValue('Tr : Sujet 3')).toBeInTheDocument();
+    await user.type(within(form).getAllByRole('textbox')[0]!, 'ami@example.org');
+    await user.click(within(form).getByRole('button', { name: /Envoyer/ }));
+    await waitFor(() => expect(client.send).toHaveBeenCalled());
+    const draft = client.send.mock.calls[0]![0];
+    expect(draft.html).toContain('Message transféré');
+    expect(draft.html).toContain('Corps de Sujet 3');
+    expect(draft.html).not.toContain('Content-Security-Policy');
+  });
+
   it('ticking two mails shows the selection bar', async () => {
     const { user, list } = await open();
     const boxes = within(list).getAllByRole('checkbox', { name: 'Sélectionner' });

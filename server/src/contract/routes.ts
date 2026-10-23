@@ -59,7 +59,13 @@ export function contractRoutes(deps: AppDeps): Hono {
 
   r.use('*', requireToken(db));
 
-  r.get('/health', (c) => c.json({ ...statusOf(getState(db)), version: deps.version }));
+  r.get('/health', (c) => {
+    const state = getState(db);
+    const status = statusOf(state);
+    // Degraded hides the pause in `status`: said apart, so a front can still offer to resume.
+    const paused = status.status === 'degraded' && state.paused ? { paused: true } : {};
+    return c.json({ ...status, ...paused, version: deps.version });
+  });
 
   r.get('/costs', (c) => {
     const raw = c.req.query('since');

@@ -42,6 +42,8 @@
     service: ServiceState;
     /** Second line of the service card. */
     serviceDetail?: string | undefined;
+    /** Sorting paused by hand (apart from the card: a refused key may show there instead). */
+    paused: boolean;
     counts: { inbox: number; pending: number; tasks: number };
     /** Google account, for the avatar. */
     account?: string | undefined;
@@ -50,7 +52,16 @@
     children: Snippet;
   };
 
-  let { current, service, serviceDetail = '', counts, account, ontogglepause, children }: Props = $props();
+  let {
+    current,
+    service,
+    serviceDetail = '',
+    paused,
+    counts,
+    account,
+    ontogglepause,
+    children,
+  }: Props = $props();
 
   let parts = $state<ScreenParts | null>(null);
   let palette = $state(false);
@@ -74,7 +85,6 @@
     location.hash = HREF.mail;
   }
 
-  const paused = $derived(service === 'pause');
   const go = (screen: Screen) => () => (location.hash = HREF[screen]);
   const initial = $derived((account ?? '').slice(0, 1).toUpperCase());
 
@@ -195,7 +205,7 @@
 
   <BottomNav
     items={mobileNav}
-    current={HREF[current === 'taches' || current === 'journal' ? 'mail' : current]}
+    current={current === 'taches' || current === 'journal' ? undefined : HREF[current]}
     class="nav-mobile"
   />
   {#if parts?.compose}

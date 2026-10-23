@@ -23,6 +23,7 @@ describe('mailTheme', () => {
       );
     expect(mailTheme('<style>body { background: #ffffff !important; }</style><p>Bonjour</p>')).toBe('sombre');
     expect(mailTheme('<table bgcolor="#ffffff"><tr><td>Bonjour</td></tr></table>')).toBe('sombre');
+    expect(mailTheme("<div style='background:#fff'>Bonjour</div>")).toBe('sombre');
   });
 
   it('a mail with a bgcolor goes on the paper card', () => {

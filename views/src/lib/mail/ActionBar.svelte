@@ -1,6 +1,7 @@
 <script lang="ts">
   import Button from '../ui/Button.svelte';
-  import { Archive, Ban, ChevronDown, Eye, Folder, Reply, Trash, X } from '../ui/Icon.ts';
+  import { Archive, Ban, ChevronDown, Ellipsis, Eye, Folder, Forward, Reply, Trash, X } from '../ui/Icon.ts';
+  import Menu from '../ui/Menu.svelte';
   import IconButton from '../ui/IconButton.svelte';
 
   /*
@@ -19,8 +20,10 @@
     onspam: () => void;
     onunread: () => void;
     onreply: () => void;
+    onforward: () => void;
   }
-  let { inTrash, position, onback, onfile, onarchive, ontrash, onspam, onunread, onreply }: Props = $props();
+  let { inTrash, position, onback, onfile, onarchive, ontrash, onspam, onunread, onreply, onforward }: Props =
+    $props();
 </script>
 
 <div class="barre" role="toolbar" aria-label="Actions sur le mail">
@@ -40,6 +43,14 @@
   {#if !inTrash}<IconButton icon={Trash} label="Corbeille" shortcut="#" onclick={ontrash} />{/if}
   <span class="sep" aria-hidden="true"></span>
   <IconButton icon={Eye} label="Marquer non lu" onclick={onunread} />
+  <Menu
+    label="Plus d’actions"
+    sections={[{ items: [{ id: 'forward', label: 'Transférer', icon: Forward, onselect: onforward }] }]}
+  >
+    {#snippet trigger({ props })}
+      <IconButton {...props} icon={Ellipsis} label="Plus d’actions" />
+    {/snippet}
+  </Menu>
   <div class="fin">
     {#if position}<span class="position">{position}</span>{/if}
     <Button

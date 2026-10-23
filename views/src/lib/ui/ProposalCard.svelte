@@ -12,6 +12,8 @@
   type Props = {
     proposal: ProposalView;
     boxName: string;
+    /** Tags the AI proposes besides the box. */
+    tagNames?: string[] | undefined;
     /** Short justification of the AI (160 characters at most), when it gave one. */
     reason?: string | undefined;
     /** Auto-sort threshold, in %: under it, the proposal waits for a validation. */
@@ -26,6 +28,7 @@
   let {
     proposal,
     boxName,
+    tagNames = [],
     reason,
     threshold,
     onvalidate,
@@ -48,7 +51,10 @@
       <span class="valeur">{confidence}&nbsp;%</span>
     </span>
   </div>
-  <p class={['quoi', { seul: !reason && !waiting }]}>Ranger dans <b>{boxName}</b></p>
+  <p class={['quoi', { seul: !reason && !waiting }]}>
+    Ranger dans <b>{boxName}</b>{#if tagNames.length}{' · '}étiquette{tagNames.length > 1 ? 's' : ''}
+      <b>{tagNames.join(', ')}</b>{/if}
+  </p>
   {#if reason || waiting}
     <p class="pourquoi">
       {#if reason}{reason}{/if}

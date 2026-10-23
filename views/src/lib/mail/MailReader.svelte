@@ -2,7 +2,18 @@
   import type { AcediaClient } from '../client.ts';
   import type { AttachmentMeta, LabelView, MailDetail, MailSummary } from '../types.ts';
   import Button from '../ui/Button.svelte';
-  import { Archive, ArrowLeft, Ban, Ellipsis, Eye, FileText, Folder, Reply, Trash } from '../ui/Icon.ts';
+  import {
+    Archive,
+    ArrowLeft,
+    Ban,
+    Ellipsis,
+    Eye,
+    FileText,
+    Folder,
+    Forward,
+    Reply,
+    Trash,
+  } from '../ui/Icon.ts';
   import IconButton from '../ui/IconButton.svelte';
   import Kbd from '../ui/Kbd.svelte';
   import Menu from '../ui/Menu.svelte';
@@ -30,6 +41,7 @@
     onspam: () => void;
     onunread: () => void;
     onreply: () => void;
+    onforward: () => void;
     onerror: (message: string) => void;
   }
   let { client, mail, detail, labels, threshold, position, onerror, ...on }: Props = $props();
@@ -107,6 +119,9 @@
         class="carte"
         proposal={pending}
         boxName={targetName(pending.boxId, labels)}
+        tagNames={labels
+          .filter((l) => pending.tagIds.includes(l.id) && !mail.labels.includes(l.id))
+          .map((l) => l.name)}
         reason={pending.reason}
         {threshold}
         onvalidate={on.onvalidate}
@@ -139,6 +154,7 @@
 
   <div class="bas-mobile">
     <Button variant="fantome" icon={Reply} onclick={on.onreply}>Répondre</Button>
+    <Button variant="fantome" icon={Forward} onclick={on.onforward}>Transférer</Button>
     <Button
       variant="fantome"
       icon={Folder}

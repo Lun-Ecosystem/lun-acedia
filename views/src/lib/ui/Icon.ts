@@ -24,6 +24,7 @@ export { default as Ellipsis } from '@lucide/svelte/icons/ellipsis';
 export { default as Eye } from '@lucide/svelte/icons/eye';
 export { default as FileText } from '@lucide/svelte/icons/file-text';
 export { default as Folder } from '@lucide/svelte/icons/folder';
+export { default as Forward } from '@lucide/svelte/icons/forward';
 export { default as Funnel } from '@lucide/svelte/icons/funnel';
 export { default as Inbox } from '@lucide/svelte/icons/inbox';
 export { default as Key } from '@lucide/svelte/icons/key-round';

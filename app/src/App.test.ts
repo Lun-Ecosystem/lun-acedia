@@ -10,9 +10,9 @@ import { createHttpClient } from './httpClient.ts';
 const TOKEN_KEY = 'lunacedia.token';
 
 /** A fake Lun'Acedia server: records each call as `METHOD /path`. */
-function fakeServer() {
+function fakeServer({ keyRefused = false, startPaused = false } = {}) {
   const calls: string[] = [];
-  let paused = false;
+  let paused = startPaused;
   const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status });
   const fetch = vi.fn<typeof globalThis.fetch>(async (input, init) => {
     const key = `${init?.method ?? 'GET'} ${new URL(String(input)).pathname}`;
@@ -48,7 +48,14 @@ function fakeServer() {
       case 'DELETE /api/clients/1':
         return new Response(null, { status: 204 });
       case 'GET /lun/v1/health':
+        if (keyRefused)
+          return json({ status: 'degraded', reason: 'anthropic-key', ...(paused ? { paused } : {}) });
         return json({ status: paused ? 'paused' : 'ok' });
+      case 'GET /api/anthropic-key':
+        return json({ state: keyRefused ? 'refused' : 'ok', last4: '7f3a' });
+      case 'POST /lun/v1/resume':
+        paused = false;
+        return json({ status: 'ok' });
       case 'POST /lun/v1/pause':
         paused = true;
         return json({ status: 'paused' });
@@ -160,6 +167,19 @@ describe('Shell', () => {
     expect(calls).toContain('POST /lun/v1/pause');
     expect(await within(rail).findByText('Tri en pause')).toBeInTheDocument();
     expect(await screen.findByRole('button', { name: 'Reprendre le tri' })).toBeInTheDocument();
+  });
+
+  it('offers to resume a pause even while the key is refused', async () => {
+    const { calls } = fakeServer({ keyRefused: true, startPaused: true });
+    localStorage.setItem(TOKEN_KEY, 'tok-1');
+    const user = userEvent.setup();
+    render(App);
+    const rail = await screen.findByRole('navigation', { name: 'Sections' });
+    expect(await within(rail).findByText('Clé refusée · les règles continuent')).toBeInTheDocument();
+    await user.click(await screen.findByRole('button', { name: 'Reprendre le tri' }));
+    expect(calls).toContain('POST /lun/v1/resume');
+    expect(calls).not.toContain('POST /lun/v1/pause');
+    expect(await screen.findByRole('button', { name: 'Mettre le tri en pause' })).toBeInTheDocument();
   });
 
   it('opens the palette with Ctrl K and goes to a screen', async () => {

@@ -10,7 +10,7 @@ export type MailTheme = 'sombre' | 'papier';
 const NEUTRAL = new Set(['white', 'fff', 'ffffff', 'transparent', 'none']);
 
 const BGCOLOR = /\bbgcolor\s*=\s*["']?([^"'\s>]+)/gi;
-const BACKGROUND = /\bbackground(?:-color)?\s*:\s*([^;}"]+)/gi;
+const BACKGROUND = /\bbackground(?:-color)?\s*:\s*([^;}"']+)/gi;
 
 const neutral = (value: string) =>
   NEUTRAL.has(

@@ -48,7 +48,7 @@
   let threshold = $state(100);
   let openId = $state<string | null>(null);
   let detail = $state<MailDetail | null>(null);
-  let composing = $state<{ replyTo?: MailDetail } | null>(null);
+  let composing = $state<{ replyTo?: MailDetail; forward?: MailDetail } | null>(null);
   let error = $state<string | null>(null);
   let filter = $state('tout');
   /** Mail of the keyboard (J, K), when none is open. */
@@ -200,9 +200,13 @@
         journal.length
           ? {
               undo: async () => {
-                for (const id of journal) await client.undo(id);
-                await load();
-                onchange?.();
+                // One undo refused must not leave the list showing half the batch.
+                try {
+                  for (const id of journal) await client.undo(id);
+                } finally {
+                  await load();
+                  onchange?.();
+                }
               },
             }
           : {},
@@ -331,7 +335,17 @@
         else selected.clear();
       },
       v: on((m) => m.proposal?.status === 'pending' && validate(m)),
-      c: on((m) => openMenu([m.id], rowOf(m.id))),
+      // Row scrolled out of the list (or reader alone): anchor on the reader's « Ranger dans », else the tabs.
+      c: on((m) =>
+        openMenu(
+          [m.id],
+          rowOf(m.id) ??
+            document.querySelector<HTMLElement>(
+              '[aria-label="Lecture"] [role="toolbar"] [aria-haspopup="menu"]',
+            ) ??
+            document.querySelector<HTMLElement>('.onglets'),
+        ),
+      ),
       r: when(() => detail && (composing = { replyTo: detail })),
       e: on((m) => archive([m.id])),
       '#': on((m) => trash([m.id])),
@@ -439,6 +453,7 @@
         {labels}
         {selected}
         {openId}
+        focusId={shown.some((m) => m.id === (openId ?? current)) ? (openId ?? current) : null}
         {loading}
         compact={narrow}
         empty={emptyText}
@@ -449,6 +464,8 @@
         onarchive={(m) => archive([m.id])}
         ontrash={(m) => trash([m.id])}
         onmore={() => load(true)}
+        onmove={move}
+        onfocus={(m) => (current = m.id)}
       />
     </div>
   </div>
@@ -458,6 +475,7 @@
       <Composer
         {client}
         replyTo={composing.replyTo}
+        forward={composing.forward}
         onclose={() => (composing = null)}
         onsent={() => {
           composing = null;
@@ -481,6 +499,7 @@
       onspam={() => spam(open.id)}
       onunread={() => markUnread(open)}
       onreply={() => detail && (composing = { replyTo: detail })}
+      onforward={() => detail && (composing = { forward: detail })}
       onerror={(message) => (error = message)}
     />
   {/if}

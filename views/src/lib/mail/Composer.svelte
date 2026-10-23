@@ -14,17 +14,26 @@
   interface Props {
     client: AcediaClient;
     replyTo?: MailDetail | undefined;
+    /** Mail forwarded: its text goes under the message; its attachments do not follow. */
+    forward?: MailDetail | undefined;
     onclose: () => void;
     onsent: () => void;
   }
-  let { client, replyTo, onclose, onsent }: Props = $props();
+  let { client, replyTo, forward, onclose, onsent }: Props = $props();
+  const title = $derived(replyTo ? 'Répondre' : forward ? 'Transférer' : 'Nouveau message');
 
   let addresses = $state<SendAsAddress[]>([]);
   let from = $state('');
   // The fields start from the mail answered, then belong to the person writing.
   const start = untrack(() => ({
     to: replyTo?.from.addr ?? '',
-    subject: !replyTo ? '' : /^re\s*:/i.test(replyTo.subject) ? replyTo.subject : `Re: ${replyTo.subject}`,
+    subject: replyTo
+      ? /^re\s*:/i.test(replyTo.subject)
+        ? replyTo.subject
+        : `Re: ${replyTo.subject}`
+      : forward
+        ? `Tr : ${forward.subject}`
+        : '',
   }));
   let to = $state(start.to);
   let cc = $state('');
@@ -43,6 +52,13 @@
       .catch((err) => (error = errorText(err)));
   });
 
+  /** The forwarded mail under the message, without the viewing guards the server added for the reader. */
+  const forwarded = (m: MailDetail) =>
+    '<br><div>---------- Message transféré ----------<br>' +
+    `De : ${escapeHtml(m.from.name ? `${m.from.name} <${m.from.addr}>` : m.from.addr)}<br>` +
+    `Date : ${escapeHtml(m.date)}<br>Objet : ${escapeHtml(m.subject)}<br>À : ${escapeHtml(m.to)}</div><br>` +
+    m.html.replace(/<meta http-equiv="Content-Security-Policy"[^>]*>|<base [^>]*>/gi, '');
+
   const label = (a: SendAsAddress) => (a.name ? `${a.name} <${a.email}>` : a.email);
 
   async function send(event: SubmitEvent) {
@@ -54,7 +70,7 @@
       from: chosen ? label(chosen) : from,
       to,
       subject,
-      html: `<div>${escapeHtml(body).replace(/\n/g, '<br>')}</div>`,
+      html: `<div>${escapeHtml(body).replace(/\n/g, '<br>')}</div>${forward ? forwarded(forward) : ''}`,
       text: body,
     };
     if (cc) draft.cc = cc;
@@ -70,9 +86,9 @@
   }
 </script>
 
-<form class="composer" aria-label={replyTo ? 'Répondre' : 'Nouveau message'} onsubmit={send}>
+<form class="composer" aria-label={title} onsubmit={send}>
   <header>
-    <h2>{replyTo ? 'Répondre' : 'Nouveau message'}</h2>
+    <h2>{title}</h2>
     <IconButton icon={X} label="Fermer" onclick={onclose} />
   </header>
   <div class="champs">
