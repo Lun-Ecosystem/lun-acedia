@@ -179,7 +179,7 @@
         {:else if screen === 'journal'}
           <Journal {client} />
         {:else}
-          <Settings {client} onSelfRevoked={revokedSelf} />
+          <Settings {client} onSelfRevoked={revokedSelf} onchange={() => refresh(client)} />
         {/if}
       {/key}
     {/key}

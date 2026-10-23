@@ -13,7 +13,7 @@ if (!existsSync(resolve(staticDir, 'index.html'))) {
   console.error('app/dist absent : lancer « npm run build » d’abord.');
   process.exit(1);
 }
-const { app, token } = await createDemo({ staticDir });
+const { app, token } = await createDemo({ staticDir, keyRefused: process.env.DEMO_KEY === 'refused' });
 const port = Number(process.env.DEMO_PORT ?? 8797);
 serve({ fetch: app.fetch, port, hostname: '127.0.0.1' }, () => {
   console.log(`Démo Lun'Acedia (données inventées) : http://localhost:${port}`);

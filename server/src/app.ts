@@ -23,6 +23,7 @@ import {
   anthropicKeyView,
   checkWithModelsList,
   keyWorks,
+  removeAnthropicKey,
   saveAnthropicKey,
   type AnthropicEnv,
   type KeyChecker,
@@ -123,6 +124,10 @@ export function createApp(deps: AppDeps): Hono {
     saveAnthropicKey(deps.db, deps.secretKey, key, expires);
     keyWorks(deps.db, deps.clock());
     checkExpiry(deps.db, deps.clock(), expires, ANTHROPIC_LABEL);
+    return c.json(anthropicKeyView(deps.db, deps.secretKey, anthropicEnv));
+  });
+  api.delete('/anthropic-key', (c) => {
+    removeAnthropicKey(deps.db);
     return c.json(anthropicKeyView(deps.db, deps.secretKey, anthropicEnv));
   });
   app.route('/api', api);

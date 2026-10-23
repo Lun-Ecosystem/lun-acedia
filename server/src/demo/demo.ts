@@ -14,6 +14,7 @@ import { syncGmail } from '../gmail/sync.ts';
 import { createGoogleClient, saveTokens } from '../google/client.ts';
 import type { Classification, Classifier } from '../triage/classifier.ts';
 import { triageNew } from '../triage/pipeline.ts';
+import { keyRefused, saveAnthropicKey } from '../keys/anthropic-key.ts';
 import { createRule } from '../triage/rules.ts';
 import { FakeAgenda } from '../testing/fake-agenda.ts';
 import { fakeFetch } from '../testing/fake-fetch.ts';
@@ -270,7 +271,9 @@ function seedAgenda(agenda: FakeAgenda, now: Date) {
 }
 
 /** Builds the demo app, seeded, with one paired device. */
-export async function createDemo(opts: { staticDir?: string } = {}): Promise<{ app: Hono; token: string }> {
+export async function createDemo(
+  opts: { staticDir?: string; keyRefused?: boolean } = {},
+): Promise<{ app: Hono; token: string }> {
   const db = openDb(':memory:');
   const clock = () => new Date();
   const secretKey = randomBytes(32).toString('base64');
@@ -300,13 +303,18 @@ export async function createDemo(opts: { staticDir?: string } = {}): Promise<{ a
     now: clock,
   };
 
-  const code = issuePairingCode(db, clock());
-  const pair = await app.request('/lun/v1/pair', {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ code, client: 'Démo (écrans)' }),
-  });
-  const { token } = (await pair.json()) as { token: string };
+  const pair = async (client: string) => {
+    const res = await app.request('/lun/v1/pair', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ code: issuePairingCode(db, clock()), client }),
+    });
+    return ((await res.json()) as { token: string }).token;
+  };
+  await pair('Safari sur iPhone');
+  const token = await pair('Démo (écrans)');
+  // An invented key, shown by its last 4 characters only; refused on demand (`DEMO_KEY=refused`).
+  saveAnthropicKey(db, secretKey, 'sk-ant-demo-invented-ZQAA', '2027-03-12');
   const call = async (method: string, path: string, body?: unknown) => {
     const res = await app.request(path, {
       method,
@@ -331,6 +339,14 @@ export async function createDemo(opts: { staticDir?: string } = {}): Promise<{ a
     value: 'news.example.org',
     boxId: ids['Newsletters']!,
   });
+  createRule(db, {
+    field: 'subject',
+    op: 'contains',
+    value: 'avis d’imposition',
+    boxId: ids['Administratif']!,
+  });
+  // A Gmail label the AI must not use: « Ignorée » on the settings screen.
+  await call('PATCH', `/api/labels/${encodeURIComponent(ids['Logement']!)}`, { role: null });
 
   const now = clock().getTime();
   for (const m of MAILS) {
@@ -359,5 +375,7 @@ export async function createDemo(opts: { staticDir?: string } = {}): Promise<{ a
 
   seedAgenda(agenda, clock());
   await syncAgenda(deps);
+  // Last: the scripted triage above marks the key as working.
+  if (opts.keyRefused) keyRefused(db, clock());
   return { app, token };
 }

@@ -1,56 +1,160 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
   import type { AcediaClient } from '../client.ts';
   import { errorText } from '../mail/format.ts';
+  import type { Settings } from '../types.ts';
+  import SettingsCard from '../ui/SettingsCard.svelte';
+  import SettingsRow from '../ui/SettingsRow.svelte';
+  import Slider from '../ui/Slider.svelte';
 
-  let { client }: { client: AcediaClient } = $props();
+  /*
+   * The two confidence thresholds: from where the AI files alone, and from where « Tout valider »
+   * takes the proposals (never above the first). A scale says what each range becomes.
+   */
 
-  let threshold = $state<number | null>(null);
-  let saved = $state(false);
+  interface Props {
+    client: AcediaClient;
+    settings: Settings;
+  }
+  let { client, settings = $bindable() }: Props = $props();
+
   let error = $state<string | null>(null);
 
-  onMount(() => {
-    client
-      .getSettings()
-      .then((s) => (threshold = s.threshold))
-      .catch((err) => (error = errorText(err)));
-  });
-
-  async function save(e: SubmitEvent) {
-    e.preventDefault();
-    if (threshold === null) return;
+  async function save(patch: Partial<Settings>) {
+    const before = { ...settings };
+    // Lowering the first threshold lowers the second at once, as the server does.
+    settings = {
+      threshold: patch.threshold ?? settings.threshold,
+      bulkThreshold: Math.min(
+        patch.bulkThreshold ?? settings.bulkThreshold,
+        patch.threshold ?? settings.threshold,
+      ),
+    };
     error = null;
-    saved = false;
     try {
-      threshold = (await client.updateSettings({ threshold })).threshold;
-      saved = true;
+      settings = await client.updateSettings(patch);
     } catch (err) {
+      settings = before;
       error = errorText(err);
     }
   }
+
+  /** The scale starts at 50 %, lower when « Tout valider » goes below. */
+  const low = $derived(Math.min(50, settings.bulkThreshold));
+  const summary = $derived(
+    `En dessous de ${settings.bulkThreshold} % : un par un ; de ${settings.bulkThreshold} à ${settings.threshold} % : « Tout valider » ; ` +
+      (settings.threshold >= 100
+        ? 'rien n’est rangé seul'
+        : `à partir de ${settings.threshold} % : rangé seul`),
+  );
 </script>
 
-<section aria-label="Seuil de confiance">
-  <h3>Seuil de confiance</h3>
-  <p class="hint">
-    L’IA range seule un mail quand sa confiance atteint ce seuil ; en dessous, elle propose et attend une
-    validation. À 100, rien n’est rangé sans validation. Le spam demande toujours 95 au moins.
-  </p>
-  <form onsubmit={save}>
-    <label
-      >Seuil (%)
-      <input
-        type="number"
-        min="0"
-        max="100"
-        step="1"
-        bind:value={threshold}
-        required
-        oninput={() => (saved = false)}
+<div class="seuils">
+  <SettingsCard
+    title="Seuils de confiance"
+    description="Ce que l’IA fait seule, et ce qu’elle laisse à valider."
+  >
+    <SettingsRow
+      label="Ranger seul à partir de"
+      hint="Au-dessus, le mail est rangé sans validation ; l’action s’annule depuis le journal. Le spam demande toujours 95 % au moins."
+      class="seuil seul"
+    >
+      <Slider
+        label="Ranger seul à partir de"
+        value={settings.threshold}
+        onchange={(threshold) => save({ threshold })}
       />
-    </label>
-    <button type="submit">Enregistrer</button>
-    {#if saved}<span class="ok" role="status">Enregistré</span>{/if}
-  </form>
-  {#if error}<p class="error" role="alert">{error}</p>{/if}
-</section>
+    </SettingsRow>
+    <SettingsRow
+      label="« Tout valider » à partir de"
+      hint="Dans la file À valider, le bouton groupé prend les propositions au-dessus de ce seuil."
+      class="seuil groupe"
+    >
+      <Slider
+        label="« Tout valider » à partir de"
+        max={settings.threshold}
+        value={settings.bulkThreshold}
+        onchange={(bulkThreshold) => save({ bulkThreshold })}
+      />
+    </SettingsRow>
+    <div class="echelle" role="img" aria-label={summary}>
+      {#if settings.bulkThreshold > low}
+        <div class="un" style:flex-grow={settings.bulkThreshold - low}>
+          <span>{low} %</span><span class="milieu">en dessous de {settings.bulkThreshold} % : un par un</span>
+        </div>
+      {/if}
+      {#if settings.threshold > settings.bulkThreshold}
+        <div class="tout" style:flex-grow={settings.threshold - settings.bulkThreshold}>
+          <span class="milieu">« Tout valider »</span>
+        </div>
+      {/if}
+      {#if settings.threshold < 100}
+        <div class="seul" style:flex-grow={100 - settings.threshold}>
+          <span class="milieu">seul · 100 %</span>
+        </div>
+      {/if}
+    </div>
+    {#if error}<p class="erreur" role="alert">{error}</p>{/if}
+  </SettingsCard>
+</div>
+
+<style>
+  .seuils :global(.seuil .curseur) {
+    width: 320px;
+  }
+  .seuils :global(.seuil.seul .plein) {
+    background: var(--ok);
+  }
+  .seuils :global(.seuil.groupe .plein) {
+    background: var(--ia);
+  }
+  .echelle {
+    display: flex;
+    height: 30px;
+    margin: 4px 18px 16px;
+    border-radius: var(--r-2);
+    overflow: hidden;
+    font-size: 11.5px;
+  }
+  .echelle div {
+    display: flex;
+    flex-basis: 0;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+    padding: 0 8px;
+    color: var(--texte);
+    white-space: nowrap;
+  }
+  .milieu {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    text-align: center;
+  }
+  .un {
+    background: var(--surface-3);
+  }
+  .tout {
+    background: color-mix(in srgb, var(--ia) 28%, transparent);
+  }
+  .seul {
+    min-width: 64px !important;
+    background: color-mix(in srgb, var(--ok) 30%, transparent);
+  }
+  .erreur {
+    margin: 0 18px 14px;
+    font-size: 12.5px;
+    color: var(--danger);
+  }
+  @media (max-width: 767.98px) {
+    .seuils :global(.seuil .curseur) {
+      width: 100%;
+    }
+    .seuils :global(.seuil .controle) {
+      flex: 1 1 100%;
+    }
+    .echelle {
+      margin: 4px 14px 14px;
+    }
+  }
+</style>

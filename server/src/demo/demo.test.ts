@@ -13,6 +13,9 @@ describe('demo', () => {
     expect((await get('/api/journal')).items.length).toBeGreaterThan(4);
     expect((await get('/api/settings')).threshold).toBe(95);
     expect((await get('/api/calendars')).items.length).toBe(3);
+    expect((await get('/api/rules')).rules.length).toBe(2);
+    expect((await get('/api/clients')).clients.length).toBe(2);
+    expect(await get('/api/anthropic-key')).toMatchObject({ state: 'ok', last4: 'ZQAA' });
     expect((await app.request('/api/mail')).status).toBe(401);
   });
 });

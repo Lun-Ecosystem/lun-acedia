@@ -1,137 +1,215 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
   import type { AcediaClient, LinkedClient } from '../client.ts';
   import { errorText } from '../mail/format.ts';
+  import Badge from '../ui/Badge.svelte';
+  import Button from '../ui/Button.svelte';
+  import ConfirmDialog from '../ui/ConfirmDialog.svelte';
+  import { AppWindow, ICON_STROKE, Monitor, Plus } from '../ui/Icon.ts';
+  import SettingsCard from '../ui/SettingsCard.svelte';
+  import { toast } from '../ui/toasts.svelte.ts';
 
-  let {
-    client,
-    onSelfRevoked,
-  }: {
+  /*
+   * What holds an access to Lun'Acedia: each device and app, since when (the server keeps no last
+   * activity), this browser marked. Removing one asks first and says what follows.
+   */
+
+  interface Props {
     client: AcediaClient;
+    clients: LinkedClient[];
     /** Called once this browser's own access is revoked: its token no longer works. */
     onSelfRevoked?: (() => void) | undefined;
-  } = $props();
+  }
+  let { client, clients = $bindable(), onSelfRevoked }: Props = $props();
 
-  let clients = $state<LinkedClient[]>([]);
-  let confirming = $state(false);
-  let busy = $state(false);
-  let done = $state<string | null>(null);
+  let removing = $state<LinkedClient | null>(null);
   let code = $state<{ code: string; expiresAt: string } | null>(null);
+  let linking = $state(false);
   let error = $state<string | null>(null);
 
-  onMount(() => {
-    client
-      .listClients()
-      .then((c) => (clients = c))
-      .catch((err) => (error = errorText(err)));
-  });
-
-  function ask(c: LinkedClient) {
-    error = null;
-    done = null;
-    if (c.current) confirming = true;
-    else void revoke(c);
-  }
-
-  async function revoke(c: LinkedClient) {
-    busy = true;
-    error = null;
-    try {
-      await client.revokeClient(c.id);
-      if (c.current && onSelfRevoked) {
-        // The token is dead: no further call, the host app goes back to pairing.
-        onSelfRevoked();
-        return;
-      }
-      clients = clients.filter((x) => x.id !== c.id);
-      confirming = false;
-      done = `Accès retiré : ${c.current ? 'ce navigateur' : c.name}.`;
-      // No handover: one call with the dead token lets the host's 401 handling (its sign-out)
-      // take over instead of leaving a screen whose every call fails.
-      if (c.current) void client.listClients().catch(() => {});
-    } catch (err) {
-      error = errorText(err);
-    } finally {
-      busy = false;
+  async function revoke() {
+    const c = removing!;
+    await client.revokeClient(c.id);
+    if (c.current && onSelfRevoked) {
+      // The token is dead: no further call, the host app goes back to pairing.
+      onSelfRevoked();
+      return;
     }
+    clients = clients.filter((x) => x.id !== c.id);
+    toast(`Accès retiré : ${c.current ? 'ce navigateur' : c.name}`);
+    // No handover: one call with the dead token lets the host's 401 handling take over.
+    if (c.current) void client.listClients().catch(() => {});
   }
 
   async function link() {
     error = null;
+    linking = true;
     try {
       code = await client.createPairingCode();
     } catch (err) {
       error = errorText(err);
+    } finally {
+      linking = false;
     }
   }
 
-  const date = (iso: string) => new Date(iso).toLocaleDateString('fr-FR');
+  const thisYear = new Date().getFullYear();
+  /** « 18 oct. », with the year when it is not this one. */
+  const date = (iso: string) => {
+    const d = new Date(iso);
+    return d.toLocaleDateString('fr-FR', {
+      day: 'numeric',
+      month: 'short',
+      ...(d.getFullYear() === thisYear ? {} : { year: 'numeric' }),
+    });
+  };
   const time = (iso: string) =>
     new Date(iso).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
-  const kind = (c: LinkedClient) =>
-    c.kind === 'app'
-      ? `application · reliée le ${date(c.createdAt)}`
-      : `appareil · relié le ${date(c.createdAt)}`;
+  const since = (c: LinkedClient) =>
+    c.kind === 'app' ? `Application · reliée le ${date(c.createdAt)}` : `Relié le ${date(c.createdAt)}`;
+
+  const confirmation = $derived.by(() => {
+    if (!removing) return { title: '', message: '', label: '' };
+    if (removing.current)
+      return {
+        title: 'Retirer ce navigateur ?',
+        message: "Ce navigateur perdra l’accès à Lun'Acedia. Un nouveau code sera nécessaire pour le relier.",
+        label: 'Retirer ce navigateur',
+      };
+    if (removing.kind === 'app')
+      return {
+        title: `Retirer ${removing.name} ?`,
+        message:
+          "Cette application perdra l’accès à Lun'Acedia. Elle devra demander une nouvelle autorisation.",
+        label: 'Retirer l’application',
+      };
+    return {
+      title: `Retirer ${removing.name} ?`,
+      message: "Cet appareil perdra l’accès à Lun'Acedia. Un nouveau code sera nécessaire pour le relier.",
+      label: 'Retirer l’appareil',
+    };
+  });
 </script>
 
-<section class="devices" aria-label="Appareils et applications">
-  <h3>Appareils et applications</h3>
-  <p class="hint">Ce qui a accès à Lun'Acedia.</p>
+<SettingsCard title={`${clients.length} accès`}>
+  {#snippet aside()}
+    <Button size="petit" icon={Plus} loading={linking} onclick={link}>Relier un appareil</Button>
+  {/snippet}
+  {#if code}
+    <div class="code" role="status">
+      <div>
+        <div class="titre">Code de liaison</div>
+        <div class="aide">À saisir sur le nouvel appareil. Expire à {time(code.expiresAt)}.</div>
+      </div>
+      <span class="chiffres">{code.code}</span>
+    </div>
+  {/if}
+  {#if error}<p class="erreur" role="alert">{error}</p>{/if}
   <ul>
     {#each clients as c (c.id)}
+      {@const Icon = c.kind === 'app' ? AppWindow : Monitor}
       <li>
-        <span class="who">
-          <span>{c.current ? 'Ce navigateur' : c.name}</span>
-          <span class="meta">{kind(c)}</span>
-        </span>
-        <button type="button" disabled={busy} onclick={() => ask(c)}>Retirer</button>
+        <span class="ico" aria-hidden="true"><Icon size={16} strokeWidth={ICON_STROKE} /></span>
+        <div class="texte">
+          <div class="nom">
+            <b>{c.name}</b>
+            {#if c.current}<Badge tone="ok">Ce navigateur</Badge>{/if}
+          </div>
+          <small>{since(c)}</small>
+        </div>
+        <Button variant="fantome" size="petit" onclick={() => (removing = c)}>Retirer</Button>
       </li>
-      {#if c.current && confirming}
-        <li class="confirm">
-          <span
-            >Ce navigateur perdra l’accès à Lun'Acedia. Un nouveau code sera nécessaire pour le relier.</span
-          >
-          <button type="button" disabled={busy} onclick={() => revoke(c)}>Retirer ce navigateur</button>
-          <button type="button" disabled={busy} onclick={() => (confirming = false)}>Annuler</button>
-        </li>
-      {/if}
     {/each}
   </ul>
-  {#if done}<p class="ok" role="status">{done}</p>{/if}
-  <button type="button" onclick={link}>Relier un appareil</button>
-  {#if code}
-    <p class="code">{code.code}</p>
-    <p class="hint">Expire à {time(code.expiresAt)}</p>
-  {/if}
-  {#if error}<p class="error" role="alert">{error}</p>{/if}
-</section>
+</SettingsCard>
+
+<ConfirmDialog
+  bind:open={() => removing !== null, (open) => !open && (removing = null)}
+  title={confirmation.title}
+  message={confirmation.message}
+  confirmLabel={confirmation.label}
+  onconfirm={revoke}
+/>
 
 <style>
-  .devices li {
-    border: 1px solid var(--bordure);
-    border-radius: var(--rayon);
-    padding: 0.55rem 0.75rem;
-    margin-bottom: 0.5rem;
+  ul {
+    margin: 0;
+    padding: 0;
+    list-style: none;
   }
-  .who {
+  li {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 18px;
+    border-bottom: 1px solid var(--bordure);
+  }
+  li:last-child {
+    border-bottom: 0;
+  }
+  .ico {
+    display: grid;
+    place-items: center;
+    flex: none;
+    width: 36px;
+    height: 36px;
+    border-radius: var(--r-2);
+    background: var(--surface-3);
+    color: var(--texte-2);
+  }
+  .texte {
+    flex: 1;
+    min-width: 0;
+  }
+  .nom {
     display: flex;
     flex-wrap: wrap;
-    align-items: baseline;
-    gap: 0.2rem 0.6rem;
+    align-items: center;
+    gap: 4px 8px;
   }
-  .meta {
-    font-size: 0.85rem;
-    color: var(--lune);
+  b {
+    font-weight: 500;
+    font-size: 14px;
+    overflow-wrap: anywhere;
   }
-  .devices .confirm {
-    flex-wrap: wrap;
-    border-color: var(--monde-accent);
-    background: var(--accent-doux);
+  small {
+    display: block;
+    font-size: 12.5px;
+    color: var(--texte-3);
   }
   .code {
-    margin: 0.75rem 0 0.25rem;
-    font-family: var(--serif);
-    font-size: 2.2rem;
-    letter-spacing: 0.3em;
+    display: flex;
+    align-items: center;
+    gap: 18px;
+    padding: 14px 18px;
+    border-bottom: 1px solid var(--bordure);
+    background: var(--accent-doux);
+  }
+  .code > div {
+    flex: 1;
+  }
+  .titre {
+    font-size: 14px;
+  }
+  .aide {
+    margin-top: 2px;
+    font-size: 12.5px;
+    color: var(--texte-2);
+  }
+  .chiffres {
+    font: 500 30px/1 var(--serif);
+    letter-spacing: 0.24em;
+    font-variant-numeric: tabular-nums;
+  }
+  .erreur {
+    margin: 0;
+    padding: 10px 18px;
+    font-size: 12.5px;
+    color: var(--danger);
+  }
+  @media (max-width: 767.98px) {
+    li,
+    .code {
+      padding: 12px 14px;
+    }
   }
 </style>

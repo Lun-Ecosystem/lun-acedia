@@ -30,6 +30,8 @@ export interface RuleDraft {
   boxId: string;
   tagIds?: string[];
   enabled?: boolean;
+  /** Order among the rules (the first that matches files the mail). */
+  position?: number;
 }
 
 export interface EventDraft {
@@ -144,6 +146,8 @@ export interface AcediaClient {
   getAnthropicKey(): Promise<AnthropicKeyStatus>;
   /** Checks the key with Anthropic, then saves it; rejects (nothing changed) when refused or unreachable. */
   saveAnthropicKey(key: string, expires?: string): Promise<AnthropicKeyStatus>;
+  /** Forgets the saved key; answers what remains in service (the `.env` key, or none). */
+  deleteAnthropicKey(): Promise<AnthropicKeyStatus>;
   /** State of the service (`GET /lun/v1/health`): sorting active, paused, or degraded (`paused` then tells a pause). */
   health(): Promise<{ status: 'ok' | 'paused' | 'degraded'; reason?: string; paused?: boolean }>;
   /** Pauses everything automatic (the AI and the rules); what is asked by hand still runs. */
@@ -267,6 +271,7 @@ export function httpClient(opts: { baseUrl: string; token: string; fetch?: typeo
     getAnthropicKey: () => call('GET', '/api/anthropic-key'),
     saveAnthropicKey: (key, expires) =>
       call('PUT', '/api/anthropic-key', expires ? { key, expires } : { key }),
+    deleteAnthropicKey: () => call('DELETE', '/api/anthropic-key'),
     health: () => call('GET', '/lun/v1/health'),
     pause: async () => {
       await call('POST', '/lun/v1/pause', {});

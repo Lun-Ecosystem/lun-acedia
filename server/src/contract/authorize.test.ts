@@ -245,6 +245,7 @@ describe('app token scope', () => {
       ['POST', '/api/pairing-codes', null],
       ['DELETE', `/api/clients/${appId}`, null],
       ['PUT', '/api/anthropic-key', JSON.stringify({ key: 'sk-ant-test-0000' })],
+      ['DELETE', '/api/anthropic-key', null],
       ['GET', '/api/google/status', null],
     ] as const) {
       const res = await h.app.request(path, { method, headers: h.auth(token), body });

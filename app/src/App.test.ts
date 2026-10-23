@@ -102,10 +102,10 @@ describe('App', () => {
     const user = userEvent.setup();
     render(App);
 
-    const section = await screen.findByRole('region', { name: 'Appareils et applications' });
-    const self = (await within(section).findByText('Ce navigateur')).closest('li')!;
+    await user.click(await screen.findByRole('link', { name: 'Appareils et applications' }));
+    const self = (await screen.findByText('Ce navigateur')).closest('li')!;
     await user.click(within(self).getByRole('button', { name: 'Retirer' }));
-    await user.click(within(section).getByRole('button', { name: 'Retirer ce navigateur' }));
+    await user.click(await screen.findByRole('button', { name: 'Retirer ce navigateur' }));
 
     expect(await screen.findByRole('button', { name: 'Relier cet appareil' })).toBeInTheDocument();
     expect(localStorage.getItem(TOKEN_KEY)).toBeNull();
@@ -204,8 +204,8 @@ describe('Settings without onSelfRevoked', () => {
     const user = userEvent.setup();
     render(Settings, { props: { client } });
 
-    const section = await screen.findByRole('region', { name: 'Appareils et applications' });
-    const self = (await within(section).findByText('Ce navigateur')).closest('li')!;
+    await user.click(await screen.findByRole('link', { name: 'Appareils et applications' }));
+    const self = (await screen.findByText('Ce navigateur')).closest('li')!;
     // From now on the token is dead.
     vi.mocked(globalThis.fetch).mockImplementation(async (input, init) => {
       calls.push(`${init?.method ?? 'GET'} ${new URL(String(input)).pathname}`);
@@ -214,7 +214,7 @@ describe('Settings without onSelfRevoked', () => {
         : new Response(JSON.stringify({ error: 'Jeton absent, invalide ou révoqué' }), { status: 401 });
     });
     await user.click(within(self).getByRole('button', { name: 'Retirer' }));
-    await user.click(within(section).getByRole('button', { name: 'Retirer ce navigateur' }));
+    await user.click(await screen.findByRole('button', { name: 'Retirer ce navigateur' }));
 
     await vi.waitFor(() => expect(onUnauthorized).toHaveBeenCalledTimes(1));
     expect(calls.slice(-2)).toEqual(['DELETE /api/clients/1', 'GET /api/clients']);

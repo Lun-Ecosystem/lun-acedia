@@ -1,43 +1,63 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
   import type { AcediaClient, AnthropicKeyStatus } from '../client.ts';
   import { errorText } from '../mail/format.ts';
+  import Badge from '../ui/Badge.svelte';
+  import Button from '../ui/Button.svelte';
+  import ConfirmDialog from '../ui/ConfirmDialog.svelte';
+  import Dialog from '../ui/Dialog.svelte';
+  import Field from '../ui/Field.svelte';
+  import { Calendar, ICON_STROKE, Plus } from '../ui/Icon.ts';
+  import SettingsCard from '../ui/SettingsCard.svelte';
+  import SettingsRow from '../ui/SettingsRow.svelte';
+  import TextInput from '../ui/TextInput.svelte';
+  import { toast } from '../ui/toasts.svelte.ts';
+  import type { Tone } from '../ui/types.ts';
 
-  let { client }: { client: AcediaClient } = $props();
+  /*
+   * Card of the Anthropic key: its state first, then the key by its last 4 characters only. Replacing
+   * opens a window (the check with Anthropic can take seconds); removing asks for a confirmation.
+   */
 
-  let status = $state<AnthropicKeyStatus | null>(null);
+  interface Props {
+    client: AcediaClient;
+    status: AnthropicKeyStatus | null;
+    /** The replacing window, opened from here or from the banner of a refused key. */
+    replacing?: boolean | undefined;
+  }
+  let { client, status = $bindable(), replacing = $bindable(false) }: Props = $props();
+
+  const uid = $props.id();
   let key = $state('');
   let expires = $state('');
   let pending = $state(false);
-  let saved = $state(false);
-  let error = $state<string | null>(null);
+  let error = $state<string | undefined>();
+  let removing = $state(false);
 
-  const STATES: Record<AnthropicKeyStatus['state'], string> = {
-    ok: 'En service',
-    refused: 'Refusée',
-    credit: 'Crédit épuisé',
-    absent: 'Absente : seules les règles trient',
+  const BADGE: Record<AnthropicKeyStatus['state'], { text: string; tone: Tone }> = {
+    ok: { text: 'En service', tone: 'ok' },
+    refused: { text: 'Refusée', tone: 'danger' },
+    credit: { text: 'Crédit épuisé', tone: 'attention' },
+    absent: { text: 'Absente', tone: 'neutre' },
   };
 
-  onMount(() => {
-    client
-      .getAnthropicKey()
-      .then((s) => (status = s))
-      .catch((err) => (error = errorText(err)));
+  $effect(() => {
+    if (!replacing) {
+      key = '';
+      expires = '';
+      error = undefined;
+    }
   });
 
   async function save(e: SubmitEvent) {
     e.preventDefault();
     if (!key.trim() || pending) return;
     pending = true;
-    saved = false;
-    error = null;
+    error = undefined;
     try {
-      // The check with Anthropic can take several seconds; on refusal nothing changes.
+      // On refusal nothing changes on the server: the window stays, with the reason.
       status = await client.saveAnthropicKey(key.trim(), expires || undefined);
-      key = '';
-      expires = '';
-      saved = true;
+      replacing = false;
+      toast('Clé vérifiée et enregistrée');
     } catch (err) {
       error = errorText(err);
     } finally {
@@ -45,133 +65,128 @@
     }
   }
 
-  /** `AAAA-MM-JJ` as `JJ/MM/AAAA`, without going through a time zone. */
-  const day = (iso: string) => iso.split('-').reverse().join('/');
+  async function remove() {
+    status = await client.deleteAnthropicKey();
+    toast('Clé Anthropic retirée');
+  }
+
+  /** `AAAA-MM-JJ` as « 12 mars 2027 », without going through the local time zone. */
+  const day = (iso: string) =>
+    new Date(`${iso}T12:00:00Z`).toLocaleDateString('fr-FR', {
+      day: 'numeric',
+      month: 'short',
+      year: 'numeric',
+      timeZone: 'UTC',
+    });
 </script>
 
-<section class="anthropic-key" aria-label="Clé Anthropic">
-  <h3>Clé Anthropic</h3>
-  <p class="hint">
-    Sert au tri par l’IA. Une nouvelle clé est vérifiée auprès d’Anthropic avant d’être enregistrée, puis sert
-    dès le mail suivant, sans redémarrage.
-  </p>
-
-  {#if status}
-    <div class="current" data-state={status.state}>
-      <p class="state"><span class="dot" aria-hidden="true"></span><span>{STATES[status.state]}</span></p>
-      {#if status.last4}<p class="meta">Se termine par {status.last4}</p>{/if}
-      {#if status.expires}<p class="meta">Échéance déclarée : {day(status.expires)}</p>{/if}
-    </div>
+<SettingsCard
+  title="Clé Anthropic"
+  description="Utilisée seulement pour classer les mails. Jamais affichée en entier."
+  class="cle"
+>
+  {#snippet aside()}
+    {#if status}<Badge tone={BADGE[status.state].tone} dot>{BADGE[status.state].text}</Badge>{/if}
+  {/snippet}
+  {#if status?.last4}
+    <SettingsRow label={status.source === 'env' ? 'Clé du fichier .env' : 'Clé enregistrée'}>
+      {#snippet hint()}Se termine par <span class="mono">{status?.last4}</span>{/snippet}
+      <Button size="petit" onclick={() => (replacing = true)}>Remplacer…</Button>
+      {#if status.source !== 'env'}
+        <Button variant="fantome" size="petit" class="retirer" onclick={() => (removing = true)}
+          >Retirer</Button
+        >
+      {/if}
+    </SettingsRow>
+    <SettingsRow label="Échéance déclarée" hint="Avertissement 14 jours puis 3 jours avant.">
+      <span class="puce">
+        <Calendar size={14} strokeWidth={ICON_STROKE} aria-hidden="true" />
+        {status.expires ? day(status.expires) : 'Aucune'}
+      </span>
+    </SettingsRow>
+  {:else if status}
+    <SettingsRow label="Aucune clé" hint="Seules les règles trient les nouveaux mails.">
+      <Button variant="principal" size="petit" icon={Plus} onclick={() => (replacing = true)}
+        >Ajouter une clé</Button
+      >
+    </SettingsRow>
   {/if}
+</SettingsCard>
 
-  <form class="replace" onsubmit={save}>
-    <label class="field"
-      >Nouvelle clé
-      <input
-        type="password"
-        autocomplete="off"
-        spellcheck="false"
-        autocapitalize="off"
-        bind:value={key}
-        oninput={() => (saved = false)}
-        disabled={pending}
-      />
-    </label>
-    <label class="field date"
-      >Échéance (facultatif)
-      <input type="date" bind:value={expires} disabled={pending} />
-    </label>
-    <button type="submit" class="primary" disabled={pending || !key.trim()} aria-busy={pending}
-      >Vérifier et enregistrer</button
+<Dialog
+  bind:open={replacing}
+  title={status?.last4 ? 'Remplacer la clé' : 'Ajouter une clé'}
+  description="Vérifiée auprès d’Anthropic avant d’être enregistrée, elle sert dès le mail suivant."
+>
+  {#snippet children()}
+    <form id="{uid}-cle" class="champs" onsubmit={save}>
+      <Field label="Nouvelle clé" {error}>
+        <TextInput
+          type="password"
+          autocomplete="off"
+          spellcheck="false"
+          autocapitalize="off"
+          bind:value={key}
+          disabled={pending}
+        />
+      </Field>
+      <Field label="Échéance (facultatif)" hint="Avertissement 14 jours puis 3 jours avant.">
+        <TextInput type="date" bind:value={expires} disabled={pending} />
+      </Field>
+      {#if pending}<p class="attente" role="status">Vérification auprès d’Anthropic…</p>{/if}
+    </form>
+  {/snippet}
+  {#snippet footer({ close })}
+    <Button onclick={close} disabled={pending}>Annuler</Button>
+    <Button type="submit" form="{uid}-cle" variant="principal" loading={pending} disabled={!key.trim()}
+      >Vérifier et enregistrer</Button
     >
-  </form>
-  <p class="hint">Un avertissement est émis 14 jours puis 3 jours avant l’échéance déclarée.</p>
+  {/snippet}
+</Dialog>
 
-  {#if pending}<p class="ok" role="status">Vérification auprès d’Anthropic…</p>{/if}
-  {#if saved}<p class="ok" role="status">Clé vérifiée et enregistrée.</p>{/if}
-  {#if error}<p class="error" role="alert">{error}</p>{/if}
-</section>
+<ConfirmDialog
+  bind:open={removing}
+  title="Retirer la clé Anthropic ?"
+  message="Le tri par l’IA s’arrête ; les règles continuent de s’appliquer. Une nouvelle clé peut être ajoutée à tout moment."
+  confirmLabel="Retirer la clé"
+  onconfirm={remove}
+/>
 
 <style>
-  .current {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: baseline;
-    gap: 0.2rem 1.2rem;
-    border: 1px solid var(--bordure);
-    border-left: 3px solid var(--lune);
-    border-radius: var(--rayon);
-    padding: 0.55rem 0.75rem;
-    margin: 0.4rem 0 0.8rem;
+  .mono {
+    font:
+      400 13px ui-monospace,
+      Consolas,
+      monospace;
+    color: var(--texte-2);
   }
-  .current p {
-    margin: 0;
-  }
-  .current[data-state='ok'] {
-    border-left-color: var(--lavis);
-  }
-  .current[data-state='refused'],
-  .current[data-state='credit'] {
-    border-left-color: var(--erreur);
-  }
-  .state {
-    display: flex;
+  .puce {
+    display: inline-flex;
     align-items: center;
-    gap: 0.45rem;
-    font-weight: 400;
+    gap: 6px;
+    height: 32px;
+    padding: 0 10px;
+    border: 1px solid var(--bordure-forte);
+    border-radius: var(--r-1);
+    background: var(--surface-2);
+    font-size: 13px;
+    color: var(--texte);
+    white-space: nowrap;
   }
-  .dot {
-    width: 0.55rem;
-    height: 0.55rem;
-    border-radius: 50%;
-    border: 1px solid var(--lune);
+  .puce :global(svg) {
+    color: var(--texte-3);
   }
-  [data-state='ok'] .dot {
-    background: var(--lavis);
-    border-color: var(--lavis);
+  :global(.cle) :global(.btn.retirer) {
+    color: var(--danger);
   }
-  [data-state='refused'] .dot,
-  [data-state='credit'] .dot {
-    background: var(--erreur);
-    border-color: var(--erreur);
-  }
-  [data-state='refused'] .state,
-  [data-state='credit'] .state {
-    color: var(--erreur);
-  }
-  .meta {
-    font-size: 0.85rem;
-    color: var(--lune);
-  }
-  .replace {
-    align-items: flex-end;
-  }
-  .replace .field {
+  .champs {
+    display: flex;
     flex-direction: column;
-    align-items: stretch;
-    gap: 0.25rem;
+    gap: 14px;
   }
-  .replace .field:first-child {
-    flex: 1 1 18rem;
-  }
-  .replace .field input {
-    min-width: 0;
-  }
-  .replace .primary {
-    padding: 0.4rem 1rem;
-    color: var(--ivoire);
-    background: var(--monde-accent);
-    border-color: var(--monde-accent);
-    font-weight: 400;
-  }
-  .replace .primary:hover:not(:disabled) {
-    border-color: var(--lavis);
-  }
-  .replace .primary:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-  }
-  .replace .primary[aria-busy='true'] {
-    cursor: progress;
+  .attente {
+    margin: 0;
+    font-size: 12.5px;
+    color: var(--texte-2);
   }
 </style>
