@@ -6,6 +6,7 @@
     Mailbox,
     Pending,
     Settings,
+    Tasks,
     toast,
     type AcediaClient,
   } from '@lun-ecosystem/lunacedia-views';
@@ -171,8 +172,10 @@
               location.hash = HREF.mail;
             }}
           />
-        {:else if screen === 'agenda' || screen === 'taches'}
-          <Agenda {client} />
+        {:else if screen === 'agenda'}
+          <Agenda {client} ontasks={() => (location.hash = HREF.taches)} />
+        {:else if screen === 'taches'}
+          <Tasks {client} />
         {:else if screen === 'journal'}
           <Journal {client} />
         {:else}

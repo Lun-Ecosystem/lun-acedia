@@ -1,72 +1,140 @@
 <script lang="ts">
-  import { onMount, untrack } from 'svelte';
+  import { untrack } from 'svelte';
   import type { AcediaClient, EventDraft, TaskDraft } from '../client.ts';
   import { errorText } from '../mail/format.ts';
   import type { AgendaItem } from '../types.ts';
-  import { addDays, dayKey, fromLocalInput, parseDay, toLocalInput, type Editing } from './dates.ts';
+  import Button from '../ui/Button.svelte';
+  import Dialog from '../ui/Dialog.svelte';
+  import { Bell, Calendar, Clock, FileText, ICON_STROKE, List, MapPin, Plus, Trash, X } from '../ui/Icon.ts';
+  import Menu from '../ui/Menu.svelte';
+  import Segmented from '../ui/Segmented.svelte';
+  import Select from '../ui/Select.svelte';
+  import Switch from '../ui/Switch.svelte';
+  import {
+    addDays,
+    dayKey,
+    fromLocalInput,
+    parseDay,
+    reminderName,
+    toLocalInput,
+    type Editing,
+  } from './dates.ts';
 
+  /*
+   * One window to create or change an event or a task (plate 5): the kind on top (new items only),
+   * the title first, then lines with an icon, as on Google Agenda. Rare options (reminders, a note)
+   * stay folded until asked for.
+   */
+
+  interface Container {
+    id: string;
+    title: string;
+    color: string;
+  }
   interface Props {
     client: AcediaClient;
     editing: Editing;
+    calendars: Container[];
+    lists: Container[];
     onclose: () => void;
     onsaved: (item: AgendaItem) => void;
-    ondeleted: (item: AgendaItem) => void;
+    /** Asks to remove the item (the caller confirms). */
+    ondelete: (item: AgendaItem) => void;
   }
-  let { client, editing, onclose, onsaved, ondeleted }: Props = $props();
+  let { client, editing, calendars, lists, onclose, onsaved, ondelete }: Props = $props();
 
   // The form starts from the item, then belongs to the person editing.
   const item = untrack(() => ('id' in editing ? editing : undefined));
-  const kind = untrack(() => editing.kind);
-  const day = untrack(() => ('day' in editing ? editing.day : new Date()));
   const event = item?.kind === 'event' ? item : undefined;
   const task = item?.kind === 'task' ? item : undefined;
+  const day = untrack(() => ('day' in editing ? editing.day : new Date()));
+  const hour = untrack(() => ('hour' in editing && editing.hour !== undefined ? editing.hour : 9));
+  const pad = (n: number) => String(n).padStart(2, '0');
 
-  let containers = $state<{ id: string; title: string }[]>([]);
-  let container = $state(event?.calendarId ?? task?.listId ?? '');
+  let open = $state(true);
+  let kind = $state(untrack(() => editing.kind));
   let titleText = $state(item?.title ?? '');
+  let calendarId = $state(event?.calendarId ?? '');
+  let listId = $state(task?.listId ?? '');
   let allDay = $state(event?.allDay ?? false);
-  // All-day: dates, end included in the form (Google's end is exclusive). Timed: local date-times.
-  let startDay = $state(event?.allDay ? event.start : dayKey(day));
-  let endDay = $state(event?.allDay ? dayKey(addDays(parseDay(event.end), -1)) : dayKey(day));
-  let start = $state(event && !event.allDay ? toLocalInput(event.start) : `${dayKey(day)}T09:00`);
-  let end = $state(event && !event.allDay ? toLocalInput(event.end) : `${dayKey(day)}T10:00`);
+  // Timed: a day and two times (the end may fall the next day). All-day: two days, the last included.
+  let date = $state(
+    event ? (event.allDay ? event.start : toLocalInput(event.start).slice(0, 10)) : dayKey(day),
+  );
+  let endDate = $state(event?.allDay ? dayKey(addDays(parseDay(event.end), -1)) : dayKey(day));
+  let startTime = $state(event && !event.allDay ? toLocalInput(event.start).slice(11) : `${pad(hour)}:00`);
+  let endTime = $state(
+    event && !event.allDay
+      ? toLocalInput(event.end).slice(11)
+      : `${pad(Math.min(hour + 1, 23))}:${hour === 23 ? '59' : '00'}`,
+  );
   let location = $state(event?.location ?? '');
+  // Untouched, the reminders stay those of the calendar: they are only sent once changed here.
+  let reminders = $state(event?.reminders ?? []);
+  let remindersTouched = $state(false);
   let due = $state(task ? (task.due ?? '') : dayKey(day));
   let notes = $state(task?.notes ?? '');
+  let showNotes = $state(Boolean(task?.notes));
   let busy = $state(false);
   let error = $state<string | null>(null);
 
-  onMount(() => {
-    (kind === 'event' ? client.listCalendars() : client.listTaskLists())
-      .then((list) => {
-        containers = list;
-        if (!container && list[0]) container = list[0].id;
-      })
-      .catch((err) => (error = errorText(err)));
+  $effect(() => {
+    if (!calendarId && calendars[0]) calendarId = calendars[0].id;
+    if (!listId && lists[0]) listId = lists[0].id;
   });
+  $effect(() => {
+    if (!open) onclose();
+  });
+
+  const dialogTitle = $derived(
+    kind === 'event'
+      ? item
+        ? 'Modifier l’événement'
+        : 'Nouvel événement'
+      : item
+        ? 'Modifier la tâche'
+        : 'Nouvelle tâche',
+  );
+  const CHOICES = [10, 30, 60, 1440];
+
+  function setReminders(next: number[]) {
+    reminders = [...new Set(next)].sort((a, b) => a - b);
+    remindersTouched = true;
+  }
+
+  /** The end of a timed event: same day, or the next one when the end time is not after the start. */
+  function timedRange() {
+    const start = fromLocalInput(`${date}T${startTime}`);
+    const endDay = endTime > startTime ? date : dayKey(addDays(parseDay(date), 1));
+    return { start, end: fromLocalInput(`${endDay}T${endTime}`) };
+  }
 
   async function save(e: SubmitEvent) {
     e.preventDefault();
+    if (!titleText.trim()) return;
     busy = true;
     error = null;
     try {
       if (kind === 'event') {
         const draft: EventDraft = {
-          calendarId: container,
-          title: titleText,
+          calendarId,
+          title: titleText.trim(),
           allDay,
-          start: allDay ? startDay : fromLocalInput(start),
-          end: allDay ? dayKey(addDays(parseDay(endDay), 1)) : fromLocalInput(end),
+          ...(allDay
+            ? { start: date, end: dayKey(addDays(parseDay(endDate < date ? date : endDate), 1)) }
+            : timedRange()),
         };
         if (event) draft.id = event.id;
-        if (location) draft.location = location;
+        if (location || event?.location) draft.location = location;
+        if (remindersTouched) draft.reminders = reminders;
         onsaved(await client.saveEvent(draft));
       } else {
-        const draft: TaskDraft = { listId: container, title: titleText, due: due || null };
+        const draft: TaskDraft = { listId, title: titleText.trim(), due: due || null };
         if (task) draft.id = task.id;
-        if (notes) draft.notes = notes;
+        if (notes || task?.notes) draft.notes = notes;
         onsaved(await client.saveTask(draft));
       }
+      open = false;
     } catch (err) {
       error = errorText(err);
     } finally {
@@ -74,103 +142,278 @@
     }
   }
 
-  async function remove() {
-    if (!item) return;
-    busy = true;
-    try {
-      if (item.kind === 'event') await client.deleteEvent(item.calendarId, item.id);
-      else await client.deleteTask(item.listId, item.id);
-      ondeleted(item);
-    } catch (err) {
-      error = errorText(err);
-      busy = false;
-    }
-  }
+  const options = (list: Container[]) => list.map((c) => ({ value: c.id, label: c.title }));
+  const colorOf = (list: Container[], id: string) => list.find((c) => c.id === id)?.color;
 </script>
 
-<div class="backdrop" role="presentation" onclick={(e) => e.target === e.currentTarget && onclose()}>
-  <div class="editor" role="dialog" aria-modal="true" aria-label={kind === 'event' ? 'Événement' : 'Tâche'}>
-    <form onsubmit={save}>
-      <h3>{item ? 'Modifier' : kind === 'event' ? 'Nouvel événement' : 'Nouvelle tâche'}</h3>
-      <label
-        >{kind === 'event' ? 'Agenda' : 'Liste'}
-        <select bind:value={container} disabled={item !== undefined}>
-          {#each containers as c (c.id)}<option value={c.id}>{c.title}</option>{/each}
-        </select>
-      </label>
-      <label>Titre <input bind:value={titleText} required /></label>
-      {#if kind === 'event'}
-        <label class="inline"><input type="checkbox" bind:checked={allDay} /> Journée entière</label>
-        {#if allDay}
-          <label>Du <input type="date" bind:value={startDay} required /></label>
-          <label>Au <input type="date" bind:value={endDay} min={startDay} required /></label>
-        {:else}
-          <label>Début <input type="datetime-local" bind:value={start} required /></label>
-          <label>Fin <input type="datetime-local" bind:value={end} min={start} required /></label>
-        {/if}
-        <label>Lieu <input bind:value={location} /></label>
-      {:else}
-        <label>Échéance <input type="date" bind:value={due} /></label>
-        <label>Notes <textarea bind:value={notes} rows="3"></textarea></label>
+<Dialog bind:open title={dialogTitle} width={520}>
+  {#snippet children()}
+    <form id="fenetre-agenda" class="champs" onsubmit={save}>
+      {#if !item}
+        <Segmented
+          label="Type"
+          size="petit"
+          options={[
+            { value: 'event', label: 'Événement' },
+            { value: 'task', label: 'Tâche' },
+          ]}
+          bind:value={() => kind, (v) => (kind = v as 'event' | 'task')}
+          class="type"
+        />
       {/if}
-      {#if error}<p class="error" role="alert">{error}</p>{/if}
-      <div class="actions">
-        <button type="submit" disabled={busy || !container}>Enregistrer</button>
-        {#if item}<button type="button" class="danger" disabled={busy} onclick={remove}>Supprimer</button
-          >{/if}
-        <button type="button" onclick={onclose}>Fermer</button>
-      </div>
+      <!-- svelte-ignore a11y_autofocus -->
+      <input
+        class="titre"
+        aria-label="Titre"
+        placeholder="Ajouter un titre"
+        bind:value={titleText}
+        required
+        autofocus
+      />
+
+      {#if kind === 'event'}
+        <div class="ligne">
+          <Clock size={16} strokeWidth={ICON_STROKE} aria-hidden="true" />
+          <input class="puce" type="date" aria-label="Date" bind:value={date} required />
+          {#if allDay}
+            <span aria-hidden="true">–</span>
+            <input
+              class="puce"
+              type="date"
+              aria-label="Dernier jour"
+              bind:value={endDate}
+              min={date}
+              required
+            />
+          {:else}
+            <span class="plage">
+              <input class="puce heure" type="time" aria-label="Début" bind:value={startTime} required />
+              <span aria-hidden="true">–</span>
+              <input class="puce heure" type="time" aria-label="Fin" bind:value={endTime} required />
+            </span>
+          {/if}
+        </div>
+        <div class="ligne bascule">
+          <Switch aria-labelledby="journee" bind:checked={allDay} /><span id="journee">Journée entière</span>
+        </div>
+        <div class="ligne">
+          <MapPin size={16} strokeWidth={ICON_STROKE} aria-hidden="true" />
+          <input class="puce large" aria-label="Lieu" placeholder="Ajouter un lieu" bind:value={location} />
+        </div>
+        <div class="ligne">
+          <Calendar size={16} strokeWidth={ICON_STROKE} aria-hidden="true" />
+          <span class="couleur" style:background={colorOf(calendars, calendarId)} aria-hidden="true"></span>
+          <Select
+            aria-label="Agenda"
+            class="choix"
+            items={options(calendars)}
+            bind:value={calendarId}
+            disabled={item !== undefined}
+          />
+        </div>
+        <div class="ligne">
+          <Bell size={16} strokeWidth={ICON_STROKE} aria-hidden="true" />
+          {#each reminders as minutes (minutes)}
+            <span class="puce">
+              {reminderName(minutes)}
+              <button
+                type="button"
+                class="retirer"
+                aria-label={`Retirer le rappel ${reminderName(minutes)}`}
+                onclick={() => setReminders(reminders.filter((m) => m !== minutes))}
+                ><X size={12} strokeWidth={ICON_STROKE} aria-hidden="true" /></button
+              >
+            </span>
+          {/each}
+          <Menu
+            sections={[
+              {
+                items: CHOICES.filter((m) => !reminders.includes(m)).map((m) => ({
+                  id: String(m),
+                  label: reminderName(m),
+                  onselect: () => setReminders([...reminders, m]),
+                })),
+              },
+            ]}
+          >
+            {#snippet trigger({ props })}
+              <Button {...props} variant="fantome" size="petit" icon={Plus}>Rappel</Button>
+            {/snippet}
+          </Menu>
+        </div>
+      {:else}
+        <div class="ligne">
+          <Clock size={16} strokeWidth={ICON_STROKE} aria-hidden="true" />
+          <input class="puce" type="date" aria-label="Échéance" bind:value={due} />
+          {#if due}<Button variant="fantome" size="petit" onclick={() => (due = '')}>Sans date</Button>{/if}
+        </div>
+        <div class="ligne">
+          <List size={16} strokeWidth={ICON_STROKE} aria-hidden="true" />
+          <span class="couleur" style:background={colorOf(lists, listId)} aria-hidden="true"></span>
+          <Select
+            aria-label="Liste"
+            class="choix"
+            items={options(lists)}
+            bind:value={listId}
+            disabled={item !== undefined}
+          />
+        </div>
+        <div class="ligne haut">
+          <FileText size={16} strokeWidth={ICON_STROKE} aria-hidden="true" />
+          {#if showNotes}
+            <textarea class="puce large" aria-label="Note" rows="3" bind:value={notes}></textarea>
+          {:else}
+            <Button variant="fantome" size="petit" icon={Plus} onclick={() => (showNotes = true)}>Note</Button
+            >
+          {/if}
+        </div>
+      {/if}
+      {#if error}<p class="erreur" role="alert">{error}</p>{/if}
     </form>
-  </div>
-</div>
+  {/snippet}
+  {#snippet footer({ close })}
+    {#if item}
+      <Button variant="danger" icon={Trash} class="agenda-supprimer" onclick={() => ondelete(item)}
+        >Supprimer</Button
+      >
+    {/if}
+    <Button variant="secondaire" onclick={close}>Annuler</Button>
+    <Button
+      type="submit"
+      form="fenetre-agenda"
+      variant="principal"
+      loading={busy}
+      disabled={!titleText.trim()}>Enregistrer</Button
+    >
+  {/snippet}
+</Dialog>
 
 <style>
-  .backdrop {
-    position: fixed;
-    inset: 0;
-    z-index: 10;
-    display: grid;
-    place-items: center;
-    background: rgba(0, 0, 0, 0.55);
-  }
-  .editor {
-    width: min(28rem, calc(100vw - 2rem));
-    padding: 1rem 1.25rem;
-    border: 1px solid var(--bordure);
-    border-radius: var(--rayon);
-    background: var(--surface);
-  }
-  form {
+  .champs {
     display: flex;
     flex-direction: column;
-    gap: 0.55rem;
+    gap: 12px;
   }
-  h3 {
-    margin: 0 0 0.25rem;
-    font-family: var(--serif);
-    font-weight: 500;
-    font-size: 1.3rem;
+  .champs :global(.type) {
+    align-self: flex-start;
   }
-  label {
-    display: grid;
-    grid-template-columns: 6rem 1fr;
+  .titre {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 4px 0 6px;
+    border: 0;
+    border-bottom: 1px solid var(--accent-texte);
+    border-radius: 0;
+    background: none;
+    color: var(--texte);
+    font: 500 24px var(--serif);
+  }
+  .titre:focus-visible {
+    outline: none;
+    border-bottom-width: 2px;
+    padding-bottom: 5px;
+  }
+  .titre::placeholder {
+    color: var(--texte-3);
+  }
+  .ligne {
+    display: flex;
+    flex-wrap: wrap;
     align-items: center;
-    font-size: 0.85rem;
-    color: var(--lune);
+    gap: 8px 10px;
+    font-size: 13.5px;
+    color: var(--texte-2);
   }
-  label.inline {
-    display: flex;
-    gap: 0.5rem;
+  .ligne.haut {
+    align-items: flex-start;
   }
-  .actions {
-    display: flex;
-    gap: 0.5rem;
-    margin-top: 0.25rem;
+  .ligne > :global(svg) {
+    flex: none;
+    color: var(--texte-3);
   }
-  .danger {
-    border-color: var(--rouge);
+  .puce {
+    box-sizing: border-box;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    height: 32px;
+    padding: 0 10px;
+    border: 1px solid var(--bordure-forte);
+    border-radius: var(--r-1);
+    background: var(--surface-1);
+    color: var(--texte);
+    font: 300 13px var(--sans);
+    color-scheme: dark;
   }
-  .error {
-    color: var(--erreur);
+  textarea.puce {
+    height: auto;
+    padding: 6px 10px;
+    resize: vertical;
+  }
+  .puce.large {
+    flex: 1;
+    min-width: 0;
+  }
+  .puce::placeholder {
+    color: var(--texte-3);
+  }
+  .puce:focus-visible {
+    outline: 2px solid var(--accent-texte);
+    outline-offset: 1px;
+  }
+  .bascule {
+    margin: -4px 0 0 26px;
+    font-size: 12.5px;
+  }
+  .heure {
+    width: 76px;
+  }
+  .plage {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+  }
+  @media (max-width: 767.98px) {
+    .plage {
+      margin-left: 26px;
+    }
+  }
+  .heure::-webkit-calendar-picker-indicator {
+    display: none;
+  }
+  .ligne :global(.choix) {
+    width: 240px;
+    max-width: 100%;
+  }
+  .couleur {
+    flex: none;
+    width: 8px;
+    height: 8px;
+    border-radius: 2px;
+  }
+  .retirer {
+    display: grid;
+    place-items: center;
+    width: 18px;
+    height: 18px;
+    margin-right: -4px;
+    padding: 0;
+    border: 0;
+    border-radius: 50%;
+    background: none;
+    color: var(--texte-3);
+    cursor: pointer;
+  }
+  .retirer:hover {
+    background: var(--survol);
+    color: var(--texte);
+  }
+  .erreur {
+    margin: 0;
+    color: var(--danger);
+    font-size: 13px;
+  }
+  :global(.agenda-supprimer) {
+    margin-right: auto;
   }
 </style>

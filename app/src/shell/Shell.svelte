@@ -216,11 +216,13 @@
 
   <BottomNav
     items={mobileNav}
-    current={current === 'taches' || current === 'journal' ? undefined : HREF[current]}
+    current={current === 'journal' ? undefined : current === 'taches' ? HREF.agenda : HREF[current]}
     class="nav-mobile"
   />
   {#if parts?.compose}
     <Fab label="Nouveau" icon={icons.Plus} class="fab" onclick={parts.compose} />
+  {:else if parts?.create}
+    <Fab label={parts.createLabel ?? 'Créer'} icon={icons.Plus} class="fab" onclick={parts.create} />
   {/if}
   <CommandPalette
     {commands}

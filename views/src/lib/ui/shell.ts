@@ -13,6 +13,9 @@ export interface ScreenParts {
   rail?: Snippet | undefined;
   /** Writes a new message (palette, floating button). */
   compose?: (() => void) | undefined;
+  /** Creates the screen's own item (an event): the floating button on a phone, named `createLabel`. */
+  create?: (() => void) | undefined;
+  createLabel?: string | undefined;
   /** Searches the mails. */
   search?: ((query: string) => void) | undefined;
   /** The screen is at its start (the inbox): the main link of the rail shows as current. */
