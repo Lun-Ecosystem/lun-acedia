@@ -1,9 +1,10 @@
 import { render, screen, waitFor, within } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { fakeClient } from '../../testing/fake-client.ts';
 import type { AgendaItem } from '../types.ts';
 import Agenda from './Agenda.svelte';
+import ItemEditor from './ItemEditor.svelte';
 import { title } from './dates.ts';
 
 // Instants built in the local zone of the test run, so the grid shows them at these hours.
@@ -62,9 +63,9 @@ const ITEMS: AgendaItem[] = [
   },
 ];
 
-async function open() {
+async function open(items = ITEMS) {
   const { client } = fakeClient();
-  client.agenda.mockResolvedValue(structuredClone(ITEMS));
+  client.agenda.mockResolvedValue(structuredClone(items));
   client.listCalendars.mockResolvedValue([
     { id: 'perso', title: 'Personnel' },
     { id: 'famille', title: 'Famille' },
@@ -73,7 +74,7 @@ async function open() {
   const user = userEvent.setup();
   // Wednesday 21 October 2026, 10:00.
   render(Agenda, { props: { client, today: new Date(2026, 9, 21, 10) } });
-  await screen.findByText('Déjeuner avec Camille');
+  await screen.findAllByText(items[0]!.title);
   return { client, user };
 }
 
@@ -189,5 +190,131 @@ describe('Agenda', () => {
       title: 'Rappeler le garage',
       due: '2026-10-21',
     });
+  });
+});
+
+describe('Agenda, fix round', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('does not read the same range again for T or a day picked inside the shown week', async () => {
+    const { client, user } = await open();
+    const reads = client.agenda.mock.calls.length;
+    await user.keyboard('t');
+    await user.click(screen.getByRole('button', { name: 'jeudi 22 octobre' }));
+    expect(client.agenda.mock.calls.length).toBe(reads);
+    await user.keyboard('j');
+    await waitFor(() => expect(client.agenda.mock.calls.length).toBe(reads + 1));
+  });
+
+  it('follows the width: the planning below 768 px, the week above', async () => {
+    let phone = false;
+    const listeners: ((e: { matches: boolean }) => void)[] = [];
+    vi.stubGlobal('matchMedia', () => ({
+      get matches() {
+        return phone;
+      },
+      addEventListener: (_: string, fn: (e: { matches: boolean }) => void) => listeners.push(fn),
+      removeEventListener: () => {},
+    }));
+    await open();
+    expect(screen.getByRole('heading', { level: 1, name: '19 – 25 octobre 2026' })).toBeInTheDocument();
+    phone = true;
+    listeners.forEach((fn) => fn({ matches: true }));
+    expect(await screen.findByRole('heading', { level: 1, name: 'octobre 2026' })).toBeInTheDocument();
+    phone = false;
+    listeners.forEach((fn) => fn({ matches: false }));
+    expect(
+      await screen.findByRole('heading', { level: 1, name: '19 – 25 octobre 2026' }),
+    ).toBeInTheDocument();
+  });
+
+  it('names the days of the all-day bars and of the band tasks', async () => {
+    await open();
+    expect(
+      screen.getByRole('button', {
+        name: 'Week-end à Nantes, journée entière, du samedi 24 octobre au dimanche 25 octobre',
+      }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: 'Payer la taxe foncière, tâche du mardi 20 octobre' }),
+    ).toBeInTheDocument();
+  });
+
+  it('shows both ends of a timed event over several days in the bubble', async () => {
+    const trip: AgendaItem = {
+      kind: 'event',
+      id: 'trip',
+      calendarId: 'perso',
+      title: 'Voyage',
+      start: at(23, 18),
+      end: at(25, 18),
+      allDay: false,
+      reminders: [],
+    };
+    const { user } = await open([trip]);
+    await user.click(screen.getAllByRole('button', { name: /Voyage/ })[0]!);
+    const bubble = await waitFor(() => {
+      const found = document.querySelector('[role="dialog"][aria-label="Voyage"]');
+      if (!found) throw new Error('No bubble');
+      return found;
+    });
+    expect(bubble).toHaveTextContent('vendredi 23 octobre 18:00 – dimanche 25 octobre 18:00');
+  });
+});
+
+describe('ItemEditor', () => {
+  // Friday 18:00 to Sunday 18:00, over the night the clocks go back.
+  const trip: AgendaItem = {
+    kind: 'event',
+    id: 'trip',
+    calendarId: 'perso',
+    title: 'Week-end',
+    start: at(23, 18),
+    end: at(25, 18),
+    allDay: false,
+    reminders: [],
+  };
+
+  function edit() {
+    const { client } = fakeClient();
+    client.saveEvent.mockImplementation(async (e) => ({ ...trip, ...e }) as never);
+    const user = userEvent.setup();
+    render(ItemEditor, {
+      props: {
+        client,
+        editing: structuredClone(trip),
+        calendars: [{ id: 'perso', title: 'Personnel', color: 'var(--ok)' }],
+        lists: [],
+        onclose: () => {},
+        onsaved: () => {},
+        ondelete: () => {},
+      },
+    });
+    return { client, user };
+  }
+
+  it('keeps the days of a timed event over several days when only its title changes', async () => {
+    const { client, user } = edit();
+    const editor = await screen.findByRole('dialog', { name: 'Modifier l’événement' });
+    expect(within(editor).getByLabelText('Date de fin')).toHaveValue('2026-10-25');
+    await user.type(within(editor).getByLabelText('Titre'), ' à Nantes');
+    await user.click(within(editor).getByRole('button', { name: 'Enregistrer' }));
+    await waitFor(() => expect(client.saveEvent).toHaveBeenCalled());
+    expect(client.saveEvent.mock.calls[0]![0]).toMatchObject({
+      title: 'Week-end à Nantes',
+      start: trip.start,
+      end: (trip as Extract<AgendaItem, { kind: 'event' }>).end,
+    });
+  });
+
+  it('moves the end of a timed event to another day', async () => {
+    const { client, user } = edit();
+    const editor = await screen.findByRole('dialog', { name: 'Modifier l’événement' });
+    const end = within(editor).getByLabelText('Date de fin');
+    await user.clear(end);
+    await user.type(end, '2026-10-26');
+    await user.click(within(editor).getByRole('button', { name: 'Enregistrer' }));
+    await waitFor(() => expect(client.saveEvent).toHaveBeenCalled());
+    expect(client.saveEvent.mock.calls[0]![0]).toMatchObject({ start: trip.start, end: at(26, 18) });
   });
 });

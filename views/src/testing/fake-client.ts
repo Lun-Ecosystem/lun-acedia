@@ -128,6 +128,7 @@ export function fakeClient(opts: { mails?: MailSummary[]; journal?: JournalEntry
     })),
     agenda: vi.fn<AcediaClient['agenda']>(async () => []),
     undatedTasks: vi.fn<AcediaClient['undatedTasks']>(async () => []),
+    allTasks: vi.fn<AcediaClient['allTasks']>(async () => []),
     listCalendars: vi.fn<AcediaClient['listCalendars']>(async () => []),
     listTaskLists: vi.fn<AcediaClient['listTaskLists']>(async () => []),
     saveEvent: vi.fn<AcediaClient['saveEvent']>(notUsed),

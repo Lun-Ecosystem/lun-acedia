@@ -57,11 +57,17 @@
   let calendarId = $state(event?.calendarId ?? '');
   let listId = $state(task?.listId ?? '');
   let allDay = $state(event?.allDay ?? false);
-  // Timed: a day and two times (the end may fall the next day). All-day: two days, the last included.
   let date = $state(
     event ? (event.allDay ? event.start : toLocalInput(event.start).slice(0, 10)) : dayKey(day),
   );
-  let endDate = $state(event?.allDay ? dayKey(addDays(parseDay(event.end), -1)) : dayKey(day));
+  // All-day: the last day, included. Timed: the day of the end (Google's end is exclusive for days only).
+  let endDate = $state(
+    event
+      ? event.allDay
+        ? dayKey(addDays(parseDay(event.end), -1))
+        : toLocalInput(event.end).slice(0, 10)
+      : dayKey(day),
+  );
   let startTime = $state(event && !event.allDay ? toLocalInput(event.start).slice(11) : `${pad(hour)}:00`);
   let endTime = $state(
     event && !event.allDay
@@ -102,11 +108,31 @@
     remindersTouched = true;
   }
 
-  /** The end of a timed event: same day, or the next one when the end time is not after the start. */
+  /** Moving the first day moves the last one with it, as on Google Agenda. */
+  function moveDate(next: string) {
+    if (next && date) {
+      const shift = Math.round((parseDay(next).getTime() - parseDay(date).getTime()) / 86_400_000);
+      endDate = dayKey(addDays(parseDay(endDate), shift));
+    }
+    date = next;
+  }
+
+  /**
+   * Start and end of a timed event. On one day, an end time not after the start ends the next day
+   * (a night). Unchanged instants keep the event's own strings: a rename never rewrites the times.
+   */
   function timedRange() {
     const start = fromLocalInput(`${date}T${startTime}`);
-    const endDay = endTime > startTime ? date : dayKey(addDays(parseDay(date), 1));
-    return { start, end: fromLocalInput(`${endDay}T${endTime}`) };
+    const endDay = endDate === date && endTime <= startTime ? dayKey(addDays(parseDay(date), 1)) : endDate;
+    const end = fromLocalInput(`${endDay}T${endTime}`);
+    if (Date.parse(end) <= Date.parse(start)) throw new Error('La fin doit suivre le début.');
+    if (event && !event.allDay) {
+      return {
+        start: Date.parse(start) === Date.parse(event.start) ? event.start : start,
+        end: Date.parse(end) === Date.parse(event.end) ? event.end : end,
+      };
+    }
+    return { start, end };
   }
 
   async function save(e: SubmitEvent) {
@@ -174,7 +200,7 @@
       {#if kind === 'event'}
         <div class="ligne">
           <Clock size={16} strokeWidth={ICON_STROKE} aria-hidden="true" />
-          <input class="puce" type="date" aria-label="Date" bind:value={date} required />
+          <input class="puce" type="date" aria-label="Date" bind:value={() => date, moveDate} required />
           {#if allDay}
             <span aria-hidden="true">–</span>
             <input
@@ -191,6 +217,17 @@
               <span aria-hidden="true">–</span>
               <input class="puce heure" type="time" aria-label="Fin" bind:value={endTime} required />
             </span>
+            {#if endDate !== date}
+              <!-- Shown for an event over several days: its end keeps its own day. -->
+              <input
+                class="puce fin"
+                type="date"
+                aria-label="Date de fin"
+                bind:value={endDate}
+                min={date}
+                required
+              />
+            {/if}
           {/if}
         </div>
         <div class="ligne bascule">
@@ -374,7 +411,8 @@
     gap: 10px;
   }
   @media (max-width: 767.98px) {
-    .plage {
+    .plage,
+    .fin {
       margin-left: 26px;
     }
   }

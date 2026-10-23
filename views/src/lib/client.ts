@@ -124,6 +124,8 @@ export interface AcediaClient {
   todayStats(): Promise<TodayStats>;
   agenda(from: string, to: string): Promise<AgendaItem[]>;
   undatedTasks(): Promise<AgendaTask[]>;
+  /** Every task of every list, done ones included. */
+  allTasks(): Promise<AgendaTask[]>;
   listCalendars(): Promise<{ id: string; title: string }[]>;
   listTaskLists(): Promise<{ id: string; title: string }[]>;
   saveEvent(item: EventDraft): Promise<AgendaEvent>;
@@ -232,6 +234,7 @@ export function httpClient(opts: { baseUrl: string; token: string; fetch?: typeo
     todayStats: () => call('GET', '/api/stats/today'),
     agenda: (from, to) => items(`/api/agenda?${new URLSearchParams({ from, to })}`),
     undatedTasks: () => items('/api/tasks?undated=1'),
+    allTasks: () => items('/api/tasks?all=1'),
     listCalendars: () => items('/api/calendars'),
     listTaskLists: () => items('/api/task-lists'),
     saveEvent: ({ id, calendarId, ...event }) =>

@@ -1,8 +1,8 @@
 import { render, screen, waitFor, within } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { fakeClient } from '../../testing/fake-client.ts';
-import type { AgendaItem, AgendaTask } from '../types.ts';
+import type { AgendaTask, LunEvent } from '../types.ts';
 import Tasks from './Tasks.svelte';
 
 const task = (id: string, title: string, extra: Partial<AgendaTask> = {}): AgendaTask => ({
@@ -14,7 +14,7 @@ const task = (id: string, title: string, extra: Partial<AgendaTask> = {}): Agend
   ...extra,
 });
 
-const DATED: AgendaItem[] = [
+const DATED: AgendaTask[] = [
   task('tax', 'Payer la taxe foncière', { due: '2026-10-20' }),
   task('bag', 'Préparer la valise', { due: '2026-10-23' }),
   task('spec', 'Relire la spec', { due: '2026-10-24', listId: 'list2' }),
@@ -33,8 +33,12 @@ const menuEntry = async (text: string) =>
 
 async function open() {
   const { client } = fakeClient();
-  client.agenda.mockResolvedValue(structuredClone(DATED));
-  client.undatedTasks.mockResolvedValue([task('news', 'Trier les newsletters')]);
+  client.allTasks.mockResolvedValue([...structuredClone(DATED), task('news', 'Trier les newsletters')]);
+  let listener: ((e: LunEvent) => void) | undefined;
+  client.subscribe.mockImplementation((fn) => {
+    listener = fn;
+    return () => {};
+  });
   client.listTaskLists.mockResolvedValue([
     { id: 'list1', title: 'Mes tâches' },
     { id: 'list2', title: 'Lun’' },
@@ -43,7 +47,8 @@ async function open() {
   // Wednesday 21 October 2026.
   render(Tasks, { props: { client, today: new Date(2026, 9, 21, 10) } });
   await screen.findByText('Payer la taxe foncière');
-  return { client, user };
+  const emit = (type: string) => listener?.({ id: '1', type, importance: 'info', at: '', title: '' });
+  return { client, user, emit };
 }
 
 const group = (name: RegExp) => screen.getByRole('group', { name });
@@ -95,5 +100,28 @@ describe('Tasks', () => {
     expect(screen.getByRole('heading', { level: 1, name: 'Lun’' })).toBeInTheDocument();
     expect(screen.queryByText('Payer la taxe foncière')).toBeNull();
     expect(screen.getByText('Relire la spec')).toBeInTheDocument();
+  });
+
+  it('reads the tasks only, once after a burst of server changes', async () => {
+    const { client, emit } = await open();
+    expect(client.agenda).not.toHaveBeenCalled();
+    expect(client.allTasks).toHaveBeenCalledTimes(1);
+    vi.useFakeTimers();
+    try {
+      emit('agenda.changed');
+      emit('agenda.changed');
+      emit('mail.filed');
+      await vi.advanceTimersByTimeAsync(1000);
+    } finally {
+      vi.useRealTimers();
+    }
+    expect(client.allTasks).toHaveBeenCalledTimes(2);
+  });
+
+  it('says when the calendars cannot be read', async () => {
+    const { client } = fakeClient();
+    client.listCalendars.mockRejectedValue(new Error('Google ne répond pas'));
+    render(Tasks, { props: { client, today: new Date(2026, 9, 21, 10) } });
+    expect(await screen.findByText('Google ne répond pas')).toBeInTheDocument();
   });
 });

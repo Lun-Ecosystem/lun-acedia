@@ -49,6 +49,12 @@ export function tasksDueBetween(db: DatabaseSync, firstDay: string, lastDay: str
   return rows.map(toTask);
 }
 
+/** Every task of every list, done ones included (the tasks page groups them itself). */
+export function allTasks(db: DatabaseSync): AgendaTask[] {
+  const rows = db.prepare('SELECT * FROM tasks ORDER BY due IS NULL, due, title').all() as unknown as Row[];
+  return rows.map(toTask);
+}
+
 /** Open tasks without a due date. */
 export function undatedTasks(db: DatabaseSync): AgendaTask[] {
   const rows = db

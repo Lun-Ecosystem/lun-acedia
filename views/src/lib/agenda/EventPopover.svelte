@@ -3,7 +3,7 @@
   import { Bell, Calendar, ICON_STROKE, MapPin, Pencil, Trash, X } from '../ui/Icon.ts';
   import IconButton from '../ui/IconButton.svelte';
   import Popover from '../ui/Popover.svelte';
-  import { addDays, dayName, hours, parseDay, remindersText } from './dates.ts';
+  import { addDays, dayKey, dayName, hours, parseDay, remindersText, timeOf } from './dates.ts';
 
   /** Detail bubble of an event (plate 5): when, where, the reminders, its calendar. */
 
@@ -30,7 +30,15 @@
   }: Props = $props();
 
   const when = $derived.by(() => {
-    if (!event.allDay) return `${dayName(new Date(event.start))} · ${hours(event)}`;
+    if (!event.allDay) {
+      const start = new Date(event.start);
+      const end = new Date(event.end);
+      // Over several days, each end says its day: « vendredi 23 octobre 18:00 – dimanche 25 octobre 18:00 ».
+      if (dayKey(start) !== dayKey(end)) {
+        return `${dayName(start)} ${timeOf(event.start)} – ${dayName(end)} ${timeOf(event.end)}`;
+      }
+      return `${dayName(start)} · ${hours(event)}`;
+    }
     const last = addDays(parseDay(event.end), -1);
     const first = parseDay(event.start);
     return last.getTime() > first.getTime()

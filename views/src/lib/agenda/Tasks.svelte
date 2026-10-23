@@ -80,19 +80,17 @@
     open.length === 0 ? 'Rien à faire.' : `${open.length} à faire${late ? `, dont ${late} en retard` : ''}.`,
   );
 
-  // shortcut: dated tasks are read from a year before to a year after today (the API has no « all
-  // tasks »); move to a dedicated route if older open tasks must show.
   async function load() {
     try {
-      const [dated, undated] = await Promise.all([
-        client.agenda(dayKey(addDays(today, -365)), dayKey(addDays(today, 366))),
-        client.undatedTasks(),
-      ]);
-      tasks = [...dated.filter((i): i is AgendaTask => i.kind === 'task'), ...undated];
+      tasks = await client.allTasks();
     } catch (err) {
       error = errorText(err);
     }
   }
+
+  /** Server changes come in bursts (a sync touches many tasks): one read after the last of them. */
+  const RELOAD_DELAY = 400;
+  let reloadTimer: ReturnType<typeof setTimeout> | undefined;
 
   onMount(() => {
     void load();
@@ -105,11 +103,17 @@
     );
     client.listCalendars().then(
       (c) => (calendars = c),
-      () => {},
+      (err) => (error = errorText(err)),
     );
-    return client.subscribe((e) => {
-      if (e.type === 'agenda.changed') void load();
+    const stop = client.subscribe((e) => {
+      if (e.type !== 'agenda.changed') return;
+      clearTimeout(reloadTimer);
+      reloadTimer = setTimeout(() => void load(), RELOAD_DELAY);
     });
+    return () => {
+      stop();
+      clearTimeout(reloadTimer);
+    };
   });
 
   const replace = (next: AgendaTask) => (tasks = tasks.map((t) => (itemKey(t) === itemKey(next) ? next : t)));

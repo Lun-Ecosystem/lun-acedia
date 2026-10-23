@@ -48,8 +48,8 @@
   }
   let { client, today, ontasks }: Props = $props();
 
-  const phone = () =>
-    typeof window !== 'undefined' && (window.matchMedia?.('(max-width: 767.98px)').matches ?? false);
+  const PHONE = '(max-width: 767.98px)';
+  const phone = () => typeof window !== 'undefined' && (window.matchMedia?.(PHONE).matches ?? false);
 
   let now = $state(untrack(() => today ?? new Date()));
   let mode = $state<Mode>(phone() ? 'agenda' : 'week');
@@ -97,10 +97,21 @@
     }
   }
 
+  // One read per range: « today » or a day picked inside the shown week reads nothing again.
+  const range = $derived(`${dayKey(days[0]!)}|${dayKey(days.at(-1)!)}`);
   $effect(() => {
-    void load(days);
+    void range;
+    untrack(() => void load(days));
   });
   onMount(() => {
+    // Crossing 768 px swaps the default views: the planning on a phone, the week on a wide screen.
+    const media = window.matchMedia?.(PHONE);
+    const follow = (e: MediaQueryListEvent) => {
+      if (e.matches && mode === 'week') mode = 'agenda';
+      else if (!e.matches && mode === 'agenda') mode = 'week';
+    };
+    media?.addEventListener('change', follow);
+
     client.listCalendars().then(
       (c) => (calendars = c),
       (err) => (error = errorText(err)),
@@ -115,6 +126,7 @@
       if (e.type === 'agenda.changed') void load(days);
     });
     return () => {
+      media?.removeEventListener('change', follow);
       clearInterval(tick);
       stop();
     };

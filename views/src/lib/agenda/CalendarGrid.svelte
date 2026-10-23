@@ -47,6 +47,12 @@
   }
 
   const label = (e: AgendaEvent) => `${e.title}, ${e.allDay ? 'journée entière' : hours(e)}`;
+  /** The day heads are drawn only: a bar says the days it covers. */
+  const barLabel = (bar: { event: AgendaEvent; col: number; span: number }) => {
+    const first = dayName(days[bar.col]!);
+    const last = dayName(days[bar.col + bar.span - 1]!);
+    return `${bar.event.title}, journée entière, ${bar.span > 1 ? `du ${first} au ${last}` : first}`;
+  };
 </script>
 
 <div class="grille" style:--jours={days.length} style:--heure="{HOUR}px">
@@ -72,7 +78,7 @@
           style:--c={color(bar.event.calendarId)}
           style:grid-column="{bar.col + 1} / span {bar.span}"
           style:grid-row={bar.row + 1}
-          aria-label={label(bar.event)}
+          aria-label={barLabel(bar)}
           onclick={(e) => onopen(bar.event, e.currentTarget)}>{bar.event.title}</button
         >
       {/each}
@@ -87,7 +93,12 @@
           {#each tasksOf(day) as task (itemKey(task))}
             <div class={['tache', { fait: task.done, retard: !task.done && dayKey(day) < today }]}>
               <TaskCheck title={task.title} done={task.done} size="petit" ontoggle={() => ontoggle(task)} />
-              <button type="button" class="nom" onclick={() => onedit(task)}>{task.title}</button>
+              <button
+                type="button"
+                class="nom"
+                aria-label={`${task.title}, tâche du ${dayName(day)}`}
+                onclick={() => onedit(task)}>{task.title}</button
+              >
             </div>
           {/each}
         </div>

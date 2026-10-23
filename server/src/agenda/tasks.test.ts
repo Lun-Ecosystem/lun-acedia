@@ -26,6 +26,32 @@ describe('tasks sync', () => {
     expect(q.get('showHidden')).toBe('true');
   });
 
+  it('lists every task of every list with ?all=1, done and dated ones included', async () => {
+    const h = await makeAgendaHarness();
+    h.agenda.addList('list2', 'Courses');
+    h.agenda.putTask('list1', { id: 't1', title: 'Rendre le rapport', status: 'needsAction' });
+    h.agenda.putTask('list2', {
+      id: 't2',
+      title: 'Pain',
+      status: 'completed',
+      due: '2026-11-01T00:00:00.000Z',
+    });
+    h.agenda.putTask('list1', {
+      id: 't3',
+      title: 'Banque',
+      status: 'needsAction',
+      due: '2026-11-05T00:00:00.000Z',
+    });
+    await h.syncAgenda();
+    const res = await h.call('GET', '/api/tasks?all=1');
+    expect(res.body.items.map((t: { id: string; done: boolean }) => [t.id, t.done])).toEqual([
+      ['t2', true],
+      ['t3', false],
+      ['t1', false],
+    ]);
+    expect((await h.call('GET', '/api/tasks')).body.items.map((t: { id: string }) => t.id)).toEqual(['t1']);
+  });
+
   it('a task ticked in Acedia is completed on Google and in the cache', async () => {
     const h = await makeAgendaHarness();
     h.agenda.putTask('list1', { id: 't1', title: 'Rendre le rapport', status: 'needsAction' });
