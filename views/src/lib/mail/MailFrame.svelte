@@ -19,6 +19,8 @@
     const token = (name: string) => style.getPropertyValue(name).trim();
     const base =
       'img{max-width:100%;height:auto}' +
+      // A plain-text mail comes wrapped in a <pre>: same font as the rest, not monospace.
+      'pre{margin:0;font:inherit;white-space:pre-wrap}' +
       `body{margin:0;padding:0 2px 24px;font:300 14.5px/1.7 Inter,system-ui,sans-serif;overflow-wrap:anywhere}`;
     if (theme === 'papier')
       return `<style>:root{color-scheme:light;background:${token('--papier')}}${base}</style>`;
