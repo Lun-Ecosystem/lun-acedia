@@ -18,7 +18,7 @@ import { getProposal, triageNew } from './pipeline.ts';
 import { getSetting } from '../db.ts';
 import { claim } from './proposals.ts';
 import { queuedIds, recoverQueue } from './queue.ts';
-import { createRule, listRules } from './rules.ts';
+import { createRule, listRules, updateRule } from './rules.ts';
 
 /** A classifier that answers what the test decides and counts its calls. */
 function fakeClassifier(answer: (input: ClassifyInput) => Partial<Classification> | Error) {
@@ -285,6 +285,17 @@ describe('triageNew', () => {
     expect(listRules(s.h.db)).toHaveLength(1);
     await s.h.call('POST', `/api/journal/${second.body.journalId}/undo`);
     expect(listRules(s.h.db)).toHaveLength(1);
+  });
+
+  it('undoing a correction leaves the created rule alone once CrOliX edited it', async () => {
+    const s = await setup(() => ({ boxId: null, confidence: 50 }));
+    await s.triage(await s.deliver({ id: 'm1', from: 'Julie <julie@mail.fr>' }));
+    const body = { boxId: s.perso, tagIds: [], rememberSender: true };
+    const res = await s.h.call('POST', '/api/mail/m1/correct', body);
+    const rule = listRules(s.h.db)[0]!;
+    updateRule(s.h.db, rule.id, { boxId: s.ecole });
+    expect((await s.h.call('POST', `/api/journal/${res.body.journalId}/undo`)).status).toBe(200);
+    expect(listRules(s.h.db)).toMatchObject([{ id: rule.id, boxId: s.ecole }]);
   });
 
   it('correcting without rememberSender creates no rule', async () => {

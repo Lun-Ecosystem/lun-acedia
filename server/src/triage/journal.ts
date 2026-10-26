@@ -9,9 +9,9 @@ import {
 } from '../gmail/actions.ts';
 import { getStoredMessage, setStoredLabels, upsertMessage } from '../gmail/store.ts';
 import { fetchMetadata } from '../gmail/sync.ts';
-import type { Origin, JournalEntry, TodayStats } from '../types.ts';
+import type { Origin, JournalEntry, Rule, TodayStats } from '../types.ts';
 import { restoreExample, type Example } from './examples.ts';
-import { deleteRule } from './rules.ts';
+import { deleteRule, listRules } from './rules.ts';
 import { setProposalStatus, type ProposalStatus } from './proposals.ts';
 
 export type { Origin, JournalEntry };
@@ -22,8 +22,8 @@ export type UserAction = 'validate' | 'correct' | 'file' | 'archive' | 'trash' |
 export interface Previous {
   proposalStatus: ProposalStatus;
   example: (Example & { at?: string }) | null;
-  /** The rule "remember this sender" created, removed again by the undo. */
-  createdRuleId?: number;
+  /** The rule "remember this sender" created, removed again by the undo unless edited since. */
+  createdRule?: Rule;
 }
 
 export class ConflictError extends Error {
@@ -125,6 +125,13 @@ export function listJournal(
   return result;
 }
 
+/** Deletes the rule an action created, only if CrOliX has not changed it since (its order aside). */
+function removeIfUnchanged(db: DatabaseSync, created: Rule): void {
+  const now = listRules(db).find((r) => r.id === created.id);
+  const meaning = (r: Rule) => JSON.stringify([r.field, r.op, r.value, r.boxId, r.tagIds, r.enabled]);
+  if (now && meaning(now) === meaning(created)) deleteRule(db, created.id);
+}
+
 /**
  * Puts the labels back as they were before the automatic action. Gmail is read first: if the mail
  * changed since (CrOliX filed it elsewhere), the undo is refused rather than erasing that gesture.
@@ -158,7 +165,7 @@ export async function undo(deps: ActionDeps, journalId: number): Promise<LabelCh
       const previous = JSON.parse(row.restore) as Previous;
       setProposalStatus(deps.db, row.message_id, previous.proposalStatus);
       restoreExample(deps.db, row.message_id, previous.example, deps.now());
-      if (previous.createdRuleId !== undefined) deleteRule(deps.db, previous.createdRuleId);
+      if (previous.createdRule) removeIfUnchanged(deps.db, previous.createdRule);
     }
     deps.db.prepare('UPDATE journal SET undone_at = ? WHERE id = ?').run(deps.now().toISOString(), journalId);
     deps.db.exec('COMMIT');

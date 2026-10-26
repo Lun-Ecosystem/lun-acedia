@@ -41,6 +41,7 @@ import {
 } from './proposals.ts';
 import { dequeue, enqueue, failedAttempt, queuedIds } from './queue.ts';
 import { createRule, listRules, matchRule } from './rules.ts';
+import type { Rule } from '../types.ts';
 
 export { getProposal };
 
@@ -322,7 +323,7 @@ function senderAddress(deps: ActionDeps, id: string): string | undefined {
 }
 
 /** Files every mail of a sender in a box: one rule, last in line, unless the same one exists. */
-function ruleForSender(deps: ActionDeps, id: string, boxId: string): number | undefined {
+function ruleForSender(deps: ActionDeps, id: string, boxId: string): Rule | undefined {
   // The rules only take boxes: the trash and the spam stay a gesture, never a standing order.
   if (!boxIds(deps.db).includes(boxId)) return;
   const addr = senderAddress(deps, id);
@@ -331,7 +332,7 @@ function ruleForSender(deps: ActionDeps, id: string, boxId: string): number | un
     (r) =>
       r.field === 'from' && r.op === 'equals' && r.value.trim().toLowerCase() === addr && r.boxId === boxId,
   );
-  return exists ? undefined : createRule(deps.db, { field: 'from', op: 'equals', value: addr, boxId }).id;
+  return exists ? undefined : createRule(deps.db, { field: 'from', op: 'equals', value: addr, boxId });
 }
 
 /** CrOliX files the mail elsewhere than proposed: the mail gets exactly these box and tags. */
@@ -352,8 +353,8 @@ export async function correct(
   const change = await applyTarget(deps, id, boxId, tagIds, true);
   setProposalStatus(deps.db, id, 'corrected');
   remember(deps, id, boxId, tagIds);
-  const createdRuleId = opts.rememberSender ? ruleForSender(deps, id, boxId) : undefined;
-  if (createdRuleId !== undefined) previous.createdRuleId = createdRuleId;
+  const createdRule = opts.rememberSender ? ruleForSender(deps, id, boxId) : undefined;
+  if (createdRule) previous.createdRule = createdRule;
   const journalId = logUser(deps.db, changeOf(deps, id, change), 'correct', deps.now(), previous);
   return { ...getProposal(deps.db, id)!, journalId };
 }
