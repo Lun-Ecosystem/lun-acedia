@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import type { AcediaClient } from '../client.ts';
+  import { ApiError, type AcediaClient } from '../client.ts';
   import type { JournalEntry, LabelView } from '../types.ts';
   import Badge from '../ui/Badge.svelte';
   import Banner from '../ui/Banner.svelte';
@@ -43,6 +43,9 @@
   }
   let { client, onchange, onopen, onsettings }: Props = $props();
 
+  /** The server's answer to an undo of a line already undone (server/src/triage/journal.ts). */
+  const ALREADY_UNDONE = 'Action déjà annulée';
+
   const ORIGINS = {
     ai: { label: 'IA', by: 'par l’IA', icon: Sparkles },
     rule: { label: 'Règle', by: 'par une règle', icon: Funnel },
@@ -69,12 +72,13 @@
 
   const shown = $derived(items.filter(FILTERS.find((f) => f.id === filter)!.keep));
   const days = $derived.by(() => {
-    const groups: { label: string; entries: JournalEntry[] }[] = [];
+    const groups: { key: string; label: string; entries: JournalEntry[] }[] = [];
     for (const e of shown) {
-      const label = dayLabel(e.at);
+      // Keyed by the calendar day: a label like « lun. 19 oct. » comes back every few years.
+      const key = new Date(e.at).toDateString();
       const last = groups.at(-1);
-      if (last?.label === label) last.entries.push(e);
-      else groups.push({ label, entries: [e] });
+      if (last?.key === key) last.entries.push(e);
+      else groups.push({ key, label: dayLabel(e.at), entries: [e] });
     }
     return groups;
   });
@@ -82,6 +86,8 @@
   async function load(next?: number) {
     error = null;
     if (next) more = true;
+    // A first load retried: the skeleton, not an empty journal, while it runs.
+    else if (!items.length) loading = true;
     try {
       const page = await client.journal(next);
       items = next ? [...items, ...page.items] : page.items;
@@ -134,7 +140,11 @@
       items = items.map((x) => (x.id === e.id ? { ...x, undoneAt } : x));
       onchange?.();
     } catch (err) {
-      refused[e.id] = errorText(err);
+      // Undone meanwhile (another device): the line is stale, the journal is read again.
+      if (err instanceof ApiError && err.status === 409 && err.message === ALREADY_UNDONE) {
+        await load();
+        onchange?.();
+      } else refused[e.id] = errorText(err);
     } finally {
       delete undoing[e.id];
     }
@@ -202,14 +212,21 @@
       {#if shown.length === 0}
         <p class="aucun">Aucune action de ce type parmi celles chargées.</p>
       {/if}
-      {#each days as day (day.label)}
+      {#each days as day (day.key)}
         <DayGroup label={day.label} level={2}>
           <ul>
             {#each day.entries as e (e.id)}
               {@const origin = ORIGINS[e.origin]}
               {@const w = where(e)}
               <li>
-                <ListRow class="ligne" onopen={onopen ? () => onopen(e.messageId) : undefined}>
+                <ListRow
+                  class="ligne"
+                  tabindex={0}
+                  onopen={onopen ? () => onopen(e.messageId) : undefined}
+                  onkeydown={(event) => {
+                    if (event.key === 'Enter' && event.target === event.currentTarget) onopen?.(e.messageId);
+                  }}
+                >
                   {#snippet start()}
                     <span class="heure">{time(e.at)}</span>
                     <span
@@ -242,7 +259,7 @@
                     </div>
                     <div class={['actions', { refuse: refused[e.id] }]}>
                       {#if e.undoneAt}
-                        <Badge>Annulé</Badge>
+                        <Badge class="badge-annule">Annulé</Badge>
                       {:else}
                         {#if onopen}
                           <Button
@@ -258,8 +275,9 @@
                           size="petit"
                           icon={Reply}
                           class="annuler"
+                          aria-label="Annuler"
                           loading={undoing[e.id]}
-                          onclick={() => undo(e)}>Annuler</Button
+                          onclick={() => undo(e)}><span class="mot">Annuler</span></Button
                         >
                       {/if}
                     </div>
@@ -427,18 +445,22 @@
     border-radius: 2px;
   }
 
-  /* « Ouvrir » and « Annuler » on hover or keyboard focus; a refused undo keeps its button. */
+  /*
+   * « Ouvrir » and « Annuler » on hover or once the row has the keyboard; hidden, they take no width
+   * and no Tab stop. A refused undo keeps its button.
+   */
   .actions {
     display: flex;
     align-items: center;
     gap: 6px;
   }
   .actions :global(.btn) {
-    opacity: 0;
+    display: none;
   }
   :global(.ligne:hover) .actions :global(.btn),
-  :global(.ligne:focus-within) .actions :global(.btn) {
-    opacity: 1;
+  :global(.ligne:focus-within) .actions :global(.btn),
+  .actions.refuse :global(.annuler) {
+    display: inline-flex;
   }
   .actions.refuse :global(.annuler) {
     opacity: 0.6;
@@ -481,11 +503,21 @@
   }
 
   /* Touch: no hover. A tap opens the mail, « Annuler » stays in view (a gesture never replaces it). */
+  /* « Annuler » in view, as a compact icon so the subject keeps the row. */
   @media (hover: none) {
-    .actions :global(.btn) {
-      opacity: 1;
+    .actions :global(.annuler) {
+      display: inline-flex;
     }
-    .actions :global(.ouvrir) {
+    .actions :global(.annuler) {
+      justify-content: center;
+      width: 30px;
+      padding: 0;
+    }
+    .actions :global(.annuler .mot) {
+      display: none;
+    }
+    .actions :global(.ouvrir),
+    :global(.ligne:focus-within) .actions :global(.ouvrir) {
       display: none;
     }
   }
@@ -513,6 +545,25 @@
     .journal :global(.ligne) {
       align-items: center;
       min-height: 52px;
+    }
+    /* Narrow: the subject has the whole row; revealed actions go on their own line under it. */
+    .grille {
+      grid-template-columns: minmax(0, 1fr);
+    }
+    .actions :global(.btn) {
+      margin-top: 6px;
+    }
+    /* « annulé à 18:41 » already says it. */
+    .actions :global(.badge-annule) {
+      display: none;
+    }
+  }
+  @media (max-width: 767.98px) and (hover: none) {
+    .grille {
+      grid-template-columns: minmax(0, 1fr) auto;
+    }
+    .actions :global(.btn) {
+      margin-top: 0;
     }
   }
 </style>
