@@ -2,6 +2,7 @@ import type { DatabaseSync } from 'node:sqlite';
 import {
   modifyLabels,
   NotFoundError,
+  trashMail,
   untrashMail,
   type ActionDeps,
   type LabelChange,
@@ -143,6 +144,8 @@ export async function undo(deps: ActionDeps, journalId: number): Promise<LabelCh
 
   if (labels.includes('TRASH') && !before.includes('TRASH'))
     labels = (await untrashMail(deps, row.message_id)).after;
+  else if (before.includes('TRASH') && !labels.includes('TRASH'))
+    labels = (await trashMail(deps, row.message_id)).after;
   const add = stable(before).filter((l) => !labels.includes(l));
   const remove = stable(labels).filter((l) => !before.includes(l));
   const change =

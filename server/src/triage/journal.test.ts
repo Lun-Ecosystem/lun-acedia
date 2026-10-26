@@ -181,6 +181,25 @@ describe('user actions', () => {
     expect(getStoredMessage(h.db, 'm1')?.labels.sort()).toEqual(['INBOX', 'UNREAD']);
   });
 
+  for (const [label, view] of [
+    ['TRASH', 'trash'],
+    ['SPAM', 'spam'],
+  ] as const) {
+    it(`filing a mail out of ${view} moves it into the box, and the undo puts it back`, async () => {
+      const { h, ecole } = await setup();
+      h.gmail.relabel('m1', [label], ['INBOX']);
+      await h.sync();
+      expect((await h.call('GET', `/api/mail?view=${view}`)).body.items).toHaveLength(1);
+      const res = await h.call('POST', '/api/mail/m1/file', { boxId: ecole });
+      expect(res.status).toBe(200);
+      expect(h.gmail.messages.get('m1')!.labelIds.sort()).toEqual([ecole, 'UNREAD'].sort());
+      expect((await h.call('GET', `/api/mail?view=${view}`)).body.items).toHaveLength(0);
+      expect((await h.call('GET', `/api/mail?view=box:${ecole}`)).body.items).toHaveLength(1);
+      expect((await h.call('POST', `/api/journal/${res.body.journalId}/undo`)).status).toBe(200);
+      expect(h.gmail.messages.get('m1')!.labelIds.sort()).toEqual([label, 'UNREAD'].sort());
+    });
+  }
+
   it('batch returns a journalId for each mail', async () => {
     const { h } = await setup();
     const res = await h.call('POST', '/api/mail/batch', { ids: ['m1'], op: { kind: 'trash' } });
