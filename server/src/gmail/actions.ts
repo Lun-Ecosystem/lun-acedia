@@ -78,9 +78,8 @@ export async function fileMail(deps: ActionDeps, id: string, boxLabelId: string)
   if (!boxes.includes(boxLabelId)) throw new BadRequestError(`« ${boxLabelId} » n’est pas une boîte`);
   const before = await currentLabels(deps, id);
   if (before.includes('TRASH')) await post(deps, id, 'untrash');
-  const remove = before.filter(
-    (l) => l === 'INBOX' || l === 'SPAM' || (boxes.includes(l) && l !== boxLabelId),
-  );
+  // INBOX always goes: an untrash may put it back on a mail that had left the inbox.
+  const remove = ['INBOX', ...before.filter((l) => l === 'SPAM' || (boxes.includes(l) && l !== boxLabelId))];
   const change = await modifyLabels(deps, id, [boxLabelId], remove);
   return { ...change, before };
 }

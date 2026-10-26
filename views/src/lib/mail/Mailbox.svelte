@@ -398,7 +398,7 @@
     view !== 'inbox' || searching || filter !== 'tout'
       ? undefined
       : filedToday
-        ? `Le tri a rangé ${filedToday} ${filedToday > 1 ? 'mails' : 'mail'} aujourd’hui dans leurs boîtes.`
+        ? `Le tri a rangé ${filedToday} ${filedToday > 1 ? 'mails aujourd’hui dans leurs boîtes' : 'mail aujourd’hui dans sa boîte'}.`
         : 'Les mails rangés par le tri sont dans leurs boîtes, le journal les retrace.',
   );
 </script>
