@@ -138,11 +138,9 @@
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: 12px 16px;
-    max-width: 720px;
   }
   textarea {
     flex: 1;
-    max-width: 720px;
     min-height: 160px;
     padding: 12px 14px;
     resize: vertical;
@@ -161,7 +159,6 @@
     display: flex;
     justify-content: flex-end;
     gap: 8px;
-    max-width: 720px;
   }
   @media (max-width: 767.98px) {
     .composer {
