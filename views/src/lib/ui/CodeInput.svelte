@@ -18,6 +18,8 @@
     oncomplete?: ((code: string) => void) | undefined;
     /** Accessible name, when the code is not inside a Field. */
     'aria-label'?: string | undefined;
+    /** What describes the code (its error), when it is not inside a Field. */
+    'aria-describedby'?: string | undefined;
     id?: string | undefined;
     class?: string | undefined;
     /** Forced focus, for the catalogue. */
@@ -30,6 +32,7 @@
     disabled = false,
     oncomplete,
     'aria-label': ariaLabel,
+    'aria-describedby': describedBy,
     id,
     class: className,
     'data-etat': etat,
@@ -73,7 +76,7 @@
     autocomplete="one-time-code"
     spellcheck="false"
     aria-label={field ? undefined : (ariaLabel ?? 'Code à 6 chiffres')}
-    aria-describedby={field?.describedBy}
+    aria-describedby={field ? field.describedBy : describedBy}
     aria-invalid={invalid || undefined}
     {disabled}
     {value}

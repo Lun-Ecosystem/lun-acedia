@@ -24,6 +24,8 @@
 
   let removing = $state<LinkedClient | null>(null);
   let code = $state<{ code: string; expiresAt: string; issuedAt: number } | null>(null);
+  // Apart from the code: the last code stays shown while the window fades out.
+  let showing = $state(false);
   let now = $state(Date.now());
   let linking = $state(false);
   let error = $state<string | null>(null);
@@ -66,6 +68,7 @@
     try {
       code = { ...(await client.createPairingCode()), issuedAt: Date.now() };
       now = Date.now();
+      showing = true;
     } catch (err) {
       error = errorText(err);
     } finally {
@@ -73,6 +76,8 @@
     }
   }
 
+  // shortcut: the server's expiresAt is compared with the browser's clock, so a browser clock off by
+  // minutes shows the wrong time left; send the server's time with the code if that ever matters.
   const left = $derived(code ? Math.max(0, new Date(code.expiresAt).getTime() - now) : 0);
   const expired = $derived(code !== null && left === 0);
   // The bar starts full when the code is shown: the server's clock is not the browser's.
@@ -80,7 +85,7 @@
 
   // Ticks only while the window shows a live code.
   $effect(() => {
-    if (!code || expired) return;
+    if (!showing || !code || expired) return;
     const timer = setInterval(() => (now = Date.now()), 1000);
     return () => clearInterval(timer);
   });
@@ -158,9 +163,9 @@
 </div>
 
 <Dialog
-  bind:open={() => code !== null, (open) => !open && (code = null)}
+  bind:open={showing}
   title="Code pour un nouvel appareil"
-  description={code && !expired
+  description={!expired && code
     ? `Saisir ce code sur l’appareil à relier. Il expire à ${time(code.expiresAt)}.`
     : 'Ce code a expiré. En demander un nouveau.'}
   width={400}

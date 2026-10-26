@@ -73,6 +73,7 @@ describe('Pair', () => {
       'Code incorrect ou expiré. Demander un nouveau code.',
     );
     expect(code).toHaveAttribute('aria-invalid', 'true');
+    expect(code).toHaveAccessibleDescription('Code incorrect ou expiré. Demander un nouveau code.');
     expect(code).toHaveFocus();
     expect(onPaired).not.toHaveBeenCalled();
 
@@ -84,12 +85,24 @@ describe('Pair', () => {
     expect(sent(fetch, 1).code).toBe('482917');
   });
 
-  it('shows the steps while an app waits for an authorization', () => {
+  it('keeps digits typed over a refused code when Enter is pressed early', async () => {
+    const fetch = server({ status: 401, body: { error: 'refusé' } });
+    const { user, code } = setup();
+    await user.type(code, '000000');
+    await screen.findByRole('alert');
+    await user.keyboard('48{Enter}');
+    expect(code).toHaveValue('48');
+    expect(code).toHaveFocus();
+    expect(fetch).toHaveBeenCalledOnce();
+  });
+
+  it('shows the steps while an app waits for an authorization, the first one still to do', () => {
     server();
     setup({ authorizing: true });
     const steps = screen.getByRole('list', { name: 'Étapes' });
-    expect(steps).toHaveTextContent(/Navigateur relié.*Autoriser/);
-    expect(screen.getByText('Navigateur relié').closest('li')).toHaveAttribute('aria-current', 'step');
+    expect(steps).toHaveTextContent(/Relier le navigateur.*Autoriser/);
+    expect(screen.getByText('Relier le navigateur').closest('li')).toHaveAttribute('aria-current', 'step');
+    expect(steps).not.toHaveTextContent('Navigateur relié');
     expect(
       screen.getByText(
         "Lun'Acedia ne connaît pas ce navigateur. Saisir le code à 6 chiffres pour continuer.",

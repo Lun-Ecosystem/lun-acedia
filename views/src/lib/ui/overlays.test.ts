@@ -81,6 +81,13 @@ describe('CodeInput', () => {
     expect(input).toHaveValue('482917');
   });
 
+  it('outside a Field, is described by the id it is given', () => {
+    render(CodeInput, { props: { error: true, 'aria-describedby': 'pourquoi' } });
+    const input = screen.getByRole('textbox', { name: 'Code à 6 chiffres' });
+    expect(input).toHaveAttribute('aria-describedby', 'pourquoi');
+    expect(input).toHaveAttribute('aria-invalid', 'true');
+  });
+
   it('a refused code pasted again completes again (retry)', async () => {
     const user = userEvent.setup();
     const oncomplete = vi.fn();

@@ -38,7 +38,14 @@ export function contractRoutes(deps: AppDeps): Hono {
           typeof body.code_verifier === 'string'
             ? exchangeAuthorizationCode(db, body.code, body.code_verifier, clock())
             : null;
-      else result = pair(db, body.code, typeof body.client === 'string' ? body.client : 'client', clock());
+      // The code is shown « 482 917 »: its spaces (also U+00A0, U+202F) go, nothing else does.
+      else
+        result = pair(
+          db,
+          body.code.replace(/\s/g, ''),
+          typeof body.client === 'string' ? body.client : 'client',
+          clock(),
+        );
     }
     if (!result) {
       recordPairingFailure(db, clock(), log);

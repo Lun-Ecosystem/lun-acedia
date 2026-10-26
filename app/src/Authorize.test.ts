@@ -55,7 +55,7 @@ describe('Authorize', () => {
     for (const li of rights) expect(li.querySelector('svg[aria-hidden="true"]')).not.toBeNull();
   });
 
-  it('shows the steps, the second one current, and two buttons of the same kind of weight', () => {
+  it('shows the first step done, the second current, and the two buttons side by side, same size class', () => {
     setup();
     expect(screen.getByRole('list', { name: 'Étapes' })).toHaveTextContent(/Navigateur relié.*Autoriser/);
     expect(screen.getByText('Navigateur relié', { exact: false }).closest('li')).not.toHaveAttribute(

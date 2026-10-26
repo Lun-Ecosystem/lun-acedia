@@ -348,6 +348,8 @@ describe('Settings', () => {
     expect(writeText).toHaveBeenCalledWith('042517');
 
     await user.click(within(window).getAllByRole('button', { name: 'Fermer' }).at(-1)!);
+    // While it fades out, the window still says the code is live, not expired.
+    expect(screen.queryByText('Ce code a expiré. En demander un nouveau.')).toBeNull();
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
     expect(trigger).toHaveFocus();
   });

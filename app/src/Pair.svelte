@@ -28,6 +28,8 @@
   let code = $state('');
   let busy = $state(false);
   let error = $state<string | null>(null);
+  const uid = $props.id();
+  const errorId = `${uid}-erreur`;
   let copied = $state(false);
   let box = $state<HTMLElement | null>(null);
 
@@ -53,8 +55,11 @@
   function submit(e: SubmitEvent) {
     e.preventDefault();
     if (error) {
-      code = '';
-      error = null;
+      // Only the refused code is cleared: digits already typed over it stay.
+      if (code.length === 6) {
+        code = '';
+        error = null;
+      }
       field()?.focus();
     } else if (code.length === 6) void send(code);
   }
@@ -70,7 +75,7 @@
   }
 </script>
 
-{#snippet waiting()}<Steps steps={['Navigateur relié', 'Autoriser']} current={0} />{/snippet}
+{#snippet waiting()}<Steps steps={['Relier le navigateur', 'Autoriser']} current={0} />{/snippet}
 
 <div class="page lun-acedia" data-monde="acedia">
   <StandaloneCard
@@ -83,10 +88,15 @@
     {#if notice}<Banner tone="info" title={notice} class="avis" />{/if}
     <form onsubmit={submit}>
       <div bind:this={box} {@attach (el) => el.querySelector('input')?.focus()}>
-        <CodeInput bind:value={code} error={error !== null} oncomplete={send} />
+        <CodeInput
+          bind:value={code}
+          error={error !== null}
+          aria-describedby={error ? errorId : undefined}
+          oncomplete={send}
+        />
       </div>
       {#if error}
-        <p class="erreur" role="alert">
+        <p class="erreur" id={errorId} role="alert">
           <icons.Ban size={14} strokeWidth={ICON_STROKE} aria-hidden="true" />{error}
         </p>
       {:else}
