@@ -29,9 +29,7 @@ jobs:
           node "$RUNNER_TEMP/lun-docs/tools/check-repo.mjs" --addresses .
       - name: Shared design tokens are in sync
         run: node "$RUNNER_TEMP/lun-docs/tools/sync-tokens.mjs" --check --monde acedia views/src/lib/tokens.css
-      # Blocking from Task 15, once every screen is redone.
       - name: No hardcoded color
-        continue-on-error: true
         run: npm run check:colors
       - name: Conventional PR title
         if: github.event_name == 'pull_request'

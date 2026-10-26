@@ -42,14 +42,3 @@
   border-radius: var(--r-2);
   padding: 0.35rem 0.55rem;
 }
-
-/* alias temporaires, retirés en Task 15 (old names still used by the views not yet redone).
-   Declared on the element carrying data-monde so that var(--accent) resolves there. */
-.lun-acedia,
-[data-monde] {
-  --monde-fond: var(--fond);
-  --monde-accent: var(--accent);
-  --surface: var(--surface-1);
-  --rayon: var(--r-2);
-  --erreur: var(--danger);
-}
