@@ -124,6 +124,13 @@
     return { verb: 'Rangé' };
   }
 
+  /** What a screen reader says of a focused row: « Sujet 1 : rangé dans École par l’IA ». */
+  function rowLabel(e: JournalEntry, w: Where) {
+    const target = w.box ? ` ${w.box.name}` : w.spam ? ' Spam' : '';
+    const undone = e.undoneAt ? `, ${undoneText(e, e.undoneAt)}` : '';
+    return `${e.subject || 'Sans objet'} : ${w.verb.toLowerCase()}${target} ${ORIGINS[e.origin].by}${undone}`;
+  }
+
   /** « annulé à 18:41 » the same day, « annulé le 21 oct. » later. */
   function undoneText(e: JournalEntry, undoneAt: string) {
     if (new Date(undoneAt).toDateString() === new Date(e.at).toDateString())
@@ -222,6 +229,8 @@
                 <ListRow
                   class="ligne"
                   tabindex={0}
+                  role="group"
+                  aria-label={rowLabel(e, w)}
                   onopen={onopen ? () => onopen(e.messageId) : undefined}
                   onkeydown={(event) => {
                     if (event.key === 'Enter' && event.target === event.currentTarget) onopen?.(e.messageId);
@@ -502,16 +511,27 @@
     gap: 6px;
   }
 
-  /* Touch: no hover. A tap opens the mail, « Annuler » stays in view (a gesture never replaces it). */
-  /* « Annuler » in view, as a compact icon so the subject keeps the row. */
+  /*
+   * Touch: no hover. A tap opens the mail; « Annuler » stays in view (a gesture never replaces it), as
+   * a compact icon so the subject keeps the row.
+   */
   @media (hover: none) {
     .actions :global(.annuler) {
+      position: relative;
       display: inline-flex;
-    }
-    .actions :global(.annuler) {
       justify-content: center;
       width: 30px;
       padding: 0;
+    }
+    /* A 44 px target for the finger around the 30 px button, without widening the row. */
+    .actions :global(.annuler::after) {
+      content: '';
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      width: 44px;
+      height: 44px;
+      transform: translate(-50%, -50%);
     }
     .actions :global(.annuler .mot) {
       display: none;

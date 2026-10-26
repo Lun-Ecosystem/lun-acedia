@@ -170,8 +170,13 @@ describe('Journal', () => {
 
   it('opens the mail with Enter on the row', async () => {
     const onopen = vi.fn();
-    const { user } = await open([entry(1, 'ai')], { onopen });
-    (rowOf('Sujet 1').firstElementChild as HTMLElement).focus();
+    const { user } = await open([entry(1, 'ai'), entry(2, 'rule', { undoneAt: at(0, 10, 59) })], { onopen });
+    // A named focus stop: what happened to which mail.
+    const row = screen.getByRole('group', { name: 'Sujet 1 : rangé dans École par l’IA' });
+    expect(
+      screen.getByRole('group', { name: 'Sujet 2 : rangé dans École par une règle, annulé à 10:59' }),
+    ).toBeInTheDocument();
+    row.focus();
     await user.keyboard('{Enter}');
     expect(onopen).toHaveBeenCalledWith('m1');
   });
