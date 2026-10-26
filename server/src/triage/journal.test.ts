@@ -144,6 +144,43 @@ describe('user actions', () => {
     expect(h.gmail.messages.get('m1')!.labelIds).toContain('INBOX');
   });
 
+  it('a manual file then undo: labels back and the proposal pending again', async () => {
+    const s = await pending();
+    const res = await s.h.call('POST', '/api/mail/m1/file', { boxId: s.perso });
+    expect(typeof res.body.journalId).toBe('number');
+    expect(getProposal(s.h.db, 'm1')?.status).toBe('corrected');
+    expect((await s.h.call('POST', `/api/journal/${res.body.journalId}/undo`)).status).toBe(200);
+    expect(s.h.gmail.messages.get('m1')!.labelIds.sort()).toEqual(['INBOX', 'UNREAD']);
+    expect(getProposal(s.h.db, 'm1')?.status).toBe('pending');
+  });
+
+  it('a batch file then undo puts the proposal back too', async () => {
+    const s = await pending();
+    const op = { kind: 'file', boxId: s.ecole };
+    const res = await s.h.call('POST', '/api/mail/batch', { ids: ['m1'], op });
+    expect(getProposal(s.h.db, 'm1')?.status).toBe('accepted');
+    await s.h.call('POST', `/api/journal/${res.body[0].journalId}/undo`);
+    expect(getProposal(s.h.db, 'm1')?.status).toBe('pending');
+    expect(s.h.gmail.messages.get('m1')!.labelIds.sort()).toEqual(['INBOX', 'UNREAD']);
+  });
+
+  it('a user trash then undo takes the mail out of the trash', async () => {
+    const { h } = await setup();
+    const res = await h.call('POST', '/api/mail/m1/trash');
+    expect(h.gmail.messages.get('m1')!.labelIds).toContain('TRASH');
+    expect((await h.call('POST', `/api/journal/${res.body.journalId}/undo`)).status).toBe(200);
+    expect(h.gmail.messages.get('m1')!.labelIds.sort()).toEqual(['INBOX', 'UNREAD']);
+  });
+
+  it('a spam report then undo: SPAM removed, INBOX back', async () => {
+    const { h } = await setup();
+    const res = await h.call('POST', '/api/mail/m1/spam');
+    expect(h.gmail.messages.get('m1')!.labelIds).toContain('SPAM');
+    expect((await h.call('POST', `/api/journal/${res.body.journalId}/undo`)).status).toBe(200);
+    expect(h.gmail.messages.get('m1')!.labelIds.sort()).toEqual(['INBOX', 'UNREAD']);
+    expect(getStoredMessage(h.db, 'm1')?.labels.sort()).toEqual(['INBOX', 'UNREAD']);
+  });
+
   it('batch returns a journalId for each mail', async () => {
     const { h } = await setup();
     const res = await h.call('POST', '/api/mail/batch', { ids: ['m1'], op: { kind: 'trash' } });
