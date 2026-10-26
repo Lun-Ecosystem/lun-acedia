@@ -17,6 +17,9 @@ export function bearerToken(header: string | undefined): string {
   return header?.startsWith('Bearer ') ? header.slice(7) : '';
 }
 
+/** « 482 917 »: a code is shown grouped by three, everywhere. */
+export const groupCode = (code: string): string => `${code.slice(0, 3)} ${code.slice(3)}`;
+
 /** A one-time six-digit code, valid for 10 minutes. */
 export function issuePairingCode(db: DatabaseSync, now: Date): string {
   let code: string;
@@ -162,5 +165,5 @@ export function requireDevice(db: DatabaseSync): MiddlewareHandler {
 export function bootstrapPairing(db: DatabaseSync, now: Date, log: (line: string) => void): void {
   if (db.prepare('SELECT 1 FROM clients WHERE revoked_at IS NULL').get()) return;
   const code = issuePairingCode(db, now);
-  log(`Aucun appareil appairé. Code d'appairage du premier appareil (10 min) : ${code}`);
+  log(`Aucun appareil appairé. Code d’appairage du premier appareil (10 min) : ${groupCode(code)}`);
 }

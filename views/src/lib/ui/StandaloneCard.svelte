@@ -13,6 +13,8 @@
     brand?: string | undefined;
     /** Steps on the right of the header (Steps). */
     steps?: Snippet | undefined;
+    /** Above the title (the two linked marks of an authorization). */
+    top?: Snippet | undefined;
     children: Snippet;
     /** Under the card (a note, a link). */
     footer?: Snippet | undefined;
@@ -26,6 +28,7 @@
     lead,
     brand = "Lun'Acedia",
     steps,
+    top,
     children,
     footer,
     width = 440,
@@ -41,6 +44,7 @@
   </header>
   <main class="centre">
     <section class="carte" style:--largeur="{width}px" aria-labelledby="{uid}-titre">
+      {#if top}{@render top()}{/if}
       <h1 id="{uid}-titre">{title}</h1>
       {#if lead}<p class="lead">{lead}</p>{/if}
       {@render children()}

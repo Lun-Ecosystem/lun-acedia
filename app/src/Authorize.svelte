@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { AcediaClient, AuthorizationRequest } from '@lun-ecosystem/lunacedia-views';
+  import { Button, icons, ICON_STROKE, StandaloneCard, Steps } from '@lun-ecosystem/lunacedia-views';
   import { returnHost } from './authorization.ts';
 
   let {
@@ -14,11 +15,14 @@
   } = $props();
 
   const RIGHTS = [
-    'lire l’état, les coûts et les événements',
-    'lire et ranger les mails',
-    'gérer l’agenda, les tâches et les rappels',
-    'mettre en pause et reprendre le service',
+    { icon: icons.Eye, text: 'Lire l’état, les coûts et les événements' },
+    { icon: icons.Mail, text: 'Lire et ranger les mails' },
+    { icon: icons.Calendar, text: 'Gérer l’agenda, les tâches et les rappels' },
+    { icon: icons.Pause, text: 'Mettre en pause et reprendre le service' },
   ];
+
+  /** The requesting app is only a name: its mark is its initial, in a neutral tone. */
+  const initial = $derived(request.client.trim().charAt(0).toUpperCase() || '?');
 
   let busy = $state(false);
   let error = $state<string | null>(null);
@@ -37,77 +41,141 @@
   }
 </script>
 
-<main class="authorize lun-acedia" data-monde="acedia">
-  <p class="brand">Lun'Acedia</p>
-  <h1>{request.client} demande l’accès à Lun'Acedia</h1>
-  <p>Une fois reliée, cette application pourra :</p>
-  <ul>
-    {#each RIGHTS as right (right)}
-      <li>{right}</li>
-    {/each}
-  </ul>
-  <p class="return">Retour vers {returnHost(request.redirect_uri)}</p>
-  <div class="actions">
-    <button type="button" class="primary" disabled={busy} onclick={() => decide('allow')}>Autoriser</button>
-    <button type="button" disabled={busy} onclick={() => decide('deny')}>Refuser</button>
+{#snippet steps()}<Steps steps={['Navigateur relié', 'Autoriser']} current={1} />{/snippet}
+
+<!-- The two marks, linked, above the title: who asks, and to whom. -->
+{#snippet marks()}
+  <div class="liens" aria-hidden="true">
+    <span class="logo app">{initial}</span>
+    <span class="fil"><i></i><i></i><i></i></span>
+    <span class="logo acedia">Ac</span>
   </div>
-  {#if error}<p class="error" role="alert">{error}</p>{/if}
-  <p class="note">Accès retirable à tout moment dans Réglages, Appareils et applications.</p>
-</main>
+{/snippet}
+
+<div class="page lun-acedia" data-monde="acedia">
+  <StandaloneCard
+    title={`${request.client} demande l’accès à Lun'Acedia`}
+    {steps}
+    top={marks}
+    class="autoriser"
+  >
+    <p class="lead">Une fois reliée, cette application pourra :</p>
+    <ul class="droits" aria-label="Droits demandés">
+      {#each RIGHTS as right (right.text)}
+        <li><right.icon size={16} strokeWidth={ICON_STROKE} aria-hidden="true" />{right.text}</li>
+      {/each}
+    </ul>
+    <p class="retour">
+      <icons.Reply size={14} strokeWidth={ICON_STROKE} aria-hidden="true" />
+      <span>Retour ensuite vers <b>{returnHost(request.redirect_uri)}</b></span>
+    </p>
+    {#if error}<p class="erreur" role="alert">{error}</p>{/if}
+    <div class="boutons">
+      <Button size="grand" disabled={busy} onclick={() => decide('deny')}>Refuser</Button>
+      <Button variant="principal" size="grand" disabled={busy} onclick={() => decide('allow')}
+        >Autoriser</Button
+      >
+    </div>
+    {#snippet footer()}Accès retirable à tout moment dans Réglages › Appareils et applications.{/snippet}
+  </StandaloneCard>
+</div>
 
 <style>
-  .authorize {
-    max-width: 30rem;
-    margin: 0 auto;
-    padding: 18vh 1rem 2rem;
+  .page {
+    display: grid;
     min-height: 100dvh;
-    box-sizing: border-box;
   }
-  .brand {
-    font-family: var(--serif);
-    font-weight: 500;
-    font-size: 1.35rem;
-    margin: 0 0 1.25rem;
+  .page :global(.autoriser h1),
+  .lead {
+    text-align: center;
   }
-  h1 {
-    font-family: var(--serif);
-    font-weight: 500;
-    font-size: 2rem;
-    line-height: 1.2;
-    margin: 0 0 1rem;
+  .liens {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 14px;
+    margin-bottom: 18px;
+  }
+  .logo {
+    display: grid;
+    place-items: center;
+    width: 52px;
+    height: 52px;
+    border-radius: 14px;
+    border: 1px solid var(--bordure-forte);
+    background: var(--surface-3);
+    color: var(--texte-2);
+    font: 500 22px var(--serif);
+  }
+  .logo.acedia {
+    border-color: var(--accent-bord);
+    background: var(--accent-doux);
+    color: var(--accent-texte);
+  }
+  .fil {
+    display: flex;
+    gap: 4px;
+  }
+  .fil i {
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: var(--texte-3);
+  }
+  .lead {
+    margin: 0 0 16px;
+    font-size: 14px;
+    color: var(--texte-2);
+  }
+  .droits {
+    display: flex;
+    flex-direction: column;
+    margin: 0 0 16px;
+    padding: 0;
+    list-style: none;
+  }
+  .droits li {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 9px 4px;
+    border-bottom: 1px solid var(--bordure);
+    font-size: 13.5px;
+    color: var(--texte);
+  }
+  .droits li:last-child {
+    border-bottom: 0;
+  }
+  .droits :global(svg) {
+    flex: none;
+    color: var(--texte-3);
+  }
+  .retour {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 0 0 18px;
+    font-size: 12.5px;
+    color: var(--texte-3);
+  }
+  .retour b {
+    font:
+      400 12px ui-monospace,
+      Consolas,
+      monospace;
+    color: var(--texte-2);
     overflow-wrap: anywhere;
   }
-  p {
-    color: var(--lune);
-    line-height: 1.5;
-    margin: 0 0 0.6rem;
+  .erreur {
+    margin: 0 0 12px;
+    font-size: 13px;
+    color: var(--danger);
   }
-  ul {
-    margin: 0 0 1.25rem;
-    padding-left: 1.2rem;
-    color: var(--papier);
-    line-height: 1.6;
-  }
-  .return {
-    font-size: 0.85rem;
-  }
-  .actions {
+  .boutons {
     display: flex;
-    gap: 0.6rem;
-    margin: 1.25rem 0 0.8rem;
+    gap: 8px;
   }
-  .actions button {
-    padding: 0.45rem 1rem;
-  }
-  .actions .primary {
-    background: var(--monde-accent);
-    border-color: var(--monde-accent);
-  }
-  .note {
-    margin-top: 1.5rem;
-    font-size: 0.85rem;
-  }
-  .error {
-    color: var(--erreur);
+  .boutons :global(.btn) {
+    flex: 1 1 0;
   }
 </style>

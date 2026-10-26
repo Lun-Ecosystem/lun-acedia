@@ -2,12 +2,17 @@ import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import { fileURLToPath } from 'node:url';
-import { issuePairingCode } from '../contract/auth.ts';
+import { codeExpiry, groupCode, issuePairingCode } from '../contract/auth.ts';
 import { openDb } from '../db.ts';
 
 /** Issues a pairing code, whether clients exist or not, and returns the line to print. */
 export function pairCodeLine(db: DatabaseSync, now: Date): string {
-  return `Code d’appairage (10 min) : ${issuePairingCode(db, now)}`;
+  const code = issuePairingCode(db, now);
+  const expiry = new Date(codeExpiry(db, code)!).toLocaleTimeString('fr-FR', {
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+  return `Code d’appairage : ${groupCode(code)} · expire à ${expiry} · usage unique`;
 }
 
 // `npm run pair-code`: same `.env` and same database as the server, running or not.

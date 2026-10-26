@@ -24,6 +24,7 @@ export { default as ChevronLeft } from '@lucide/svelte/icons/chevron-left';
 export { default as ChevronRight } from '@lucide/svelte/icons/chevron-right';
 export { default as CircleAlert } from '@lucide/svelte/icons/circle-alert';
 export { default as Clock } from '@lucide/svelte/icons/clock';
+export { default as Copy } from '@lucide/svelte/icons/copy';
 export { default as Ellipsis } from '@lucide/svelte/icons/ellipsis';
 export { default as Eye } from '@lucide/svelte/icons/eye';
 export { default as FileText } from '@lucide/svelte/icons/file-text';

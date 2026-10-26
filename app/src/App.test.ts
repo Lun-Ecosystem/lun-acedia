@@ -107,7 +107,9 @@ describe('App', () => {
     await user.click(within(self).getByRole('button', { name: 'Retirer' }));
     await user.click(await screen.findByRole('button', { name: 'Retirer ce navigateur' }));
 
-    expect(await screen.findByRole('button', { name: 'Relier cet appareil' })).toBeInTheDocument();
+    expect(
+      await screen.findByRole('heading', { level: 1, name: 'Relier ce navigateur' }),
+    ).toBeInTheDocument();
     expect(localStorage.getItem(TOKEN_KEY)).toBeNull();
     await new Promise((r) => setTimeout(r, 50));
     expect(calls.at(-1)).toBe('DELETE /api/clients/1');
@@ -124,14 +126,10 @@ describe('App', () => {
 
     expect(
       screen.getByText(
-        (_, el) =>
-          el?.tagName === 'P' &&
-          el.textContent?.replace(/\s+/g, ' ').trim() ===
-            "Lun'Acedia ne connaît pas ce navigateur. Saisir le code donné par npm run pair-code sur la machine qui héberge Lun'Acedia.",
+        "Lun'Acedia ne connaît pas ce navigateur. Saisir le code à 6 chiffres pour continuer.",
       ),
     ).toBeInTheDocument();
     await user.type(screen.getByLabelText('Code à 6 chiffres'), '042517');
-    await user.click(screen.getByRole('button', { name: 'Continuer' }));
 
     expect(
       await screen.findByRole('heading', { level: 1, name: "Assistant local demande l’accès à Lun'Acedia" }),

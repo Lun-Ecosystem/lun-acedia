@@ -326,13 +326,30 @@ describe('Settings', () => {
     expect(onSelfRevoked).toHaveBeenCalledTimes(1);
   });
 
-  it('links a device with a 6-digit code and its expiry', async () => {
+  it('links a device: a window shows the code grouped by three, its expiry, and copies it', async () => {
     const { client, user, go } = await open();
-    client.createPairingCode.mockResolvedValueOnce({ code: '042517', expiresAt: '2026-11-02T08:10:00.000Z' });
+    const expiresAt = new Date(Date.now() + 6 * 60_000).toISOString();
+    client.createPairingCode.mockResolvedValueOnce({ code: '042517', expiresAt });
     await go('Appareils et applications');
-    await user.click(screen.getByRole('button', { name: 'Relier un appareil' }));
-    expect(await screen.findByText('042517')).toBeInTheDocument();
-    expect(screen.getByText(/Expire à/)).toBeInTheDocument();
+    const trigger = screen.getByRole('button', { name: 'Relier un appareil' });
+    await user.click(trigger);
+    const window = await screen.findByRole('dialog', { name: 'Code pour un nouvel appareil' });
+    const time = new Date(expiresAt).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+    expect(window).toHaveAccessibleDescription(
+      `Saisir ce code sur l’appareil à relier. Il expire à ${time}.`,
+    );
+    expect(within(window).getByText('042')).toBeInTheDocument();
+    expect(within(window).getByText('517')).toBeInTheDocument();
+    expect(within(window).getByText(/^\d+ min restantes?$/)).toBeInTheDocument();
+    expect(within(window).getByText('Usage unique')).toBeInTheDocument();
+
+    const writeText = vi.spyOn(navigator.clipboard, 'writeText');
+    await user.click(within(window).getByRole('button', { name: 'Copier' }));
+    expect(writeText).toHaveBeenCalledWith('042517');
+
+    await user.click(within(window).getAllByRole('button', { name: 'Fermer' }).at(-1)!);
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    expect(trigger).toHaveFocus();
   });
 
   it('shows the connected Google account and disconnects after a confirmation', async () => {

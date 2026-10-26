@@ -1,11 +1,13 @@
 import { render, screen } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
+import { createRawSnippet } from 'svelte';
 import { describe, expect, it, vi } from 'vitest';
 import type { ProposalView } from '../types.ts';
 import CommandPalette from './CommandPalette.svelte';
 import ProposalCard from './ProposalCard.svelte';
 import ProposalChip from './ProposalChip.svelte';
 import ServiceCard from './ServiceCard.svelte';
+import StandaloneCard from './StandaloneCard.svelte';
 import Steps from './Steps.svelte';
 import Tabs from './Tabs.svelte';
 
@@ -64,6 +66,35 @@ describe('ServiceCard', () => {
     const status = screen.getByRole('status');
     expect(status).toHaveTextContent(title);
     expect(status).toHaveTextContent('Synchronisé il y a 1 min');
+  });
+});
+
+describe('StandaloneCard', () => {
+  const html = (h: string) => createRawSnippet(() => ({ render: () => h }));
+
+  it('is one region named by its title, with the brand, the steps, a top and a footer', () => {
+    render(StandaloneCard, {
+      props: {
+        title: 'Relier ce navigateur',
+        lead: 'Saisir le code.',
+        steps: html('<span>étapes</span>'),
+        top: html('<span data-testid="haut">marques</span>'),
+        children: html('<p>corps</p>'),
+        footer: html('<span>note</span>'),
+      },
+    });
+    const card = screen.getByRole('region', { name: 'Relier ce navigateur' });
+    expect(screen.getByRole('main')).toContainElement(card);
+    expect(screen.getByText("Lun'Acedia")).toBeInTheDocument();
+    expect(screen.getByText('étapes')).toBeInTheDocument();
+    // The top goes above the title, inside the card.
+    const top = screen.getByTestId('haut');
+    expect(card).toContainElement(top);
+    expect(top.compareDocumentPosition(screen.getByRole('heading', { level: 1 }))).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    );
+    expect(screen.getByText('Saisir le code.')).toBeInTheDocument();
+    expect(screen.getByText('note')).toBeInTheDocument();
   });
 });
 

@@ -78,7 +78,7 @@ describe('first device pairing', () => {
     const h = makeHarness();
     const lines: string[] = [];
     bootstrapPairing(h.db, h.clock(), (l) => lines.push(l));
-    expect(lines.join('\n')).toMatch(/\d{6}/);
+    expect(lines.join('\n')).toMatch(/\d{3} \d{3}$/);
   });
 
   it('logs nothing once a client exists', async () => {

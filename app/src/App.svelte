@@ -2,10 +2,12 @@
   import { untrack } from 'svelte';
   import {
     Agenda,
+    Button,
     Journal,
     Mailbox,
     Pending,
     Settings,
+    StandaloneCard,
     Tasks,
     toast,
     type AcediaClient,
@@ -137,11 +139,12 @@
 </script>
 
 {#if authorization && 'error' in authorization}
-  <main class="refused lun-acedia" data-monde="acedia">
-    <p class="brand">Lun'Acedia</p>
-    <p class="error" role="alert">{authorization.error}</p>
-    <button type="button" onclick={leaveAuthorization}>Ouvrir Lun'Acedia</button>
-  </main>
+  <div class="refused lun-acedia" data-monde="acedia">
+    <StandaloneCard title="Demande d’accès refusée">
+      <p class="error" role="alert">{authorization.error}</p>
+      <Button variant="principal" size="grand" onclick={leaveAuthorization}>Ouvrir Lun'Acedia</Button>
+    </StandaloneCard>
+  </div>
 {:else if client && authorization}
   <Authorize {client} request={authorization.request} />
 {:else if client}
@@ -203,20 +206,11 @@
     color-scheme: dark;
   }
   .refused {
-    max-width: 30rem;
-    margin: 0 auto;
-    padding: 18vh 1rem 2rem;
+    display: grid;
     min-height: 100dvh;
-    box-sizing: border-box;
-    overflow: visible;
-  }
-  .refused .brand {
-    font-family: var(--serif);
-    font-weight: 500;
-    font-size: 1.35rem;
-    margin: 0 0 1.25rem;
   }
   .refused .error {
+    margin: 0 0 18px;
     color: var(--danger);
     line-height: 1.5;
   }

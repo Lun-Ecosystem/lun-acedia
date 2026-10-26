@@ -28,7 +28,7 @@ faux agenda, faux tri, aucun compte Google, aucun réseau. La commande affiche l
 ## Relier un appareil
 
 ```bash
-npm run pair-code    # Code d’appairage (10 min) : 123456
+npm run pair-code    # Code d’appairage : 123 456 · expire à 09:52 · usage unique
 ```
 
 Le code est à usage unique et vaut 10 minutes, que des appareils soient déjà reliés ou non, serveur

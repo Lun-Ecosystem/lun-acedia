@@ -4,7 +4,8 @@
   import Badge from '../ui/Badge.svelte';
   import Button from '../ui/Button.svelte';
   import ConfirmDialog from '../ui/ConfirmDialog.svelte';
-  import { AppWindow, ICON_STROKE, Monitor, Plus, Smartphone } from '../ui/Icon.ts';
+  import Dialog from '../ui/Dialog.svelte';
+  import { AppWindow, Copy, ICON_STROKE, Monitor, Plus, Smartphone } from '../ui/Icon.ts';
   import SettingsCard from '../ui/SettingsCard.svelte';
   import { toast } from '../ui/toasts.svelte.ts';
 
@@ -22,7 +23,8 @@
   let { client, clients = $bindable(), onSelfRevoked }: Props = $props();
 
   let removing = $state<LinkedClient | null>(null);
-  let code = $state<{ code: string; expiresAt: string } | null>(null);
+  let code = $state<{ code: string; expiresAt: string; issuedAt: number } | null>(null);
+  let now = $state(Date.now());
   let linking = $state(false);
   let error = $state<string | null>(null);
 
@@ -62,11 +64,33 @@
     error = null;
     linking = true;
     try {
-      code = await client.createPairingCode();
+      code = { ...(await client.createPairingCode()), issuedAt: Date.now() };
+      now = Date.now();
     } catch (err) {
       error = errorText(err);
     } finally {
       linking = false;
+    }
+  }
+
+  const left = $derived(code ? Math.max(0, new Date(code.expiresAt).getTime() - now) : 0);
+  const expired = $derived(code !== null && left === 0);
+  // The bar starts full when the code is shown: the server's clock is not the browser's.
+  const share = $derived(code ? left / Math.max(1, new Date(code.expiresAt).getTime() - code.issuedAt) : 0);
+
+  // Ticks only while the window shows a live code.
+  $effect(() => {
+    if (!code || expired) return;
+    const timer = setInterval(() => (now = Date.now()), 1000);
+    return () => clearInterval(timer);
+  });
+
+  async function copyCode(value: string) {
+    try {
+      await navigator.clipboard.writeText(value);
+      toast('Code copié');
+    } catch {
+      toast('Copie impossible : recopier le code à la main', { tone: 'danger' });
     }
   }
 
@@ -113,15 +137,6 @@
     {#snippet aside()}
       <Button size="petit" icon={Plus} loading={linking} onclick={link}>Relier un appareil</Button>
     {/snippet}
-    {#if code}
-      <div class="code" role="status">
-        <div>
-          <div class="titre">Code de liaison</div>
-          <div class="aide">À saisir sur le nouvel appareil. Expire à {time(code.expiresAt)}.</div>
-        </div>
-        <span class="chiffres">{code.code}</span>
-      </div>
-    {/if}
     {#if error}<p class="erreur" role="alert">{error}</p>{/if}
     <ul>
       {#each clients as c (c.id)}
@@ -141,6 +156,37 @@
     </ul>
   </SettingsCard>
 </div>
+
+<Dialog
+  bind:open={() => code !== null, (open) => !open && (code = null)}
+  title="Code pour un nouvel appareil"
+  description={code && !expired
+    ? `Saisir ce code sur l’appareil à relier. Il expire à ${time(code.expiresAt)}.`
+    : 'Ce code a expiré. En demander un nouveau.'}
+  width={400}
+>
+  {#if code}
+    <p class={['chiffres', { expire: expired }]}>
+      <span>{code.code.slice(0, 3)}</span><span class="point" aria-hidden="true">·</span><span
+        >{code.code.slice(3)}</span
+      >
+    </p>
+    <div class="minuteur" aria-hidden="true"><span style:width="{share * 100}%"></span></div>
+    <div class="infos">
+      <span>{expired ? 'Expiré' : `${Math.ceil(left / 60_000)} min restante${left > 60_000 ? 's' : ''}`}</span
+      >
+      <span>Usage unique</span>
+    </div>
+  {/if}
+  {#snippet footer({ close })}
+    <Button onclick={close}>Fermer</Button>
+    {#if expired}
+      <Button variant="doux" loading={linking} onclick={link}>Nouveau code</Button>
+    {:else}
+      <Button variant="doux" icon={Copy} onclick={() => code && copyCode(code.code)}>Copier</Button>
+    {/if}
+  {/snippet}
+</Dialog>
 
 <ConfirmDialog
   bind:open={() => removing !== null, (open) => !open && (removing = null)}
@@ -197,29 +243,47 @@
     font-size: 12.5px;
     color: var(--texte-3);
   }
-  .code {
-    display: flex;
-    align-items: center;
-    gap: 18px;
-    padding: 14px 18px;
-    border-bottom: 1px solid var(--bordure);
-    background: var(--accent-doux);
-  }
-  .code > div {
-    flex: 1;
-  }
-  .titre {
-    font-size: 14px;
-  }
-  .aide {
-    margin-top: 2px;
-    font-size: 12.5px;
-    color: var(--texte-2);
-  }
   .chiffres {
-    font: 500 30px/1 var(--serif);
-    letter-spacing: 0.24em;
+    display: flex;
+    justify-content: center;
+    gap: 8px;
+    margin: 6px 0 10px;
+    font: 400 34px/1.2 var(--sans);
+    letter-spacing: 0.06em;
     font-variant-numeric: tabular-nums;
+    color: var(--texte);
+  }
+  .chiffres.expire {
+    color: var(--texte-3);
+    text-decoration: line-through;
+  }
+  .point {
+    color: var(--texte-3);
+  }
+  .minuteur {
+    height: 4px;
+    margin: 4px 0 6px;
+    overflow: hidden;
+    border-radius: 2px;
+    background: var(--surface-3);
+  }
+  .minuteur span {
+    display: block;
+    height: 100%;
+    background: var(--accent-texte);
+    transition: width 1s linear;
+  }
+  .infos {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 4px;
+    font-size: 12px;
+    color: var(--texte-3);
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .minuteur span {
+      transition: none;
+    }
   }
   .erreur {
     margin: 0;
@@ -228,8 +292,7 @@
     color: var(--danger);
   }
   @media (max-width: 767.98px) {
-    li,
-    .code {
+    li {
       padding: 12px 14px;
     }
   }
