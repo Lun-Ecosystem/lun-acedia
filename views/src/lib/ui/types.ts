@@ -65,7 +65,7 @@ export interface NavItem {
   href: string;
   label: string;
   icon: IconComponent;
-  count?: number | undefined;
+  count?: number | string | undefined;
   /** `ia`: counts what waits for a validation. */
   countTone?: 'neutre' | 'ia' | undefined;
 }

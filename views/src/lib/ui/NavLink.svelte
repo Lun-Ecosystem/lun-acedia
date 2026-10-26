@@ -14,7 +14,8 @@
     icon?: IconComponent | undefined;
     /** Color of a box (a data value), instead of an icon. */
     color?: string | undefined;
-    count?: number | undefined;
+    /** A number, or a lower bound such as `50+`. */
+    count?: number | string | undefined;
     /** `ia`: what waits for a validation. */
     countTone?: 'neutre' | 'ia' | undefined;
     current?: boolean | undefined;
@@ -41,7 +42,7 @@
     <span class="pastille" style:background={color} aria-hidden="true"></span>
   {/if}
   <span class="texte">{label}</span>
-  {#if count !== undefined && count > 0}
+  {#if count}
     <span class={['compte', countTone]}>{count}</span>
   {/if}
 </a>

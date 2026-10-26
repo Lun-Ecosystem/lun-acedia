@@ -45,7 +45,7 @@
     serviceDetail?: string | undefined;
     /** Sorting paused by hand (apart from the card: a refused key may show there instead). */
     paused: boolean;
-    counts: { inbox: number; pending: number; tasks: number };
+    counts: { inbox: number | string; pending: number | string; tasks: number | string };
     /** Google account, for the avatar. */
     account?: string | undefined;
     /** Pauses or resumes the sorting. */
