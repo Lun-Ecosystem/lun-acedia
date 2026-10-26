@@ -47,6 +47,7 @@ export { default as Reply } from '@lucide/svelte/icons/reply';
 export { default as Search } from '@lucide/svelte/icons/search';
 export { default as Send } from '@lucide/svelte/icons/send';
 export { default as Settings } from '@lucide/svelte/icons/settings';
+export { default as Smartphone } from '@lucide/svelte/icons/smartphone';
 export { default as Sparkles } from '@lucide/svelte/icons/sparkles';
 export { default as Tag } from '@lucide/svelte/icons/tag';
 export { default as Trash } from '@lucide/svelte/icons/trash-2';

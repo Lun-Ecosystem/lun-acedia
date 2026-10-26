@@ -19,7 +19,11 @@
 
   let error = $state<string | null>(null);
 
+  /** Last save asked: an older answer arriving late never replaces a newer value. */
+  let seq = 0;
+
   async function save(patch: Partial<Settings>) {
+    const mine = ++seq;
     const before = { ...settings };
     // Lowering the first threshold lowers the second at once, as the server does.
     settings = {
@@ -31,10 +35,17 @@
     };
     error = null;
     try {
-      settings = await client.updateSettings(patch);
+      const saved = await client.updateSettings(patch);
+      if (mine === seq) settings = saved;
     } catch (err) {
-      settings = before;
+      if (mine !== seq) return;
       error = errorText(err);
+      // The server's values, not a copy that may miss a change made meanwhile.
+      try {
+        settings = await client.getSettings();
+      } catch {
+        settings = before;
+      }
     }
   }
 
@@ -55,7 +66,7 @@
   >
     <SettingsRow
       label="Ranger seul à partir de"
-      hint="Au-dessus, le mail est rangé sans validation ; l’action s’annule depuis le journal. Le spam demande toujours 95 % au moins."
+      hint={'Au-dessus, le mail est rangé sans validation ; l’action s’annule depuis le journal. Le spam demande toujours 95 % au moins.'}
       class="seuil seul"
     >
       <Slider
@@ -79,7 +90,9 @@
     <div class="echelle" role="img" aria-label={summary}>
       {#if settings.bulkThreshold > low}
         <div class="un" style:flex-grow={settings.bulkThreshold - low}>
-          <span>{low} %</span><span class="milieu">en dessous de {settings.bulkThreshold} % : un par un</span>
+          <span>{low}&nbsp;%</span><span class="milieu"
+            >en dessous de {settings.bulkThreshold}&nbsp;% : un par un</span
+          >
         </div>
       {/if}
       {#if settings.threshold > settings.bulkThreshold}
@@ -89,7 +102,7 @@
       {/if}
       {#if settings.threshold < 100}
         <div class="seul" style:flex-grow={100 - settings.threshold}>
-          <span class="milieu">seul · 100 %</span>
+          <span class="milieu">seul · 100&nbsp;%</span>
         </div>
       {/if}
     </div>

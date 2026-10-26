@@ -107,6 +107,16 @@ describe('AnthropicKey', () => {
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
   });
 
+  it('the window stays open while the key is being checked', async () => {
+    const { client, user, card } = open();
+    client.saveAnthropicKey.mockReturnValueOnce(new Promise(() => {}));
+    const window = await replace(user, card);
+    await user.type(within(window).getByLabelText('Nouvelle clé'), NEW_KEY);
+    await user.click(within(window).getByRole('button', { name: 'Vérifier et enregistrer' }));
+    await user.keyboard('{Escape}');
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+  });
+
   it('removing the key goes through a confirmation', async () => {
     const { client, user, card } = open();
     await user.click(within(card).getByRole('button', { name: 'Retirer' }));

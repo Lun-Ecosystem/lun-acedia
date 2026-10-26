@@ -140,6 +140,15 @@ describe('Anthropic key', () => {
     expect((await call2('DELETE')).body).toEqual({ state: 'ok', last4: '9876', source: 'env' });
   });
 
+  it('DELETE without any key answers absent and changes nothing', async () => {
+    const h = makeHarness({ secretKey: randomBytes(32).toString('base64') });
+    const call = await client(h);
+    const res = await call('DELETE');
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ state: 'absent' });
+    expect(eventsSince(h.db)).toEqual([]);
+  });
+
   it('GET never contains the key', async () => {
     const absent = makeHarness();
     expect((await (await client(absent))('GET')).body).toEqual({ state: 'absent' });

@@ -100,15 +100,35 @@
     try {
       await Promise.all(changed.map((r) => client.saveRule(r)));
     } catch (err) {
-      rules = before;
       error = errorText(err);
+      // Some saves may have gone through: the server's order is the truth, not the one before.
+      try {
+        rules = await client.listRules();
+      } catch {
+        rules = before;
+      }
     }
   }
 
+  let card = $state<HTMLElement | null>(null);
+  /** Index of the rule just deleted: the focus goes to the row now in its place. */
+  let removedAt = $state<number | null>(null);
+
   async function remove() {
     const rule = removing!;
+    const at = rules.findIndex((r) => r.id === rule.id);
     await client.deleteRule(rule.id);
     rules = rules.filter((r) => r.id !== rule.id);
+    removedAt = at;
+  }
+
+  function focusAfterRemoval() {
+    if (removedAt === null) return null;
+    const rows = card?.querySelectorAll<HTMLElement>('.regle .actions button') ?? [];
+    // Two buttons per row (actions, delete): the row in its place, else the last one, else the value.
+    const row = Math.min(removedAt, rows.length / 2 - 1);
+    removedAt = null;
+    return row >= 0 ? rows[row * 2]! : card?.querySelector<HTMLElement>('.nouvelle input');
   }
 
   const menu = (rule: Rule, i: number): MenuSection[] => [
@@ -170,124 +190,134 @@
   >
 {/snippet}
 
-<SettingsCard
-  title="Règles"
-  description="Appliquées avant l’IA, dans l’ordre ; la première qui correspond range le mail."
->
-  {#if rules.length}
-    <ol class="regles">
-      {#each rules as rule, i (rule.id)}
-        <li
-          class={['regle', { off: !rule.enabled, tire: dragged === i, dessus: over === i && dragged !== i }]}
-          draggable={grabbed === rule.id}
-          ondragstart={(e) => {
-            dragged = i;
-            e.dataTransfer?.setData('text/plain', String(rule.id));
-            if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move';
-          }}
-          ondragover={(e) => {
-            if (dragged === null) return;
-            e.preventDefault();
-            over = i;
-          }}
-          ondrop={(e) => {
-            e.preventDefault();
-            drop(i);
-          }}
-          ondragend={() => (dragged = over = grabbed = null)}
-        >
-          <span
-            class="poignee"
-            aria-hidden="true"
-            onpointerdown={() => (grabbed = rule.id)}
-            onpointerup={() => (grabbed = null)}
+<div bind:this={card}>
+  <SettingsCard
+    title="Règles"
+    description="Appliquées avant l’IA, dans l’ordre ; la première qui correspond range le mail."
+  >
+    {#if rules.length}
+      <ol class="regles">
+        {#each rules as rule, i (rule.id)}
+          <li
+            class={[
+              'regle',
+              { off: !rule.enabled, tire: dragged === i, dessus: over === i && dragged !== i },
+            ]}
+            draggable={grabbed === rule.id}
+            ondragstart={(e) => {
+              dragged = i;
+              e.dataTransfer?.setData('text/plain', String(rule.id));
+              if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move';
+            }}
+            ondragover={(e) => {
+              if (dragged === null) return;
+              e.preventDefault();
+              over = i;
+            }}
+            ondrop={(e) => {
+              e.preventDefault();
+              drop(i);
+            }}
+            ondragend={() => (dragged = over = grabbed = null)}
           >
-            <GripVertical size={16} strokeWidth={ICON_STROKE} />
-          </span>
-          <span class="num" aria-hidden="true">{i + 1}</span>
-          {@render sentence(rule)}
-          {#if !rule.enabled}<Badge>Désactivée</Badge>{/if}
-          <span class="actions">
-            <Menu sections={menu(rule, i)} align="end" label={`Actions de la règle ${i + 1}`}>
-              {#snippet trigger({ props })}
-                <IconButton {...props} icon={Ellipsis} label={`Actions de la règle ${i + 1}`} size="petit" />
-              {/snippet}
-            </Menu>
-            <IconButton
-              icon={Trash}
-              label={`Supprimer la règle ${i + 1}`}
-              size="petit"
-              onclick={() => (removing = rule)}
-            />
-          </span>
-        </li>
-      {/each}
-    </ol>
-  {:else}
-    <p class="vide">Aucune règle : l’IA propose pour chaque nouveau mail.</p>
-  {/if}
+            <span
+              class="poignee"
+              aria-hidden="true"
+              onpointerdown={() => (grabbed = rule.id)}
+              onpointerup={() => (grabbed = null)}
+            >
+              <GripVertical size={16} strokeWidth={ICON_STROKE} />
+            </span>
+            <span class="num" aria-hidden="true">{i + 1}</span>
+            {@render sentence(rule)}
+            {#if !rule.enabled}<Badge>Désactivée</Badge>{/if}
+            <span class="actions">
+              <Menu sections={menu(rule, i)} align="end" label={`Actions de la règle ${i + 1}`}>
+                {#snippet trigger({ props })}
+                  <IconButton
+                    {...props}
+                    icon={Ellipsis}
+                    label={`Actions de la règle ${i + 1}`}
+                    size="petit"
+                  />
+                {/snippet}
+              </Menu>
+              <IconButton
+                icon={Trash}
+                label={`Supprimer la règle ${i + 1}`}
+                size="petit"
+                onclick={() => (removing = rule)}
+              />
+            </span>
+          </li>
+        {/each}
+      </ol>
+    {:else}
+      <p class="vide">Aucune règle : l’IA propose pour chaque nouveau mail.</p>
+    {/if}
 
-  <form class="nouvelle" onsubmit={add}>
-    <Plus size={14} strokeWidth={ICON_STROKE} aria-hidden="true" class="plus" />
-    <span>Si {FIELDS[field][0]}</span>
-    <Menu sections={pick(fieldNames, (v) => (field = v))}>
-      {#snippet trigger({ props })}
-        <Button {...props} size="petit" aria-label={`Champ : ${FIELDS[field][1]}`}
-          >{FIELDS[field][1]}<ChevronDown size={14} strokeWidth={ICON_STROKE} aria-hidden="true" /></Button
-        >
-      {/snippet}
-    </Menu>
-    <Menu sections={pick(OPS, (v) => (op = v))}>
-      {#snippet trigger({ props })}
-        <Button {...props} size="petit" aria-label={`Condition : ${OPS[op]}`}
-          >{OPS[op]}<ChevronDown size={14} strokeWidth={ICON_STROKE} aria-hidden="true" /></Button
-        >
-      {/snippet}
-    </Menu>
-    <TextInput
-      size="petit"
-      class="valeur"
-      aria-label="Valeur"
-      placeholder="adresse, domaine ou mot"
-      autocomplete="off"
-      bind:value
-    />
-    <span>ranger dans</span>
-    <Menu
-      sections={[
-        {
-          items: boxes.map((b) => ({
-            id: b.id,
-            label: b.name,
-            color: boxColor(b.id),
-            onselect: () => (boxId = b.id),
-          })),
-        },
-      ]}
-    >
-      {#snippet trigger({ props })}
-        <Button {...props} size="petit" aria-label={`Boîte : ${target?.name ?? 'aucune'}`}>
-          {#if target}<span class="pastille" style:background={boxColor(target.id)} aria-hidden="true"
-            ></span>{/if}
-          {target?.name ?? 'Choisir une boîte'}<ChevronDown
-            size={14}
-            strokeWidth={ICON_STROKE}
-            aria-hidden="true"
-          />
-        </Button>
-      {/snippet}
-    </Menu>
-    <Button
-      type="submit"
-      variant="principal"
-      size="petit"
-      class="ajouter"
-      loading={adding}
-      disabled={!value.trim() || !boxId}>Ajouter</Button
-    >
-  </form>
-  {#if error}<p class="erreur" role="alert">{error}</p>{/if}
-</SettingsCard>
+    <form class="nouvelle" onsubmit={add}>
+      <Plus size={14} strokeWidth={ICON_STROKE} aria-hidden="true" class="plus" />
+      <span>Si {FIELDS[field][0]}</span>
+      <Menu sections={pick(fieldNames, (v) => (field = v))}>
+        {#snippet trigger({ props })}
+          <Button {...props} size="petit" aria-label={`Champ : ${FIELDS[field][1]}`}
+            >{FIELDS[field][1]}<ChevronDown size={14} strokeWidth={ICON_STROKE} aria-hidden="true" /></Button
+          >
+        {/snippet}
+      </Menu>
+      <Menu sections={pick(OPS, (v) => (op = v))}>
+        {#snippet trigger({ props })}
+          <Button {...props} size="petit" aria-label={`Condition : ${OPS[op]}`}
+            >{OPS[op]}<ChevronDown size={14} strokeWidth={ICON_STROKE} aria-hidden="true" /></Button
+          >
+        {/snippet}
+      </Menu>
+      <TextInput
+        size="petit"
+        class="valeur"
+        aria-label="Valeur"
+        placeholder="adresse, domaine ou mot"
+        autocomplete="off"
+        bind:value
+      />
+      <span>ranger dans</span>
+      <Menu
+        sections={[
+          {
+            items: boxes.map((b) => ({
+              id: b.id,
+              label: b.name,
+              color: boxColor(b.id),
+              onselect: () => (boxId = b.id),
+            })),
+          },
+        ]}
+      >
+        {#snippet trigger({ props })}
+          <Button {...props} size="petit" aria-label={`Boîte : ${target?.name ?? 'aucune'}`}>
+            {#if target}<span class="pastille" style:background={boxColor(target.id)} aria-hidden="true"
+              ></span>{/if}
+            {target?.name ?? 'Choisir une boîte'}<ChevronDown
+              size={14}
+              strokeWidth={ICON_STROKE}
+              aria-hidden="true"
+            />
+          </Button>
+        {/snippet}
+      </Menu>
+      <Button
+        type="submit"
+        variant="principal"
+        size="petit"
+        class="ajouter"
+        loading={adding}
+        disabled={!value.trim() || !boxId}>Ajouter</Button
+      >
+    </form>
+    {#if error}<p class="erreur" role="alert">{error}</p>{/if}
+  </SettingsCard>
+</div>
 
 <ConfirmDialog
   bind:open={() => removing !== null, (open) => !open && (removing = null)}
@@ -295,6 +325,7 @@
   message="Les mails déjà rangés ne bougent pas ; les suivants passent à la règle suivante, puis à l’IA."
   confirmLabel="Supprimer la règle"
   onconfirm={remove}
+  returnFocus={focusAfterRemoval}
 />
 
 <style>

@@ -4,7 +4,7 @@
   import Badge from '../ui/Badge.svelte';
   import Button from '../ui/Button.svelte';
   import ConfirmDialog from '../ui/ConfirmDialog.svelte';
-  import { AppWindow, ICON_STROKE, Monitor, Plus } from '../ui/Icon.ts';
+  import { AppWindow, ICON_STROKE, Monitor, Plus, Smartphone } from '../ui/Icon.ts';
   import SettingsCard from '../ui/SettingsCard.svelte';
   import { toast } from '../ui/toasts.svelte.ts';
 
@@ -34,11 +34,29 @@
       onSelfRevoked();
       return;
     }
+    removedAt = clients.findIndex((x) => x.id === c.id);
     clients = clients.filter((x) => x.id !== c.id);
     toast(`Accès retiré : ${c.current ? 'ce navigateur' : c.name}`);
     // No handover: one call with the dead token lets the host's 401 handling take over.
     if (c.current) void client.listClients().catch(() => {});
   }
+
+  let card = $state<HTMLElement | null>(null);
+  /** Index of the access just removed: the focus goes to the row now in its place. */
+  let removedAt = $state<number | null>(null);
+
+  function focusAfterRemoval() {
+    if (removedAt === null) return null;
+    const buttons = card?.querySelectorAll<HTMLElement>('li button') ?? [];
+    const next = buttons[Math.min(removedAt, buttons.length - 1)];
+    removedAt = null;
+    return next ?? card?.querySelector<HTMLElement>('header button');
+  }
+
+  /** The server only knows « device » or « app »: a phone is told by the name its browser gave. */
+  const PHONE = /iphone|ipad|android|mobile|téléphone|smartphone/i;
+  const iconOf = (c: LinkedClient) =>
+    c.kind === 'app' ? AppWindow : PHONE.test(c.name) ? Smartphone : Monitor;
 
   async function link() {
     error = null;
@@ -90,37 +108,39 @@
   });
 </script>
 
-<SettingsCard title={`${clients.length} accès`}>
-  {#snippet aside()}
-    <Button size="petit" icon={Plus} loading={linking} onclick={link}>Relier un appareil</Button>
-  {/snippet}
-  {#if code}
-    <div class="code" role="status">
-      <div>
-        <div class="titre">Code de liaison</div>
-        <div class="aide">À saisir sur le nouvel appareil. Expire à {time(code.expiresAt)}.</div>
-      </div>
-      <span class="chiffres">{code.code}</span>
-    </div>
-  {/if}
-  {#if error}<p class="erreur" role="alert">{error}</p>{/if}
-  <ul>
-    {#each clients as c (c.id)}
-      {@const Icon = c.kind === 'app' ? AppWindow : Monitor}
-      <li>
-        <span class="ico" aria-hidden="true"><Icon size={16} strokeWidth={ICON_STROKE} /></span>
-        <div class="texte">
-          <div class="nom">
-            <b>{c.name}</b>
-            {#if c.current}<Badge tone="ok">Ce navigateur</Badge>{/if}
-          </div>
-          <small>{since(c)}</small>
+<div bind:this={card}>
+  <SettingsCard title={`${clients.length} accès`}>
+    {#snippet aside()}
+      <Button size="petit" icon={Plus} loading={linking} onclick={link}>Relier un appareil</Button>
+    {/snippet}
+    {#if code}
+      <div class="code" role="status">
+        <div>
+          <div class="titre">Code de liaison</div>
+          <div class="aide">À saisir sur le nouvel appareil. Expire à {time(code.expiresAt)}.</div>
         </div>
-        <Button variant="fantome" size="petit" onclick={() => (removing = c)}>Retirer</Button>
-      </li>
-    {/each}
-  </ul>
-</SettingsCard>
+        <span class="chiffres">{code.code}</span>
+      </div>
+    {/if}
+    {#if error}<p class="erreur" role="alert">{error}</p>{/if}
+    <ul>
+      {#each clients as c (c.id)}
+        {@const Icon = iconOf(c)}
+        <li>
+          <span class="ico" aria-hidden="true"><Icon size={16} strokeWidth={ICON_STROKE} /></span>
+          <div class="texte">
+            <div class="nom">
+              <b>{c.name}</b>
+              {#if c.current}<Badge tone="ok">Ce navigateur</Badge>{/if}
+            </div>
+            <small>{since(c)}</small>
+          </div>
+          <Button variant="fantome" size="petit" onclick={() => (removing = c)}>Retirer</Button>
+        </li>
+      {/each}
+    </ul>
+  </SettingsCard>
+</div>
 
 <ConfirmDialog
   bind:open={() => removing !== null, (open) => !open && (removing = null)}
@@ -128,6 +148,7 @@
   message={confirmation.message}
   confirmLabel={confirmation.label}
   onconfirm={revoke}
+  returnFocus={focusAfterRemoval}
 />
 
 <style>

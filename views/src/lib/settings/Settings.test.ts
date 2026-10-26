@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from '@testing-library/svelte';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import { fakeClient } from '../../testing/fake-client.ts';
@@ -210,6 +210,63 @@ describe('Settings', () => {
     );
   });
 
+  it('a reorder that fails half-way shows the order the server kept', async () => {
+    // The first save went through, the second did not: both rules now share position 1.
+    const kept = [
+      { ...RULES[0]!, position: 1 },
+      { ...RULES[1]!, position: 1 },
+    ];
+    const { client, user, go } = await open((c) => {
+      c.listRules.mockResolvedValueOnce(structuredClone(RULES)).mockResolvedValueOnce(kept);
+      c.saveRule
+        .mockImplementationOnce(async (r) => ({ ...RULES.find((x) => x.id === r.id)!, ...r }) as Rule)
+        .mockRejectedValueOnce(new Error('Anthropic injoignable'));
+    });
+    await go('Boîtes et règles');
+    const card = screen.getByRole('region', { name: 'Règles' });
+    const second = (await within(card).findAllByRole('listitem'))[1]!;
+    await user.click(within(second).getByRole('button', { name: 'Actions de la règle 2' }));
+    await user.click(await menuEntry('Monter'));
+    expect(await within(card).findByRole('alert')).toHaveTextContent('Anthropic injoignable');
+    expect(client.listRules).toHaveBeenCalledTimes(2);
+    expect(within(card).getAllByRole('listitem')[0]!.textContent).toContain('factures@example.com');
+  });
+
+  it('reorders by dragging a rule by its handle', async () => {
+    const { client, go } = await open((c) => {
+      c.listRules.mockResolvedValue(structuredClone(RULES));
+      c.saveRule.mockImplementation(async (r) => ({ ...RULES.find((x) => x.id === r.id)!, ...r }) as Rule);
+    });
+    await go('Boîtes et règles');
+    const card = screen.getByRole('region', { name: 'Règles' });
+    const [first, second] = await within(card).findAllByRole('listitem');
+    // Only the handle arms the row.
+    expect(second).toHaveAttribute('draggable', 'false');
+    await fireEvent.pointerDown(second!.querySelector('.poignee')!);
+    expect(second).toHaveAttribute('draggable', 'true');
+    const dataTransfer = { setData: () => {}, effectAllowed: '' };
+    await fireEvent.dragStart(second!, { dataTransfer });
+    await fireEvent.dragOver(first!, { dataTransfer });
+    await fireEvent.drop(first!, { dataTransfer });
+    expect(client.saveRule).toHaveBeenCalledWith(expect.objectContaining({ id: 9, position: 1 }));
+    expect(client.saveRule).toHaveBeenCalledWith(expect.objectContaining({ id: 7, position: 2 }));
+  });
+
+  it('after deleting a rule, the focus goes to the row now in its place', async () => {
+    const { client, user, go } = await open((c) => {
+      c.listRules.mockResolvedValue(structuredClone(RULES));
+      c.deleteRule.mockResolvedValue();
+    });
+    await go('Boîtes et règles');
+    const card = screen.getByRole('region', { name: 'Règles' });
+    await user.click(await within(card).findByRole('button', { name: 'Supprimer la règle 1' }));
+    await user.click(within(await dialog()).getByRole('button', { name: 'Supprimer la règle' }));
+    expect(client.deleteRule).toHaveBeenCalledWith(7);
+    await waitFor(() =>
+      expect(within(card).getByRole('button', { name: 'Actions de la règle 1' })).toHaveFocus(),
+    );
+  });
+
   it('adds a rule by completing the sentence', async () => {
     const { client, user, go } = await open();
     client.saveRule.mockImplementationOnce(
@@ -245,6 +302,8 @@ describe('Settings', () => {
     await user.click(within(confirm).getByRole('button', { name: 'Retirer l’application' }));
     expect(client.revokeClient).toHaveBeenCalledWith(2);
     await waitFor(() => expect(within(card).queryByText('Assistant local')).not.toBeInTheDocument());
+    // The removed row's button is gone: the focus goes to the row now in its place.
+    await waitFor(() => expect(within(card).getByRole('button', { name: 'Retirer' })).toHaveFocus());
   });
 
   it('cancelling the confirmation keeps the device', async () => {
@@ -310,5 +369,88 @@ describe('Settings', () => {
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
     await go('Boîtes et règles');
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('shows a phone for a device named after a phone, a screen otherwise', async () => {
+    const { go } = await open((c) =>
+      c.listClients.mockResolvedValue([
+        {
+          id: 1,
+          name: 'Chrome sur Windows',
+          kind: 'device',
+          createdAt: '2026-10-19T08:00:00.000Z',
+          current: true,
+        },
+        {
+          id: 3,
+          name: 'Safari sur iPhone',
+          kind: 'device',
+          createdAt: '2026-10-19T08:00:00.000Z',
+          current: false,
+        },
+      ]),
+    );
+    await go('Appareils et applications');
+    const icon = (name: string) => screen.getByText(name).closest('li')!.querySelector('.ico svg')!;
+    expect(icon('Safari sur iPhone')).toHaveClass('lucide-smartphone');
+    expect(icon('Chrome sur Windows')).toHaveClass('lucide-monitor');
+  });
+
+  it('a key that cannot be read still shows its card, to retry or replace it', async () => {
+    const { client, user } = await open((c) =>
+      c.getAnthropicKey.mockRejectedValueOnce(new Error('Serveur injoignable')),
+    );
+    const card = await screen.findByRole('region', { name: 'Clé Anthropic' });
+    expect(within(card).getByText('État de la clé inconnu')).toBeInTheDocument();
+    expect(within(card).getByRole('button', { name: 'Remplacer…' })).toBeInTheDocument();
+    await user.click(within(card).getByRole('button', { name: 'Réessayer' }));
+    expect(client.getAnthropicKey).toHaveBeenCalledTimes(2);
+    expect(await within(card).findByText('En service')).toBeInTheDocument();
+  });
+
+  it('the theme link says when the key is refused, not only by a dot', async () => {
+    const { themes } = await open((c) =>
+      c.getAnthropicKey.mockResolvedValue({ state: 'refused', last4: '7f3a', source: 'saved' }),
+    );
+    const link = within(themes).getByRole('link', { name: 'Tri par l’IA' });
+    await waitFor(() => expect(link).toHaveAccessibleDescription('Clé refusée'));
+  });
+
+  it('opening a theme moves the focus to its title, coming back to its link', async () => {
+    const { user, themes } = await open();
+    await user.click(within(themes).getByRole('link', { name: 'Compte Google' }));
+    const title = screen.getByRole('heading', { name: 'Compte Google', level: 2 });
+    await waitFor(() => expect(title).toHaveFocus());
+    await user.click(screen.getByRole('button', { name: 'Réglages' }));
+    await waitFor(() => expect(within(themes).getByRole('link', { name: 'Compte Google' })).toHaveFocus());
+  });
+
+  it('cancelling a new box forgets what was typed', async () => {
+    const { user, go } = await open();
+    await go('Boîtes et règles');
+    const card = screen.getByRole('region', { name: 'Boîtes et étiquettes' });
+    await user.click(within(card).getByRole('button', { name: 'Nouvelle' }));
+    await user.type(within(await screen.findByRole('dialog')).getByLabelText('Nom'), 'Banque');
+    await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Annuler' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    await user.click(within(card).getByRole('button', { name: 'Nouvelle' }));
+    expect(within(await screen.findByRole('dialog')).getByLabelText('Nom')).toHaveValue('');
+  });
+
+  it('a late answer for a label role never replaces a newer choice', async () => {
+    let first!: (v: { id: string; name: string; type: string; role: 'box' }) => void;
+    const { client, user, go } = await open((c) => {
+      c.updateLabel
+        .mockReturnValueOnce(new Promise((r) => (first = r)))
+        .mockResolvedValueOnce({ id: 'L-urgent', name: 'Urgent', type: 'user' });
+    });
+    await go('Boîtes et règles');
+    const urgent = screen.getByRole('group', { name: 'Rôle de Urgent' });
+    await user.click(within(urgent).getByRole('radio', { name: 'Boîte' }));
+    await user.click(within(urgent).getByRole('radio', { name: 'Ignorée' }));
+    expect(client.updateLabel).toHaveBeenCalledTimes(2);
+    first({ id: 'L-urgent', name: 'Urgent', type: 'user', role: 'box' });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(within(urgent).getByRole('radio', { name: 'Ignorée' })).toHaveAttribute('aria-checked', 'true');
   });
 });

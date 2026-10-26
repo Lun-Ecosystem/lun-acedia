@@ -20,6 +20,8 @@
     open?: boolean | undefined;
     /** Optional trigger: spread `props` on a button. */
     trigger?: Snippet<[{ props: Record<string, unknown> }]> | undefined;
+    /** Where the focus goes on closing, when the action removed what opened the window. */
+    returnFocus?: (() => HTMLElement | null | undefined) | undefined;
   };
 
   let {
@@ -30,6 +32,7 @@
     cancelLabel = 'Annuler',
     open = $bindable(false),
     trigger,
+    returnFocus,
   }: Props = $props();
 
   let probe = $state<HTMLElement | null>(null);
@@ -75,7 +78,14 @@
     <AlertDialog.Overlay>
       {#snippet child({ props })}<div {...props} class="voile"></div>{/snippet}
     </AlertDialog.Overlay>
-    <AlertDialog.Content>
+    <AlertDialog.Content
+      onCloseAutoFocus={(event) => {
+        const target = returnFocus?.();
+        if (!target) return;
+        event.preventDefault();
+        target.focus();
+      }}
+    >
       {#snippet child({ props })}
         <div {...props} class="fenetre" data-monde={monde}>
           <AlertDialog.Title>

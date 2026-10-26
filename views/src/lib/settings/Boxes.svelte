@@ -54,19 +54,33 @@
     }
   }
 
+  /** Last change asked per label: an older answer arriving late is ignored. */
+  const asked = new Map<string, number>();
+  let seq = 0;
+
+  $effect(() => {
+    if (!creating) {
+      name = '';
+      role = 'box';
+      createError = undefined;
+    }
+  });
+
   async function setRole(label: LabelView, value: string) {
-    const before = labels;
+    const mine = ++seq;
+    asked.set(label.id, mine);
+    const before = labels.find((l) => l.id === label.id)!;
+    const put = (l: LabelView) => (labels = labels.map((x) => (x.id === l.id ? l : x)));
     const next = value === 'box' || value === 'tag' ? value : null;
     // Shown at once; a refusal puts the previous role back.
-    labels = labels.map((l) =>
-      l.id === label.id ? { id: l.id, name: l.name, type: l.type, ...(next ? { role: next } : {}) } : l,
-    );
+    put({ id: label.id, name: label.name, type: label.type, ...(next ? { role: next } : {}) });
     error = null;
     try {
       const updated = await client.updateLabel(label.id, { role: next });
-      labels = labels.map((l) => (l.id === label.id ? updated : l));
+      if (asked.get(label.id) === mine) put(updated);
     } catch (err) {
-      labels = before;
+      // Only this label goes back, and only if no later change was asked for it.
+      if (asked.get(label.id) === mine) put(before);
       error = errorText(err);
     }
   }

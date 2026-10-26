@@ -65,6 +65,20 @@
     }
   }
 
+  let retrying = $state(false);
+
+  /** The state could not be read: asks again. */
+  async function retry() {
+    retrying = true;
+    try {
+      status = await client.getAnthropicKey();
+    } catch (err) {
+      toast(errorText(err), { tone: 'danger' });
+    } finally {
+      retrying = false;
+    }
+  }
+
   async function remove() {
     status = await client.deleteAnthropicKey();
     toast('Clé Anthropic retirée');
@@ -110,11 +124,22 @@
         >Ajouter une clé</Button
       >
     </SettingsRow>
+  {:else}
+    <SettingsRow label="État de la clé inconnu" hint="La clé n’a pas pu être lue.">
+      <Button size="petit" loading={retrying} onclick={retry}>Réessayer</Button>
+      <Button size="petit" onclick={() => (replacing = true)}>Remplacer…</Button>
+    </SettingsRow>
   {/if}
 </SettingsCard>
 
+<!-- A check in progress keeps the window open: its answer, a refusal included, must be seen. -->
 <Dialog
-  bind:open={replacing}
+  bind:open={
+    () => replacing,
+    (next) => {
+      if (!pending) replacing = next;
+    }
+  }
   title={status?.last4 ? 'Remplacer la clé' : 'Ajouter une clé'}
   description="Vérifiée auprès d’Anthropic avant d’être enregistrée, elle sert dès le mail suivant."
 >

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onMount, tick } from 'svelte';
   import type { AcediaClient, AnthropicKeyStatus, LinkedClient } from '../client.ts';
   import { errorText } from '../mail/format.ts';
   import type { GoogleStatus, LabelView, Rule, Settings } from '../types.ts';
@@ -104,12 +104,23 @@
   let replacing = $state(false);
   let pausing = $state(false);
   let error = $state<string | null>(null);
+  /** The key could not be read: its card still shows, to retry or replace it. */
+  let keyFailed = $state(false);
+  let heading = $state<HTMLElement | null>(null);
+  let nav = $state<HTMLElement | null>(null);
+  const uid = $props.id();
 
   onMount(() => {
     const fail = (err: unknown) => (error = errorText(err));
     client.listLabels().then((l) => (labels = l), fail);
     client.listRules().then((r) => (rules = r), fail);
-    client.getAnthropicKey().then((k) => (key = k), fail);
+    client.getAnthropicKey().then(
+      (k) => (key = k),
+      (err: unknown) => {
+        keyFailed = true;
+        fail(err);
+      },
+    );
     client.googleStatus().then((g) => (google = g), fail);
     client.listClients().then((c) => (clients = c), fail);
     client.getSettings().then((s) => (settings = s), fail);
@@ -132,12 +143,21 @@
     boites: `${plural(labels.filter((l) => l.role === 'box').length, 'boîte')} · ${plural(rules.length, 'règle')}`,
   });
 
+  /* Changing page moves the focus with it: on a phone, the list and the page replace each other. */
   function open(next: Theme) {
-    return (event: MouseEvent) => {
+    return async (event: MouseEvent) => {
       event.preventDefault();
       theme = next;
       opened = true;
+      await tick();
+      heading?.focus();
     };
+  }
+
+  async function back() {
+    opened = false;
+    await tick();
+    nav?.querySelector<HTMLElement>('[aria-current="page"]')?.focus();
   }
 
   function replaceKey() {
@@ -163,15 +183,25 @@
 </script>
 
 <div class={['reglages', 'lun-acedia', { ouvert: opened }]} data-monde="acedia">
-  <nav class="themes" aria-label="Thèmes des réglages">
+  <nav class="themes" aria-label="Thèmes des réglages" bind:this={nav}>
     <h1>Réglages</h1>
     {#each GROUPS as group (group)}
       <NavGroup title={group}>
         <div class="bloc">
           {#each PAGES.filter((p) => p.group === group) as p (p.id)}
             <div class="theme">
-              <NavLink href="#" label={p.label} icon={p.icon} current={theme === p.id} onclick={open(p.id)} />
-              {#if p.id === 'tri' && keyProblem}<span class="alerte" aria-hidden="true"></span>{/if}
+              <NavLink
+                href="#"
+                label={p.label}
+                icon={p.icon}
+                current={theme === p.id}
+                onclick={open(p.id)}
+                aria-describedby={p.id === 'tri' && keyProblem ? `${uid}-cle` : undefined}
+              />
+              {#if p.id === 'tri' && keyProblem}
+                <span class="alerte" aria-hidden="true"></span>
+                <span class="sr" id="{uid}-cle">{KEY_BADGE[key!.state].text}</span>
+              {/if}
               <span class="resume" aria-hidden="true">
                 {#if p.id === 'tri'}
                   {#if key}<Badge tone={KEY_BADGE[key.state].tone}>{KEY_BADGE[key.state].text}</Badge>{/if}
@@ -189,9 +219,7 @@
 
   <div class="contenu">
     <div class="colonne">
-      <Button variant="fantome" size="petit" icon={ArrowLeft} class="retour" onclick={() => (opened = false)}
-        >Réglages</Button
-      >
+      <Button variant="fantome" size="petit" icon={ArrowLeft} class="retour" onclick={back}>Réglages</Button>
       {#if keyProblem && (theme === 'tri' || theme === 'boites')}
         <Banner
           title={key?.state === 'credit'
@@ -208,7 +236,7 @@
 
       <header class="tete">
         <small>{page.group}</small>
-        <h2>{page.label}</h2>
+        <h2 tabindex="-1" bind:this={heading}>{page.label}</h2>
         <p>{page.description}</p>
       </header>
 
@@ -217,7 +245,7 @@
       {:else if theme === 'appareils'}
         <Devices {client} bind:clients {onSelfRevoked} />
       {:else if theme === 'tri'}
-        {#if key}
+        {#if key || keyFailed}
           <!-- A new or removed key changes the service state shown around the screen. -->
           <AnthropicKey
             {client}
@@ -326,6 +354,18 @@
   h2 {
     margin: 4px 0 6px;
     font: 500 32px/1.1 var(--serif);
+  }
+  /* Focused by the page change, not by the user: no ring around a title. */
+  h2:focus {
+    outline: none;
+  }
+  .sr {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
   }
   .tete p {
     margin: 0;
