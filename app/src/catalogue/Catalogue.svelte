@@ -239,7 +239,7 @@
         <h2 id="s-boutons">Boutons</h2>
       </header>
       <p class="pourquoi">
-        Cinq niveaux et la confirmation destructrice. Les états survol et focus sont forcés pour la
+        Six niveaux, dont la confirmation destructrice. Les états survol et focus sont forcés pour la
         démonstration.
       </p>
       <div class="planche">
