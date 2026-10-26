@@ -177,7 +177,15 @@
         {:else if screen === 'taches'}
           <Tasks {client} />
         {:else if screen === 'journal'}
-          <Journal {client} />
+          <Journal
+            {client}
+            onchange={() => refresh(client)}
+            onopen={(id) => {
+              opening = id;
+              location.hash = HREF.mail;
+            }}
+            onsettings={() => (location.hash = HREF.reglages)}
+          />
         {:else}
           <Settings {client} onSelfRevoked={revokedSelf} onchange={() => refresh(client)} />
         {/if}

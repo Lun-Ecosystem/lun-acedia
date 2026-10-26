@@ -31,6 +31,7 @@ export { default as Folder } from '@lucide/svelte/icons/folder';
 export { default as Forward } from '@lucide/svelte/icons/forward';
 export { default as Funnel } from '@lucide/svelte/icons/funnel';
 export { default as GripVertical } from '@lucide/svelte/icons/grip-vertical';
+export { default as Hand } from '@lucide/svelte/icons/hand';
 export { default as Inbox } from '@lucide/svelte/icons/inbox';
 export { default as Key } from '@lucide/svelte/icons/key-round';
 export { default as Link } from '@lucide/svelte/icons/link';

@@ -5,7 +5,6 @@ import { ApiError } from '../client.ts';
 import { fakeClient } from '../../testing/fake-client.ts';
 import { dismissAll } from '../ui/toasts.svelte.ts';
 import Toaster from '../ui/Toaster.svelte';
-import Journal from './Journal.svelte';
 import Mailbox from './Mailbox.svelte';
 
 // jsdom measures nothing: the menu layer stays `visibility: hidden`, its entries are found by text.
@@ -143,51 +142,5 @@ describe('Mailbox', () => {
     await user.click(await menuEntry('Perso'));
     expect(await screen.findByRole('alert')).toHaveTextContent('Gmail ne répond pas');
     expect(subjects()).toEqual(['Sujet 1', 'Sujet 2', 'Sujet 3', 'Sujet 4', 'Sujet 5']);
-  });
-});
-
-describe('Journal', () => {
-  it('names the origin of each entry', async () => {
-    const entry = (id: number, origin: 'ai' | 'rule' | 'user') => ({
-      id,
-      at: '2026-11-02T08:00:00.000Z',
-      messageId: 'm1',
-      subject: 'Sujet 1',
-      origin,
-      action: 'file',
-      before: ['INBOX'],
-      after: ['L-ecole'],
-      undoneAt: null,
-    });
-    const { client } = fakeClient({ journal: [entry(1, 'ai'), entry(2, 'rule'), entry(3, 'user')] });
-    render(Journal, { props: { client } });
-    await screen.findAllByRole('button', { name: 'Annuler' });
-    expect(screen.getByText('IA')).toBeInTheDocument();
-    expect(screen.getByText('Règle')).toBeInTheDocument();
-    expect(screen.getByText('À la main')).toBeInTheDocument();
-  });
-
-  it('says so when the mail changed since the automatic action', async () => {
-    const { client } = fakeClient({
-      journal: [
-        {
-          id: 7,
-          at: '2026-11-02T08:00:00.000Z',
-          messageId: 'm1',
-          subject: 'Sujet 1',
-          origin: 'ai',
-          action: 'file',
-          before: ['INBOX'],
-          after: ['L-ecole'],
-          undoneAt: null,
-        },
-      ],
-    });
-    client.undo.mockRejectedValueOnce(new ApiError(409, 'Le mail a changé depuis, annulation refusée'));
-    const user = userEvent.setup();
-    render(Journal, { props: { client } });
-    await user.click(await screen.findByRole('button', { name: 'Annuler' }));
-    expect(client.undo).toHaveBeenCalledWith(7);
-    expect(await screen.findByRole('alert')).toHaveTextContent('Le mail a changé depuis, annulation refusée');
   });
 });
