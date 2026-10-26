@@ -8,7 +8,7 @@
   import Chip from '../ui/Chip.svelte';
   import Dialog from '../ui/Dialog.svelte';
   import Field from '../ui/Field.svelte';
-  import { Plus, X } from '../ui/Icon.ts';
+  import { Clock, Plus, X } from '../ui/Icon.ts';
   import IconButton from '../ui/IconButton.svelte';
   import { shellOf } from '../ui/shell.ts';
   import { bindShortcuts } from '../ui/shortcuts.ts';
@@ -37,8 +37,10 @@
     onchange?: (() => void) | undefined;
     /** Mail opened once the first view is loaded (coming from « À valider »). */
     opening?: string | undefined;
+    /** Opens the Journal (from the empty inbox). */
+    onjournal?: (() => void) | undefined;
   }
-  let { client, start = 'inbox', onchange, opening }: Props = $props();
+  let { client, start = 'inbox', onchange, opening, onjournal }: Props = $props();
 
   // svelte-ignore state_referenced_locally
   let view = $state(start);
@@ -53,6 +55,8 @@
   let composing = $state<{ replyTo?: MailDetail; forward?: MailDetail } | null>(null);
   let error = $state<string | null>(null);
   let filter = $state('tout');
+  /** Mails the sort filed today, said by the empty inbox; `null` while unknown. */
+  let filedToday = $state<number | null>(null);
   /** Mail of the keyboard (J, K), when none is open. */
   let current = $state<string | null>(null);
   const selected = new SvelteSet<string>();
@@ -107,6 +111,11 @@
       if (seq !== loads) return;
       items = more ? [...items, ...page.items] : page.items;
       cursor = page.cursor;
+      if (view === 'inbox' && !searching && items.length === 0)
+        client
+          .todayStats()
+          .then((s) => (filedToday = s.autoFiled))
+          .catch(() => (filedToday = null));
     } catch (err) {
       fail(err);
     } finally {
@@ -379,10 +388,24 @@
     searching
       ? `Aucun résultat pour « ${query.trim()} »`
       : filter === 'tout'
-        ? 'Aucun mail ici'
+        ? view === 'inbox'
+          ? 'La réception est vide'
+          : 'Aucun mail ici'
         : 'Aucun mail de ce filtre',
   );
+  // An empty inbox says where the mails went: the sort files them in their boxes.
+  const emptyMessage = $derived(
+    view !== 'inbox' || searching || filter !== 'tout'
+      ? undefined
+      : filedToday
+        ? `Le tri a rangé ${filedToday} ${filedToday > 1 ? 'mails' : 'mail'} aujourd’hui dans leurs boîtes.`
+        : 'Les mails rangés par le tri sont dans leurs boîtes, le journal les retrace.',
+  );
 </script>
+
+{#snippet journalLink()}
+  <Button variant="fantome" size="petit" icon={Clock} onclick={onjournal}>Voir le journal</Button>
+{/snippet}
 
 {#snippet newMessage()}
   <Button variant="principal" icon={Plus} class="nouveau" onclick={compose}>Nouveau message</Button>
@@ -462,6 +485,8 @@
         {loading}
         compact={narrow}
         empty={emptyText}
+        {emptyMessage}
+        emptyAction={emptyMessage && onjournal ? journalLink : undefined}
         hasMore={cursor !== undefined}
         onopen={openMail}
         onvalidate={validate}

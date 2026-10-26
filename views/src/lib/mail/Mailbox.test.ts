@@ -1,6 +1,6 @@
 import { render, screen, waitFor, within } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ApiError } from '../client.ts';
 import { fakeClient } from '../../testing/fake-client.ts';
 import { dismissAll } from '../ui/toasts.svelte.ts';
@@ -33,6 +33,20 @@ async function open() {
 
 describe('Mailbox', () => {
   afterEach(() => dismissAll());
+
+  it('an empty inbox says what the sort filed today and links to the Journal', async () => {
+    const fake = fakeClient();
+    fake.client.listMail.mockResolvedValue({ items: [] });
+    fake.client.todayStats.mockResolvedValue({ autoFiled: 3, validated: 0, corrected: 0 });
+    const onjournal = vi.fn();
+    render(Mailbox, { props: { client: fake.client, onjournal } });
+    expect(await screen.findByText('La réception est vide')).toBeInTheDocument();
+    expect(
+      await screen.findByText('Le tri a rangé 3 mails aujourd’hui dans leurs boîtes.'),
+    ).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Voir le journal' }));
+    expect(onjournal).toHaveBeenCalledOnce();
+  });
 
   it('without an open mail, no reading pane: the list takes the whole width', async () => {
     const { list } = await open();

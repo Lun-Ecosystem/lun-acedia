@@ -160,7 +160,13 @@
     {#key client}
       {#key screen}
         {#if screen === 'mail'}
-          <Mailbox {client} {opening} start={mailView} onchange={() => refresh(client)} />
+          <Mailbox
+            {client}
+            {opening}
+            start={mailView}
+            onchange={() => refresh(client)}
+            onjournal={() => (location.hash = HREF.journal)}
+          />
         {:else if screen === 'a-valider'}
           <Pending
             {client}

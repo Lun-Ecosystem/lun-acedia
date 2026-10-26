@@ -1,4 +1,5 @@
 <script lang="ts">
+  import type { Snippet } from 'svelte';
   import type { SvelteSet } from 'svelte/reactivity';
   import type { LabelView, MailSummary } from '../types.ts';
   import Button from '../ui/Button.svelte';
@@ -23,6 +24,10 @@
     hasMore: boolean;
     /** What the empty list says (« Aucun mail ici. », « Aucun résultat pour … »). */
     empty: string;
+    /** What the empty list adds: what happened, where the mails went. */
+    emptyMessage?: string | undefined;
+    /** Action under the empty state (« Voir le journal »). */
+    emptyAction?: Snippet | undefined;
     onopen: (m: MailSummary) => void;
     onvalidate: (m: MailSummary) => void;
     onfile: (m: MailSummary, anchor: HTMLElement) => void;
@@ -32,8 +37,21 @@
     onmove: (step: number) => void;
     onfocus: (m: MailSummary) => void;
   }
-  let { items, labels, selected, openId, focusId, compact, loading, hasMore, empty, onmore, ...on }: Props =
-    $props();
+  let {
+    items,
+    labels,
+    selected,
+    openId,
+    focusId,
+    compact,
+    loading,
+    hasMore,
+    empty,
+    emptyMessage,
+    emptyAction,
+    onmore,
+    ...on
+  }: Props = $props();
 
   const days = $derived.by(() => {
     const groups: { label: string; mails: MailSummary[] }[] = [];
@@ -61,7 +79,7 @@
       </div>
     {/each}
   {:else if items.length === 0}
-    <EmptyState title={empty} icon={Inbox} tone="neutre" />
+    <EmptyState title={empty} message={emptyMessage} icon={Inbox} tone="neutre" children={emptyAction} />
   {/if}
   {#each days as day (day.label)}
     <DayGroup label={day.label}>
