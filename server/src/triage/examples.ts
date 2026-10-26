@@ -59,3 +59,44 @@ export function pickExamples(db: DatabaseSync, mail: MailLike, max = 8): Example
     tagIds: JSON.parse(r.tag_ids) as string[],
   }));
 }
+
+/** The gesture kept for a mail, with its date; `null` when there is none. */
+export function getExample(db: DatabaseSync, messageId: string): (Example & { at: string }) | null {
+  const r = db
+    .prepare('SELECT from_addr, subject, box_id, tag_ids, at FROM examples WHERE message_id = ?')
+    .get(messageId) as
+    { from_addr: string; subject: string; box_id: string; tag_ids: string; at: string } | undefined;
+  if (!r) return null;
+  return {
+    from: r.from_addr,
+    subject: r.subject,
+    boxId: r.box_id,
+    tagIds: JSON.parse(r.tag_ids) as string[],
+    at: r.at,
+  };
+}
+
+/** Puts back the gesture a mail had before (or none), as an undo needs. */
+export function restoreExample(
+  db: DatabaseSync,
+  messageId: string,
+  example: (Example & { at?: string }) | null,
+  now: Date,
+): void {
+  if (!example) {
+    db.prepare('DELETE FROM examples WHERE message_id = ?').run(messageId);
+    return;
+  }
+  db.prepare(
+    `INSERT OR REPLACE INTO examples (message_id, from_addr, from_domain, subject, box_id, tag_ids, at)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+  ).run(
+    messageId,
+    example.from,
+    domainOf(example.from),
+    example.subject,
+    example.boxId,
+    JSON.stringify(example.tagIds),
+    example.at ?? now.toISOString(),
+  );
+}

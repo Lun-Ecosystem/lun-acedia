@@ -40,7 +40,13 @@ const ok = (json: object) => ({
 describe('Anthropic classifier', () => {
   it('turns a structured answer into a classification', async () => {
     const { api, requests } = fakeApi(
-      ok({ boxId: 'L1', tagIds: ['T1'], importance: 'normal', confidence: 82 }),
+      ok({
+        boxId: 'L1',
+        tagIds: ['T1'],
+        importance: 'normal',
+        confidence: 82,
+        reason: 'Expéditeur déjà rangé en École.',
+      }),
     );
     const c = createAnthropicClassifier({ api });
     expect(await c.classify(input)).toEqual({
@@ -48,6 +54,7 @@ describe('Anthropic classifier', () => {
       tagIds: ['T1'],
       importance: 'normal',
       confidence: 82,
+      reason: 'Expéditeur déjà rangé en École.',
       usage: { inputTokens: 1200, outputTokens: 40 },
     });
     expect(requests[0]!.model).toBe('claude-haiku-5-5');
@@ -55,11 +62,41 @@ describe('Anthropic classifier', () => {
       requests[0]!.output_config as { format: { type: string; schema: { properties: object } } }
     ).format;
     expect(format.type).toBe('json_schema');
-    expect(Object.keys(format.schema.properties)).toEqual(['boxId', 'tagIds', 'importance', 'confidence']);
+    expect(Object.keys(format.schema.properties)).toEqual([
+      'boxId',
+      'tagIds',
+      'importance',
+      'confidence',
+      'reason',
+    ]);
+  });
+
+  it('requires a reason of at most 160 characters in the schema and truncates a longer one', async () => {
+    const long = 'a'.repeat(200);
+    const { api, requests } = fakeApi(
+      ok({ boxId: 'L1', tagIds: [], importance: 'normal', confidence: 50, reason: long }),
+    );
+    const result = await createAnthropicClassifier({ api }).classify(input);
+    expect(result.reason).toHaveLength(160);
+    const schema = (
+      requests[0]!.output_config as {
+        format: { schema: { required: string[]; properties: { reason: { type: string } } } };
+      }
+    ).format.schema;
+    expect(schema.required).toContain('reason');
+    expect(schema.properties.reason.type).toBe('string');
+    expect(String(requests[0]!.system)).toContain('160');
+  });
+
+  it('refuses an answer without a reason', async () => {
+    const { api } = fakeApi(ok({ boxId: 'L1', tagIds: [], importance: 'normal', confidence: 50 }));
+    await expect(createAnthropicClassifier({ api }).classify(input)).rejects.toBeInstanceOf(ClassifierError);
   });
 
   it('maps "none" to no box, drops unknown tags and clamps the confidence', async () => {
-    const { api } = fakeApi(ok({ boxId: 'none', tagIds: ['T1', 'ZZ'], importance: 'info', confidence: 140 }));
+    const { api } = fakeApi(
+      ok({ boxId: 'none', tagIds: ['T1', 'ZZ'], importance: 'info', confidence: 140, reason: 'x' }),
+    );
     const result = await createAnthropicClassifier({ api }).classify(input);
     expect(result.boxId).toBeNull();
     expect(result.tagIds).toEqual(['T1']);
@@ -67,7 +104,9 @@ describe('Anthropic classifier', () => {
   });
 
   it('puts the boxes, the examples and the mail in the prompt', async () => {
-    const { api, requests } = fakeApi(ok({ boxId: 'L1', tagIds: [], importance: 'normal', confidence: 50 }));
+    const { api, requests } = fakeApi(
+      ok({ boxId: 'L1', tagIds: [], importance: 'normal', confidence: 50, reason: 'x' }),
+    );
     await createAnthropicClassifier({ api }).classify(input);
     const prompt = JSON.stringify(requests[0]!.messages) + String(requests[0]!.system);
     expect(prompt).toContain('École');

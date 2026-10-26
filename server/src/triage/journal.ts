@@ -2,15 +2,29 @@ import type { DatabaseSync } from 'node:sqlite';
 import {
   modifyLabels,
   NotFoundError,
+  trashMail,
   untrashMail,
   type ActionDeps,
   type LabelChange,
 } from '../gmail/actions.ts';
 import { getStoredMessage, setStoredLabels, upsertMessage } from '../gmail/store.ts';
 import { fetchMetadata } from '../gmail/sync.ts';
-import type { Origin, JournalEntry } from '../types.ts';
+import type { Origin, JournalEntry, Rule, TodayStats } from '../types.ts';
+import { restoreExample, type Example } from './examples.ts';
+import { deleteRule, listRules } from './rules.ts';
+import { setProposalStatus, type ProposalStatus } from './proposals.ts';
 
 export type { Origin, JournalEntry };
+
+export type UserAction = 'validate' | 'correct' | 'file' | 'archive' | 'trash' | 'spam';
+
+/** The state an undo puts back besides the labels. */
+export interface Previous {
+  proposalStatus: ProposalStatus;
+  example: (Example & { at?: string }) | null;
+  /** The rule "remember this sender" created, removed again by the undo unless edited since. */
+  createdRule?: Rule;
+}
 
 export class ConflictError extends Error {
   constructor(message: string) {
@@ -47,6 +61,30 @@ export function logAuto(
   return Number(info.lastInsertRowid);
 }
 
+/** Records a gesture of CrOliX; `previous` is what an undo restores besides the labels. */
+export function logUser(
+  db: DatabaseSync,
+  change: LabelChange,
+  action: UserAction,
+  now: Date,
+  previous?: Previous,
+): number {
+  const info = db
+    .prepare(
+      'INSERT INTO journal (at, message_id, origin, action, before, after, restore) VALUES (?, ?, ?, ?, ?, ?, ?)',
+    )
+    .run(
+      now.toISOString(),
+      change.id,
+      'user',
+      action,
+      JSON.stringify(change.before),
+      JSON.stringify(change.after),
+      previous ? JSON.stringify(previous) : null,
+    );
+  return Number(info.lastInsertRowid);
+}
+
 interface Row {
   id: number;
   at: string;
@@ -56,6 +94,7 @@ interface Row {
   before: string;
   after: string;
   undone_at: string | null;
+  restore: string | null;
 }
 
 function toEntry(db: DatabaseSync, r: Row): JournalEntry {
@@ -86,6 +125,13 @@ export function listJournal(
   return result;
 }
 
+/** Deletes the rule an action created, only if CrOliX has not changed it since (its order aside). */
+function removeIfUnchanged(db: DatabaseSync, created: Rule): void {
+  const now = listRules(db).find((r) => r.id === created.id);
+  const meaning = (r: Rule) => JSON.stringify([r.field, r.op, r.value, r.boxId, r.tagIds, r.enabled]);
+  if (now && meaning(now) === meaning(created)) deleteRule(db, created.id);
+}
+
 /**
  * Puts the labels back as they were before the automatic action. Gmail is read first: if the mail
  * changed since (CrOliX filed it elsewhere), the undo is refused rather than erasing that gesture.
@@ -105,11 +151,86 @@ export async function undo(deps: ActionDeps, journalId: number): Promise<LabelCh
 
   if (labels.includes('TRASH') && !before.includes('TRASH'))
     labels = (await untrashMail(deps, row.message_id)).after;
+  else if (before.includes('TRASH') && !labels.includes('TRASH'))
+    labels = (await trashMail(deps, row.message_id)).after;
   const add = stable(before).filter((l) => !labels.includes(l));
   const remove = stable(labels).filter((l) => !before.includes(l));
   const change =
     add.length || remove.length ? await modifyLabels(deps, row.message_id, add, remove) : undefined;
   if (!change) setStoredLabels(deps.db, row.message_id, labels);
-  deps.db.prepare('UPDATE journal SET undone_at = ? WHERE id = ?').run(deps.now().toISOString(), journalId);
+  // The local writes go together: a failure leaves none of them.
+  deps.db.exec('BEGIN');
+  try {
+    if (row.restore) {
+      const previous = JSON.parse(row.restore) as Previous;
+      setProposalStatus(deps.db, row.message_id, previous.proposalStatus);
+      restoreExample(deps.db, row.message_id, previous.example, deps.now());
+      if (previous.createdRule) removeIfUnchanged(deps.db, previous.createdRule);
+    }
+    deps.db.prepare('UPDATE journal SET undone_at = ? WHERE id = ?').run(deps.now().toISOString(), journalId);
+    deps.db.exec('COMMIT');
+  } catch (err) {
+    deps.db.exec('ROLLBACK');
+    throw err;
+  }
   return { id: row.message_id, before: after, after: change?.after ?? labels };
+}
+
+const PARIS = 'Europe/Paris';
+
+/** Offset of Paris from UTC at an instant, in ms (DST included). */
+function parisOffset(at: number): number {
+  const p = Object.fromEntries(
+    new Intl.DateTimeFormat('en-GB', {
+      timeZone: PARIS,
+      hourCycle: 'h23',
+      year: 'numeric',
+      month: 'numeric',
+      day: 'numeric',
+      hour: 'numeric',
+      minute: 'numeric',
+      second: 'numeric',
+    })
+      .formatToParts(new Date(at))
+      .map((x) => [x.type, Number(x.value)]),
+  ) as Record<string, number>;
+  return Date.UTC(p.year!, p.month! - 1, p.day!, p.hour, p.minute, p.second) - Math.floor(at / 1000) * 1000;
+}
+
+/** The instant at which the calendar day of `now`, in Paris, began. */
+export function parisDayStart(now: Date): Date {
+  const o = parisOffset(now.getTime());
+  const local = new Date(now.getTime() + o);
+  const midnight = Date.UTC(local.getUTCFullYear(), local.getUTCMonth(), local.getUTCDate());
+  // The offset can differ at midnight from the one at `now` (the clocks change at night).
+  return new Date(midnight - parisOffset(midnight - o));
+}
+
+/** The first instant of the next calendar day in Paris. */
+function parisDayEnd(now: Date): Date {
+  const start = parisDayStart(now).getTime();
+  // 36 h after a day start is always inside the next day, whatever the clocks did.
+  return parisDayStart(new Date(start + 36 * 3_600_000));
+}
+
+/** What was done today (a Paris calendar day); undone entries do not count. */
+export function todayStats(db: DatabaseSync, now: Date): TodayStats {
+  const rows = db
+    .prepare(
+      `SELECT origin, action, COUNT(*) AS n FROM journal
+       WHERE undone_at IS NULL AND at >= ? AND at < ? GROUP BY origin, action`,
+    )
+    .all(parisDayStart(now).toISOString(), parisDayEnd(now).toISOString()) as {
+    origin: Origin;
+    action: string;
+    n: number;
+  }[];
+  const stats: TodayStats = { autoFiled: 0, validated: 0, corrected: 0 };
+  for (const r of rows) {
+    if (r.origin === 'user') {
+      if (r.action === 'validate') stats.validated += r.n;
+      if (r.action === 'correct') stats.corrected += r.n;
+    } else stats.autoFiled += r.n;
+  }
+  return stats;
 }

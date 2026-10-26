@@ -23,13 +23,14 @@ import {
   anthropicKeyView,
   checkWithModelsList,
   keyWorks,
+  removeAnthropicKey,
   saveAnthropicKey,
   type AnthropicEnv,
   type KeyChecker,
 } from './keys/anthropic-key.ts';
 import { checkExpiry, isValidDate } from './keys/expiry.ts';
 import { serveApp } from './static.ts';
-import { onManualFile, withProposal } from './triage/pipeline.ts';
+import { afterUserAction, withProposal } from './triage/pipeline.ts';
 import { triageRoutes } from './triage/routes.ts';
 
 /** Everything the app needs; later tasks add their own dependencies here. */
@@ -125,6 +126,10 @@ export function createApp(deps: AppDeps): Hono {
     checkExpiry(deps.db, deps.clock(), expires, ANTHROPIC_LABEL);
     return c.json(anthropicKeyView(deps.db, deps.secretKey, anthropicEnv));
   });
+  api.delete('/anthropic-key', (c) => {
+    removeAnthropicKey(deps.db);
+    return c.json(anthropicKeyView(deps.db, deps.secretKey, anthropicEnv));
+  });
   app.route('/api', api);
 
   const auth = googleRoutes(deps);
@@ -134,7 +139,8 @@ export function createApp(deps: AppDeps): Hono {
     '/api/mail',
     gmailRoutes(deps, google, {
       decorate: (m) => withProposal(deps.db, m),
-      onFile: (id, boxId) => onManualFile({ db: deps.db, google: google!, now: deps.clock }, id, boxId),
+      onAction: (change, op) =>
+        afterUserAction({ db: deps.db, google: google!, now: deps.clock }, change, op),
     }),
   );
   app.route('/api/send-as', sendAsRoutes(deps, google));

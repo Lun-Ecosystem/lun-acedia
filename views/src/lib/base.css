@@ -1,0 +1,44 @@
+/*
+ * Base styles of the Lun'Acedia views, written on the shared tokens (tokens.css). The host app
+ * loads the fonts (self-hosted Cormorant Garamond and Inter); the stacks fall back to Georgia and
+ * system-ui.
+ */
+.lun-acedia {
+  font-family: var(--sans);
+  font-weight: 300;
+  color: var(--texte);
+  background: var(--fond);
+}
+
+.lun-acedia button {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: 1px solid var(--bordure);
+  border-radius: var(--r-2);
+  padding: 0.3rem 0.65rem;
+  cursor: pointer;
+}
+
+.lun-acedia button:hover:not(:disabled) {
+  border-color: var(--accent-bord);
+}
+
+.lun-acedia button:focus-visible,
+.lun-acedia input:focus-visible,
+.lun-acedia select:focus-visible,
+.lun-acedia textarea:focus-visible {
+  outline: 2px solid var(--accent-bord);
+  outline-offset: 1px;
+}
+
+.lun-acedia input,
+.lun-acedia select,
+.lun-acedia textarea {
+  font: inherit;
+  color: var(--texte);
+  background: var(--surface-2);
+  border: 1px solid var(--bordure);
+  border-radius: var(--r-2);
+  padding: 0.35rem 0.55rem;
+}

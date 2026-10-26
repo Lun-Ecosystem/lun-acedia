@@ -18,7 +18,7 @@ import { getProposal, triageNew } from './pipeline.ts';
 import { getSetting } from '../db.ts';
 import { claim } from './proposals.ts';
 import { queuedIds, recoverQueue } from './queue.ts';
-import { createRule } from './rules.ts';
+import { createRule, listRules, updateRule } from './rules.ts';
 
 /** A classifier that answers what the test decides and counts its calls. */
 function fakeClassifier(answer: (input: ClassifyInput) => Partial<Classification> | Error) {
@@ -35,6 +35,7 @@ function fakeClassifier(answer: (input: ClassifyInput) => Partial<Classification
         tagIds: [],
         importance: 'normal',
         confidence: 50,
+        reason: 'Expéditeur déjà vu.',
         usage: { inputTokens: 1000, outputTokens: 50 },
         ...a,
       };
@@ -76,7 +77,18 @@ describe('triageNew', () => {
       tagIds: [],
       confidence: 99,
       status: 'pending',
+      reason: 'Expéditeur déjà vu.',
     });
+  });
+
+  it('a proposal without a reason (rule, or older) has no reason in the list', async () => {
+    let box = '';
+    const s = await setup(() => ({ boxId: box, confidence: 50 }));
+    box = s.ecole;
+    await s.triage(await s.deliver({ id: 'm1' }));
+    s.h.db.prepare('UPDATE proposals SET reason = NULL WHERE message_id = ?').run('m1');
+    const item = (await s.h.call('GET', '/api/mail?view=pending')).body.items[0];
+    expect('reason' in item.proposal).toBe(false);
   });
 
   it('threshold 100: even a 100 % proposal waits, for a box, the trash or spam', async () => {
@@ -244,6 +256,55 @@ describe('triageNew', () => {
     expect(examples[0]).toMatchObject({ from: 'julie@mail.fr', boxId: s.perso });
   });
 
+  it('rememberSender creates one rule for the sender, even when asked twice', async () => {
+    let box = '';
+    const s = await setup(() => ({ boxId: box, confidence: 50 }));
+    box = s.ecole;
+    await s.triage(await s.deliver({ id: 'm1', from: 'Julie <Julie@Mail.fr>' }));
+    await s.triage(await s.deliver({ id: 'm2', from: 'Julie <julie@mail.fr>' }));
+    const body = { boxId: s.perso, tagIds: [], rememberSender: true };
+    expect((await s.h.call('POST', '/api/mail/m1/correct', body)).status).toBe(200);
+    expect((await s.h.call('POST', '/api/mail/m2/correct', body)).status).toBe(200);
+    const rules = listRules(s.h.db);
+    expect(rules).toHaveLength(1);
+    expect(rules[0]).toMatchObject({ field: 'from', op: 'equals', value: 'julie@mail.fr', boxId: s.perso });
+  });
+
+  it('undoing a correction removes the rule it created, never a pre-existing one', async () => {
+    const s = await setup(() => ({ boxId: null, confidence: 50 }));
+    await s.triage(await s.deliver({ id: 'm1', from: 'Julie <julie@mail.fr>' }));
+    await s.triage(await s.deliver({ id: 'm2', from: 'Julie <julie@mail.fr>' }));
+    const body = { boxId: s.perso, tagIds: [], rememberSender: true };
+    const first = await s.h.call('POST', '/api/mail/m1/correct', body);
+    expect(listRules(s.h.db)).toHaveLength(1);
+    expect((await s.h.call('POST', `/api/journal/${first.body.journalId}/undo`)).status).toBe(200);
+    expect(listRules(s.h.db)).toHaveLength(0);
+    // A rule that already existed is not the correction's: it survives the undo.
+    createRule(s.h.db, { field: 'from', op: 'equals', value: 'julie@mail.fr', boxId: s.perso });
+    const second = await s.h.call('POST', '/api/mail/m2/correct', body);
+    expect(listRules(s.h.db)).toHaveLength(1);
+    await s.h.call('POST', `/api/journal/${second.body.journalId}/undo`);
+    expect(listRules(s.h.db)).toHaveLength(1);
+  });
+
+  it('undoing a correction leaves the created rule alone once CrOliX edited it', async () => {
+    const s = await setup(() => ({ boxId: null, confidence: 50 }));
+    await s.triage(await s.deliver({ id: 'm1', from: 'Julie <julie@mail.fr>' }));
+    const body = { boxId: s.perso, tagIds: [], rememberSender: true };
+    const res = await s.h.call('POST', '/api/mail/m1/correct', body);
+    const rule = listRules(s.h.db)[0]!;
+    updateRule(s.h.db, rule.id, { boxId: s.ecole });
+    expect((await s.h.call('POST', `/api/journal/${res.body.journalId}/undo`)).status).toBe(200);
+    expect(listRules(s.h.db)).toMatchObject([{ id: rule.id, boxId: s.ecole }]);
+  });
+
+  it('correcting without rememberSender creates no rule', async () => {
+    const s = await setup(() => ({ boxId: null, confidence: 50 }));
+    await s.triage(await s.deliver({ id: 'm1' }));
+    await s.h.call('POST', '/api/mail/m1/correct', { boxId: s.perso, tagIds: [] });
+    expect(listRules(s.h.db)).toHaveLength(0);
+  });
+
   it('validating applies the proposal and keeps it as an example', async () => {
     let box = '';
     const s = await setup(() => ({ boxId: box, confidence: 50 }));
@@ -268,9 +329,36 @@ describe('triageNew', () => {
 
   it('reads and changes the threshold', async () => {
     const s = await setup(() => ({}));
-    expect((await s.h.call('GET', '/api/settings')).body).toEqual({ threshold: 100 });
-    expect((await s.h.call('PUT', '/api/settings', { threshold: 80 })).body).toEqual({ threshold: 80 });
+    expect((await s.h.call('GET', '/api/settings')).body).toEqual({ threshold: 100, bulkThreshold: 85 });
+    expect((await s.h.call('PUT', '/api/settings', { threshold: 90 })).body).toEqual({
+      threshold: 90,
+      bulkThreshold: 85,
+    });
     expect((await s.h.call('PUT', '/api/settings', { threshold: 120 })).status).toBe(400);
+  });
+
+  it('changes the bulk threshold alone, and refuses one above the threshold', async () => {
+    const s = await setup(() => ({}));
+    expect((await s.h.call('PUT', '/api/settings', { bulkThreshold: 70 })).body).toEqual({
+      threshold: 100,
+      bulkThreshold: 70,
+    });
+    const refused = await s.h.call('PUT', '/api/settings', { threshold: 80, bulkThreshold: 90 });
+    expect(refused.status).toBe(400);
+    expect(refused.body.error).toBe(
+      'Le seuil de « Tout valider » ne peut pas dépasser le seuil d’auto-rangement',
+    );
+    expect((await s.h.call('GET', '/api/settings')).body).toEqual({ threshold: 100, bulkThreshold: 70 });
+    expect((await s.h.call('PUT', '/api/settings', { bulkThreshold: 101 })).status).toBe(400);
+  });
+
+  it('lowering the threshold below the bulk threshold clamps the bulk threshold', async () => {
+    const s = await setup(() => ({}));
+    expect((await s.h.call('PUT', '/api/settings', { threshold: 80 })).body).toEqual({
+      threshold: 80,
+      bulkThreshold: 80,
+    });
+    expect((await s.h.call('GET', '/api/settings')).body).toEqual({ threshold: 80, bulkThreshold: 80 });
   });
 
   it('never sends a mail to spam below 95 %', async () => {

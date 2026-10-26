@@ -1,7 +1,19 @@
 <script lang="ts">
   import type { AcediaClient } from '../client.ts';
-  import { errorText } from '../mail/format.ts';
+  import { boxColor, errorText } from '../mail/format.ts';
   import type { LabelView, Role } from '../types.ts';
+  import Button from '../ui/Button.svelte';
+  import Dialog from '../ui/Dialog.svelte';
+  import Field from '../ui/Field.svelte';
+  import { Plus } from '../ui/Icon.ts';
+  import Segmented from '../ui/Segmented.svelte';
+  import SettingsCard from '../ui/SettingsCard.svelte';
+  import TextInput from '../ui/TextInput.svelte';
+
+  /*
+   * The Gmail labels of the account and their role, chosen in one click: a box files the mail, a
+   * label (tag) is added without moving it, an ignored one is never used by the AI (no role).
+   */
 
   interface Props {
     client: AcediaClient;
@@ -9,65 +21,177 @@
   }
   let { client, labels = $bindable() }: Props = $props();
 
-  let newBox = $state('');
-  let newTag = $state('');
+  const uid = $props.id();
+  const ROLES = [
+    { value: 'box', label: 'Boîte' },
+    { value: 'tag', label: 'Étiquette' },
+    { value: 'ignored', label: 'Ignorée' },
+  ];
+
+  let creating = $state(false);
+  let name = $state('');
+  let role = $state<Role>('box');
+  let busy = $state(false);
   let error = $state<string | null>(null);
+  let createError = $state<string | undefined>();
 
   const own = $derived(labels.filter((l) => l.type === 'user'));
 
-  async function create(name: string, role: Role) {
-    error = null;
+  async function create(e: SubmitEvent) {
+    e.preventDefault();
+    if (!name.trim() || busy) return;
+    busy = true;
+    createError = undefined;
     try {
       const label = await client.createLabel(name.trim(), role);
       labels = [...labels.filter((l) => l.id !== label.id), label];
-      if (role === 'box') newBox = '';
-      else newTag = '';
+      creating = false;
+      name = '';
     } catch (err) {
-      error = errorText(err);
+      createError = errorText(err);
+    } finally {
+      busy = false;
     }
   }
 
+  /** Last change asked per label: an older answer arriving late is ignored. */
+  const asked = new Map<string, number>();
+  let seq = 0;
+
+  $effect(() => {
+    if (!creating) {
+      name = '';
+      role = 'box';
+      createError = undefined;
+    }
+  });
+
   async function setRole(label: LabelView, value: string) {
+    const mine = ++seq;
+    asked.set(label.id, mine);
+    const before = labels.find((l) => l.id === label.id)!;
+    const put = (l: LabelView) => (labels = labels.map((x) => (x.id === l.id ? l : x)));
+    const next = value === 'box' || value === 'tag' ? value : null;
+    // Shown at once; a refusal puts the previous role back.
+    put({ id: label.id, name: label.name, type: label.type, ...(next ? { role: next } : {}) });
     error = null;
-    const role = value === 'box' || value === 'tag' ? value : null;
     try {
-      const updated = await client.updateLabel(label.id, { role });
-      labels = labels.map((l) => (l.id === label.id ? updated : l));
+      const updated = await client.updateLabel(label.id, { role: next });
+      if (asked.get(label.id) === mine) put(updated);
     } catch (err) {
+      // Only this label goes back, and only if no later change was asked for it.
+      if (asked.get(label.id) === mine) put(before);
       error = errorText(err);
     }
   }
 </script>
 
-<section aria-label="Boîtes et étiquettes">
-  <h3>Boîtes et étiquettes</h3>
-  <p class="hint">
-    Une boîte range le mail (il quitte la réception) ; une étiquette s’ajoute sans le déplacer. Ce sont des
-    libellés Gmail.
-  </p>
-  <ul>
+<SettingsCard
+  title="Boîtes et étiquettes"
+  description="Une boîte reçoit les mails rangés ; une étiquette s’ajoute sans déplacer."
+>
+  {#snippet aside()}
+    <Button size="petit" icon={Plus} onclick={() => (creating = true)}>Nouvelle</Button>
+  {/snippet}
+  <ul class="boites">
     {#each own as label (label.id)}
       <li>
-        <span>{label.name}</span>
-        <select
-          aria-label={`Rôle de ${label.name}`}
-          value={label.role ?? ''}
-          onchange={(e) => setRole(label, e.currentTarget.value)}
-        >
-          <option value="box">Boîte</option>
-          <option value="tag">Étiquette</option>
-          <option value="">Aucun</option>
-        </select>
+        <span class="pastille" style:background={boxColor(label.id)} aria-hidden="true"></span>
+        <span class="nom">{label.name}</span>
+        <Segmented
+          size="petit"
+          label="Rôle de {label.name}"
+          options={ROLES}
+          value={label.role ?? 'ignored'}
+          onchange={(value) => setRole(label, value)}
+        />
       </li>
+    {:else}
+      <li class="vide">Aucun libellé Gmail pour l’instant.</li>
     {/each}
   </ul>
-  <form onsubmit={(e) => (e.preventDefault(), create(newBox, 'box'))}>
-    <label>Nouvelle boîte <input bind:value={newBox} required /></label>
-    <button type="submit" disabled={!newBox.trim()}>Créer la boîte</button>
-  </form>
-  <form onsubmit={(e) => (e.preventDefault(), create(newTag, 'tag'))}>
-    <label>Nouvelle étiquette <input bind:value={newTag} required /></label>
-    <button type="submit" disabled={!newTag.trim()}>Créer l’étiquette</button>
-  </form>
-  {#if error}<p class="error" role="alert">{error}</p>{/if}
-</section>
+  {#if error}<p class="erreur" role="alert">{error}</p>{/if}
+</SettingsCard>
+
+<Dialog
+  bind:open={creating}
+  title="Nouvelle boîte ou étiquette"
+  description="Un libellé Gmail est créé sur le compte."
+>
+  {#snippet children()}
+    <form id="{uid}-nouvelle" class="champs" onsubmit={create}>
+      <Field label="Nom" error={createError}>
+        <TextInput bind:value={name} autocomplete="off" />
+      </Field>
+      <Segmented
+        label="Rôle"
+        options={ROLES.slice(0, 2)}
+        bind:value={() => role, (v) => (role = v as Role)}
+      />
+    </form>
+  {/snippet}
+  {#snippet footer({ close })}
+    <Button onclick={close}>Annuler</Button>
+    <Button type="submit" form="{uid}-nouvelle" variant="principal" loading={busy} disabled={!name.trim()}
+      >Créer</Button
+    >
+  {/snippet}
+</Dialog>
+
+<style>
+  .boites {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+  li {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    min-height: 48px;
+    padding: 8px 18px;
+    border-bottom: 1px solid var(--bordure);
+    box-sizing: border-box;
+  }
+  li:last-child {
+    border-bottom: 0;
+  }
+  .pastille {
+    flex: none;
+    width: 8px;
+    height: 8px;
+    border-radius: 2px;
+  }
+  .nom {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 14px;
+  }
+  .vide {
+    color: var(--texte-3);
+    font-size: 13px;
+  }
+  .erreur {
+    margin: 0;
+    padding: 0 18px 14px;
+    font-size: 12.5px;
+    color: var(--danger);
+  }
+  .champs {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 14px;
+  }
+  .champs :global(.champ) {
+    align-self: stretch;
+  }
+  @media (max-width: 767.98px) {
+    li {
+      padding: 8px 14px;
+    }
+  }
+</style>

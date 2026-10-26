@@ -38,7 +38,14 @@ export function contractRoutes(deps: AppDeps): Hono {
           typeof body.code_verifier === 'string'
             ? exchangeAuthorizationCode(db, body.code, body.code_verifier, clock())
             : null;
-      else result = pair(db, body.code, typeof body.client === 'string' ? body.client : 'client', clock());
+      // The code is shown « 482 917 »: its spaces (also U+00A0, U+202F) go, nothing else does.
+      else
+        result = pair(
+          db,
+          body.code.replace(/\s/g, ''),
+          typeof body.client === 'string' ? body.client : 'client',
+          clock(),
+        );
     }
     if (!result) {
       recordPairingFailure(db, clock(), log);
@@ -59,7 +66,13 @@ export function contractRoutes(deps: AppDeps): Hono {
 
   r.use('*', requireToken(db));
 
-  r.get('/health', (c) => c.json({ ...statusOf(getState(db)), version: deps.version }));
+  r.get('/health', (c) => {
+    const state = getState(db);
+    const status = statusOf(state);
+    // Degraded hides the pause in `status`: said apart, so a front can still offer to resume.
+    const paused = status.status === 'degraded' && state.paused ? { paused: true } : {};
+    return c.json({ ...status, ...paused, version: deps.version });
+  });
 
   r.get('/costs', (c) => {
     const raw = c.req.query('since');

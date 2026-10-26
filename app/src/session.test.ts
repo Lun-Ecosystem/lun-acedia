@@ -27,11 +27,31 @@ describe('session', () => {
     expect(JSON.parse(String(init?.body))).toEqual({ code: '042517', client: "Lun'Acedia (app)" });
   });
 
-  it('reports a refused code with the server message', async () => {
+  it('keeps only the digits of a pasted « 482 917 »', async () => {
     const fetch = vi.fn<typeof globalThis.fetch>(
-      async () => new Response(JSON.stringify({ error: 'Code expiré' }), { status: 401 }),
+      async () => new Response(JSON.stringify({ token: 'tok-9', satellite: {} }), { status: 200 }),
     );
-    await expect(pair('', '000000', { fetch })).rejects.toThrow('Code expiré');
+    await pair('', '482 917', { fetch });
+    expect(JSON.parse(String(fetch.mock.calls[0]![1]?.body)).code).toBe('482917');
+  });
+
+  it('reports a refused code without saying whether it existed', async () => {
+    const fetch = vi.fn<typeof globalThis.fetch>(
+      async () =>
+        new Response(JSON.stringify({ error: 'Code d’appairage invalide, déjà utilisé ou expiré' }), {
+          status: 401,
+        }),
+    );
+    await expect(pair('', '000000', { fetch })).rejects.toThrow(
+      'Code incorrect ou expiré. Demander un nouveau code.',
+    );
+  });
+
+  it('reports another failure with the server message', async () => {
+    const fetch = vi.fn<typeof globalThis.fetch>(
+      async () => new Response(JSON.stringify({ error: 'Corps JSON invalide' }), { status: 400 }),
+    );
+    await expect(pair('', '000000', { fetch })).rejects.toThrow('Corps JSON invalide');
   });
 
   it('keeps the token across launches and forgets it on demand', () => {

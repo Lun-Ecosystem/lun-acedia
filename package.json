@@ -14,11 +14,13 @@
   "scripts": {
     "build": "npm run build --workspaces --if-present",
     "dev": "npm run dev -w @lun-acedia/server",
+    "demo": "npm run -s demo -w @lun-acedia/server",
     "pair-code": "npm run -s pair-code -w @lun-acedia/server",
     "test": "vitest run",
     "lint": "eslint .",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
+    "check:colors": "node scripts/check-colors.mjs",
     "typecheck": "tsc --noEmit && npm run check -w @lun-ecosystem/lunacedia-views && npm run check -w @lun-acedia/app"
   },
   "devDependencies": {

@@ -20,10 +20,15 @@ npm run dev
 Aucune dépendance au NAS : tout tourne sur le poste. Node `^22.13.0 || >=24`. Le serveur écoute sur
 `127.0.0.1` par défaut (`HOST` dans `.env` pour une autre adresse).
 
+## Voir l'app sur des données fictives
+
+`npm run build && npm run demo` lance une démo (développement seulement) sur `localhost:8797` : faux Gmail,
+faux agenda, faux tri, aucun compte Google, aucun réseau. La commande affiche le jeton d'appareil à coller dans la console du navigateur.
+
 ## Relier un appareil
 
 ```bash
-npm run pair-code    # Code d’appairage (10 min) : 123456
+npm run pair-code    # Code d’appairage : 123 456 · expire à 09:52 · usage unique
 ```
 
 Le code est à usage unique et vaut 10 minutes, que des appareils soient déjà reliés ou non, serveur

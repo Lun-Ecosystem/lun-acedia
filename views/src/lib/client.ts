@@ -6,6 +6,7 @@ import type {
   Draft,
   GoogleStatus,
   JournalEntry,
+  JournaledChange,
   LabelChange,
   LabelView,
   LunEvent,
@@ -18,6 +19,7 @@ import type {
   RuleOp,
   SendAsAddress,
   Settings,
+  TodayStats,
 } from './types.ts';
 
 export interface RuleDraft {
@@ -28,6 +30,8 @@ export interface RuleDraft {
   boxId: string;
   tagIds?: string[];
   enabled?: boolean;
+  /** Order among the rules (the first that matches files the mail). */
+  position?: number;
 }
 
 export interface EventDraft {
@@ -91,18 +95,24 @@ export interface AcediaClient {
   getMail(id: string): Promise<MailDetail>;
   /** An attachment's content, by its part id (`AttachmentMeta.id`). */
   attachment(id: string, partId: string): Promise<Blob>;
-  file(id: string, boxId: string): Promise<LabelChange>;
-  trash(id: string): Promise<LabelChange>;
+  file(id: string, boxId: string): Promise<JournaledChange>;
+  trash(id: string): Promise<JournaledChange>;
   untrash(id: string): Promise<LabelChange>;
-  archive(id: string): Promise<LabelChange>;
-  spam(id: string): Promise<LabelChange>;
+  archive(id: string): Promise<JournaledChange>;
+  spam(id: string): Promise<JournaledChange>;
   setTags(id: string, add: string[], remove: string[]): Promise<LabelChange>;
   markRead(id: string, read: boolean): Promise<LabelChange>;
-  batch(ids: string[], op: BatchOp): Promise<LabelChange[]>;
+  /** `journalId` is present for the filing, archive, trash and spam operations. */
+  batch(ids: string[], op: BatchOp): Promise<(LabelChange & { journalId?: number })[]>;
   send(draft: Draft): Promise<{ id: string; threadId: string }>;
   sendAs(replyTo?: string): Promise<{ addresses: SendAsAddress[]; default: string }>;
-  validate(id: string): Promise<ProposalView>;
-  correct(id: string, boxId: string, tagIds: string[]): Promise<ProposalView>;
+  validate(id: string): Promise<ProposalView & { journalId: number }>;
+  correct(
+    id: string,
+    boxId: string,
+    tagIds: string[],
+    opts?: { rememberSender?: boolean },
+  ): Promise<ProposalView & { journalId: number }>;
   listLabels(): Promise<LabelView[]>;
   createLabel(name: string, role: Role): Promise<LabelView>;
   updateLabel(id: string, patch: { role: Role | null }): Promise<LabelView>;
@@ -112,9 +122,12 @@ export interface AcediaClient {
   journal(cursor?: number): Promise<{ items: JournalEntry[]; cursor?: number }>;
   undo(journalId: number): Promise<LabelChange>;
   getSettings(): Promise<Settings>;
-  putSettings(patch: Partial<Settings>): Promise<Settings>;
+  updateSettings(patch: Partial<Settings>): Promise<Settings>;
+  todayStats(): Promise<TodayStats>;
   agenda(from: string, to: string): Promise<AgendaItem[]>;
   undatedTasks(): Promise<AgendaTask[]>;
+  /** Every task of every list, done ones included. */
+  allTasks(): Promise<AgendaTask[]>;
   listCalendars(): Promise<{ id: string; title: string }[]>;
   listTaskLists(): Promise<{ id: string; title: string }[]>;
   saveEvent(item: EventDraft): Promise<AgendaEvent>;
@@ -133,6 +146,13 @@ export interface AcediaClient {
   getAnthropicKey(): Promise<AnthropicKeyStatus>;
   /** Checks the key with Anthropic, then saves it; rejects (nothing changed) when refused or unreachable. */
   saveAnthropicKey(key: string, expires?: string): Promise<AnthropicKeyStatus>;
+  /** Forgets the saved key; answers what remains in service (the `.env` key, or none). */
+  deleteAnthropicKey(): Promise<AnthropicKeyStatus>;
+  /** State of the service (`GET /lun/v1/health`): sorting active, paused, or degraded (`paused` then tells a pause). */
+  health(): Promise<{ status: 'ok' | 'paused' | 'degraded'; reason?: string; paused?: boolean }>;
+  /** Pauses everything automatic (the AI and the rules); what is asked by hand still runs. */
+  pause(): Promise<void>;
+  resume(): Promise<void>;
   /** Calls `onEvent` for each satellite event; returns the function that stops listening. */
   subscribe(onEvent: (e: LunEvent) => void): () => void;
 }
@@ -200,7 +220,8 @@ export function httpClient(opts: { baseUrl: string; token: string; fetch?: typeo
     send: (draft) => call('POST', '/api/mail/send', draft),
     sendAs: (replyTo) => call('GET', `/api/send-as${replyTo ? `?replyTo=${enc(replyTo)}` : ''}`),
     validate: (id) => call('POST', `/api/mail/${enc(id)}/validate`, {}),
-    correct: (id, boxId, tagIds) => call('POST', `/api/mail/${enc(id)}/correct`, { boxId, tagIds }),
+    correct: (id, boxId, tagIds, opts) =>
+      call('POST', `/api/mail/${enc(id)}/correct`, { boxId, tagIds, ...opts }),
     listLabels: async () => (await call<{ labels: LabelView[] }>('GET', '/api/labels')).labels,
     createLabel: (name, role) => call('POST', '/api/labels', { name, role }),
     updateLabel: (id, patch) => call('PATCH', `/api/labels/${enc(id)}`, patch),
@@ -213,9 +234,11 @@ export function httpClient(opts: { baseUrl: string; token: string; fetch?: typeo
     journal: (cursor) => call('GET', `/api/journal${cursor ? `?cursor=${cursor}` : ''}`),
     undo: (journalId) => call('POST', `/api/journal/${journalId}/undo`, {}),
     getSettings: () => call('GET', '/api/settings'),
-    putSettings: (patch) => call('PUT', '/api/settings', patch),
+    updateSettings: (patch) => call('PUT', '/api/settings', patch),
+    todayStats: () => call('GET', '/api/stats/today'),
     agenda: (from, to) => items(`/api/agenda?${new URLSearchParams({ from, to })}`),
     undatedTasks: () => items('/api/tasks?undated=1'),
+    allTasks: () => items('/api/tasks?all=1'),
     listCalendars: () => items('/api/calendars'),
     listTaskLists: () => items('/api/task-lists'),
     saveEvent: ({ id, calendarId, ...event }) =>
@@ -248,6 +271,14 @@ export function httpClient(opts: { baseUrl: string; token: string; fetch?: typeo
     getAnthropicKey: () => call('GET', '/api/anthropic-key'),
     saveAnthropicKey: (key, expires) =>
       call('PUT', '/api/anthropic-key', expires ? { key, expires } : { key }),
+    deleteAnthropicKey: () => call('DELETE', '/api/anthropic-key'),
+    health: () => call('GET', '/lun/v1/health'),
+    pause: async () => {
+      await call('POST', '/lun/v1/pause', {});
+    },
+    resume: async () => {
+      await call('POST', '/lun/v1/resume', {});
+    },
     subscribe(onEvent) {
       const stop = new AbortController();
       let lastId: string | undefined;

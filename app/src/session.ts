@@ -22,6 +22,9 @@ export function clearToken(storage: Storage): void {
   }
 }
 
+/** Said for any refused code: it never tells whether the code existed. */
+export const REFUSED_CODE = 'Code incorrect ou expiré. Demander un nouveau code.';
+
 /** Exchanges a one-time pairing code for the device's token. */
 export async function pair(
   baseUrl: string,
@@ -32,9 +35,10 @@ export async function pair(
   const res = await doFetch(`${baseUrl.replace(/\/$/, '')}/lun/v1/pair`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ code: code.trim(), client: CLIENT }),
+    body: JSON.stringify({ code: code.replace(/\D/g, ''), client: CLIENT }),
   });
   const body = (await res.json().catch(() => ({}))) as { token?: string; error?: string };
+  if (res.status === 401) throw new Error(REFUSED_CODE);
   if (!res.ok || !body.token) throw new Error(body.error ?? `Erreur ${res.status}`);
   return body.token;
 }

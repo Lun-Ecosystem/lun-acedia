@@ -1,55 +1,98 @@
 <script lang="ts">
-  import type { LabelView, MailSummary } from '../types.ts';
-  import BoxMenu from './BoxMenu.svelte';
-  import { targetName } from './format.ts';
+  import Button from '../ui/Button.svelte';
+  import { Archive, Ban, ChevronDown, Ellipsis, Eye, Folder, Forward, Reply, Trash, X } from '../ui/Icon.ts';
+  import Menu from '../ui/Menu.svelte';
+  import IconButton from '../ui/IconButton.svelte';
+
+  /*
+   * Toolbar of the reading pane, in groups: close; filing (archive, file, spam, trash); reading
+   * (unread). One main action only: Répondre.
+   */
 
   interface Props {
-    mail: MailSummary;
-    labels: LabelView[];
+    inTrash: boolean;
+    /** « 1 sur 12 ». */
+    position: string;
     onback: () => void;
-    onfile: (boxId: string) => void;
-    onvalidate: () => void;
+    onfile: (anchor: HTMLElement) => void;
     onarchive: () => void;
     ontrash: () => void;
     onspam: () => void;
     onunread: () => void;
     onreply: () => void;
+    onforward: () => void;
   }
-  let { mail, labels, onback, onfile, onvalidate, onarchive, ontrash, onspam, onunread, onreply }: Props =
+  let { inTrash, position, onback, onfile, onarchive, ontrash, onspam, onunread, onreply, onforward }: Props =
     $props();
-
-  const boxes = $derived(labels.filter((l) => l.role === 'box'));
-  const pending = $derived(mail.proposal?.status === 'pending' ? mail.proposal : undefined);
-  const inTrash = $derived(mail.labels.includes('TRASH'));
 </script>
 
-<div class="bar" role="toolbar" aria-label="Actions sur le mail">
-  <button type="button" aria-label="Retour à la liste" onclick={onback}>←</button>
-  {#if pending}
-    <button type="button" class="ok" onclick={onvalidate}>✓ {targetName(pending.boxId, labels)}</button>
-  {/if}
-  <BoxMenu label="Ranger" {boxes} onpick={onfile} />
-  <button type="button" onclick={onarchive}>Archiver</button>
-  {#if !inTrash}<button type="button" onclick={ontrash}>Corbeille</button>{/if}
-  <button type="button" onclick={onspam}>Spam</button>
-  <button type="button" onclick={onunread}>Non lu</button>
-  <button type="button" onclick={onreply}>Répondre</button>
+<div class="barre" role="toolbar" aria-label="Actions sur le mail">
+  <IconButton icon={X} label="Fermer" shortcut="Échap" onclick={onback} />
+  <span class="sep" aria-hidden="true"></span>
+  <IconButton icon={Archive} label="Archiver" shortcut="E" onclick={onarchive} />
+  <Button
+    variant="secondaire"
+    size="petit"
+    icon={Folder}
+    class="ranger"
+    aria-haspopup="menu"
+    onclick={(event) => onfile(event.currentTarget)}
+    >Ranger dans<ChevronDown size={14} strokeWidth={1.75} aria-hidden="true" /></Button
+  >
+  <IconButton icon={Ban} label="Signaler comme spam" onclick={onspam} />
+  {#if !inTrash}<IconButton icon={Trash} label="Corbeille" shortcut="#" onclick={ontrash} />{/if}
+  <span class="sep" aria-hidden="true"></span>
+  <IconButton icon={Eye} label="Marquer non lu" onclick={onunread} />
+  <Menu
+    label="Plus d’actions"
+    sections={[{ items: [{ id: 'forward', label: 'Transférer', icon: Forward, onselect: onforward }] }]}
+  >
+    {#snippet trigger({ props })}
+      <IconButton {...props} icon={Ellipsis} label="Plus d’actions" />
+    {/snippet}
+  </Menu>
+  <div class="fin">
+    {#if position}<span class="position">{position}</span>{/if}
+    <Button
+      variant="principal"
+      size="petit"
+      icon={Reply}
+      class="repondre"
+      aria-keyshortcuts="R"
+      onclick={onreply}>Répondre</Button
+    >
+  </div>
 </div>
 
 <style>
-  .bar {
-    position: sticky;
-    top: 0;
-    z-index: 3;
+  .barre {
     display: flex;
-    flex-wrap: wrap;
+    flex: none;
     align-items: center;
-    gap: 0.4rem;
-    padding: 0.5rem 0.75rem;
-    background: var(--surface-2);
-    border-bottom: 2px solid var(--monde-accent);
+    gap: 2px;
+    height: 52px;
+    padding: 0 14px;
+    border-bottom: 1px solid var(--bordure);
   }
-  .ok {
-    border-color: rgba(70, 140, 100, 0.6);
+  .barre :global(.ranger),
+  .barre :global(.repondre) {
+    height: 32px;
+  }
+  .sep {
+    width: 1px;
+    height: 20px;
+    margin: 0 6px;
+    background: var(--bordure);
+  }
+  .fin {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-left: auto;
+  }
+  .position {
+    color: var(--texte-3);
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
   }
 </style>

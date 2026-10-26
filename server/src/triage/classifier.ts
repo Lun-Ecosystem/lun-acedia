@@ -22,6 +22,8 @@ export interface Classification {
   importance: ImportanceLevel;
   /** 0 to 100. */
   confidence: number;
+  /** One factual sentence in French (160 characters at most) on why this box. */
+  reason: string;
   usage: { inputTokens: number; outputTokens: number };
 }
 

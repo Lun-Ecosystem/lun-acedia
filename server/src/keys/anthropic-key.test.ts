@@ -54,6 +54,7 @@ describe('Anthropic key', () => {
           tagIds: [],
           importance: 'normal',
           confidence: 50,
+          reason: 'Test.',
           usage: { inputTokens: 1, outputTokens: 1 },
         }),
       };
@@ -118,6 +119,34 @@ describe('Anthropic key', () => {
       { daysLeft: 14, expires: '2026-11-12' },
       { daysLeft: 14, expires: '2026-11-12' },
     ]);
+  });
+
+  it('DELETE removes the saved key; the .env key, if any, takes over', async () => {
+    const secretKey = randomBytes(32).toString('base64');
+    const h = makeHarness({ secretKey });
+    const call = await client(h);
+    saveAnthropicKey(h.db, secretKey, 'sk-ant-test-old-0000', '2026-12-24');
+    keyRefused(h.db, h.clock());
+    const removed = await call('DELETE');
+    expect(removed.status).toBe(200);
+    expect(removed.body).toEqual({ state: 'absent' });
+    expect(getSetting(h.db, 'anthropic.expires', undefined)).toBeNull();
+    // Nothing is refused any more: the AI simply has no key.
+    expect(getState(h.db).degraded).toEqual([]);
+
+    const h2 = makeHarness({ secretKey, anthropicEnv: { key: ENV_KEY } });
+    const call2 = await client(h2);
+    saveAnthropicKey(h2.db, secretKey, 'sk-ant-test-old-0000');
+    expect((await call2('DELETE')).body).toEqual({ state: 'ok', last4: '9876', source: 'env' });
+  });
+
+  it('DELETE without any key answers absent and changes nothing', async () => {
+    const h = makeHarness({ secretKey: randomBytes(32).toString('base64') });
+    const call = await client(h);
+    const res = await call('DELETE');
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ state: 'absent' });
+    expect(eventsSince(h.db)).toEqual([]);
   });
 
   it('GET never contains the key', async () => {

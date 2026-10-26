@@ -87,6 +87,30 @@ describe('renderBody', () => {
     ]);
   });
 
+  it('decodes UTF-8 bytes that a part wrongly labels gb2312 (Outlook for Android)', async () => {
+    const bytes = Buffer.from('<p>Envoyé à partir de</p>', 'utf8');
+    const { html } = await renderBody(textPart('text/html', bytes, 'gb2312'), noAttachment);
+    expect(html).toContain('Envoyé à partir de');
+  });
+
+  it('decodes UTF-8 bytes wrongly labelled iso-8859-1', async () => {
+    const { html } = await renderBody(
+      textPart('text/html', Buffer.from('Envoyé', 'utf8'), 'iso-8859-1'),
+      noAttachment,
+    );
+    expect(html).toContain('Envoyé');
+  });
+
+  it('still decodes genuine gb2312 bytes', async () => {
+    const bytes = Buffer.concat([
+      Buffer.from('Envoy'),
+      Buffer.from([0xa8, 0xa6, 0x20, 0xa8, 0xa4]),
+      Buffer.from(' partir'),
+    ]);
+    const { html } = await renderBody(textPart('text/html', bytes, 'gb2312'), noAttachment);
+    expect(html).toContain('Envoyé à partir');
+  });
+
   it('falls back to UTF-8 on an unknown charset', async () => {
     const { html } = await renderBody(textPart('text/html', '<p>déjà</p>', 'x-unknown'), noAttachment);
     expect(html).toContain('déjà');

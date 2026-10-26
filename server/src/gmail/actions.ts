@@ -69,13 +69,19 @@ export async function modifyLabels(
   return { id, before, after };
 }
 
-/** Moves a mail into a box: the box is added, the inbox and any other box removed. */
+/**
+ * Moves a mail into a box: the box is added, the inbox and any other box removed. A mail in the trash
+ * or the spam leaves it, otherwise it would stay hidden there.
+ */
 export async function fileMail(deps: ActionDeps, id: string, boxLabelId: string): Promise<LabelChange> {
   const boxes = boxIds(deps.db);
   if (!boxes.includes(boxLabelId)) throw new BadRequestError(`« ${boxLabelId} » n’est pas une boîte`);
   const before = await currentLabels(deps, id);
-  const remove = before.filter((l) => l === 'INBOX' || (boxes.includes(l) && l !== boxLabelId));
-  return modifyLabels(deps, id, [boxLabelId], remove);
+  if (before.includes('TRASH')) await post(deps, id, 'untrash');
+  // INBOX always goes: an untrash may put it back on a mail that had left the inbox.
+  const remove = ['INBOX', ...before.filter((l) => l === 'SPAM' || (boxes.includes(l) && l !== boxLabelId))];
+  const change = await modifyLabels(deps, id, [boxLabelId], remove);
+  return { ...change, before };
 }
 
 async function moveToTrash(deps: ActionDeps, id: string, verb: 'trash' | 'untrash'): Promise<LabelChange> {

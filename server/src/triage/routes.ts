@@ -5,10 +5,10 @@ import { stripUndefined } from '../util.ts';
 import { requireToken } from '../contract/auth.ts';
 import { BadRequestError, NotFoundError, type ActionDeps } from '../gmail/actions.ts';
 import type { GoogleClient } from '../google/client.ts';
-import { ConflictError, listJournal, undo } from './journal.ts';
+import { ConflictError, listJournal, todayStats, undo } from './journal.ts';
 import { createLabel, listLabels, setRole } from './labels.ts';
 import { getSetting, putSetting } from '../db.ts';
-import { correct, DEFAULT_THRESHOLD, validate } from './pipeline.ts';
+import { correct, DEFAULT_BULK_THRESHOLD, DEFAULT_THRESHOLD, validate } from './pipeline.ts';
 import { createRule, deleteRule, listRules, updateRule } from './rules.ts';
 
 const RoleSchema = z.enum(['box', 'tag']);
@@ -38,7 +38,11 @@ async function body<T>(c: Context, schema: z.ZodType<T>): Promise<T | Response> 
   return parsed.success ? parsed.data : c.json({ error: parsed.error.message }, 400);
 }
 
-const settings = (deps: AppDeps) => ({ threshold: getSetting(deps.db, 'threshold', DEFAULT_THRESHOLD) });
+const settings = (deps: AppDeps) => {
+  const threshold = getSetting(deps.db, 'threshold', DEFAULT_THRESHOLD);
+  const bulkThreshold = getSetting(deps.db, 'bulkThreshold', DEFAULT_BULK_THRESHOLD);
+  return { threshold, bulkThreshold: Math.min(bulkThreshold, threshold) };
+};
 
 /** `/api/labels`, `/api/rules`, `/api/journal`, `/api/settings` and the answers to the AI's proposals. */
 export function triageRoutes(deps: AppDeps, google: GoogleClient | undefined): Hono {
@@ -86,21 +90,49 @@ export function triageRoutes(deps: AppDeps, google: GoogleClient | undefined): H
   });
   r.post('/journal/:id/undo', (c) => answer(c, () => undo(actionDeps(), Number(c.req.param('id')))));
 
+  r.get('/stats/today', (c) => c.json(todayStats(deps.db, deps.clock())));
+
   r.post('/mail/:id/validate', (c) => answer(c, () => validate(actionDeps(), c.req.param('id'))));
   r.post('/mail/:id/correct', async (c) => {
     const input = await body(
       c,
-      z.object({ boxId: z.string().min(1), tagIds: z.array(z.string()).default([]) }),
+      z.object({
+        boxId: z.string().min(1),
+        tagIds: z.array(z.string()).default([]),
+        rememberSender: z.boolean().optional(),
+      }),
     );
     if (input instanceof Response) return input;
-    return answer(c, () => correct(actionDeps(), c.req.param('id'), input.boxId, input.tagIds));
+    return answer(c, () =>
+      correct(
+        actionDeps(),
+        c.req.param('id'),
+        input.boxId,
+        input.tagIds,
+        stripUndefined({ rememberSender: input.rememberSender }),
+      ),
+    );
   });
 
   r.get('/settings', (c) => c.json(settings(deps)));
   r.put('/settings', async (c) => {
-    const input = await body(c, z.object({ threshold: z.number().int().min(0).max(100) }));
+    const percent = z.number().int().min(0).max(100);
+    const input = await body(
+      c,
+      z.object({ threshold: percent.optional(), bulkThreshold: percent.optional() }),
+    );
     if (input instanceof Response) return input;
-    putSetting(deps.db, 'threshold', input.threshold);
+    const current = settings(deps);
+    const threshold = input.threshold ?? current.threshold;
+    if (input.bulkThreshold !== undefined && input.bulkThreshold > threshold)
+      return c.json(
+        { error: 'Le seuil de « Tout valider » ne peut pas dépasser le seuil d’auto-rangement' },
+        400,
+      );
+    // Lowering the threshold below the bulk threshold drags it down.
+    const bulkThreshold = Math.min(input.bulkThreshold ?? current.bulkThreshold, threshold);
+    putSetting(deps.db, 'threshold', threshold);
+    putSetting(deps.db, 'bulkThreshold', bulkThreshold);
     return c.json(settings(deps));
   });
 

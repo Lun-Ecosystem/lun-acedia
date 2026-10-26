@@ -1,68 +1,32 @@
-/*
- * Tokens of the Lun' design (lun-docs, standards/design.md) and the Lun'Acedia world. The host app
- * loads the fonts (self-hosted Cormorant Garamond and Inter); the stacks fall back to Georgia and
- * system-ui.
- */
+/* Copie générée depuis lun-docs/design/tokens.css : ne pas modifier ici */
+/* Jetons de référence de l’écosystème Lun' (règle B : socle commun, accent du monde).
+   Seule source : les dépôts en gardent une copie générée par tools/sync-tokens.mjs. */
 :root {
-  --encre: #0d0b09;
-  --encre-2: #1a1612;
-  --ivoire: #f0ebe1;
-  --papier: #e8e2d6;
-  --lune: #c8c0b0;
-  --lavis: #8a9bae;
-  --rouge: #7a1818;
-
-  --monde-fond: #070c14;
-  --monde-accent: #3a6080;
-
-  --serif: 'Cormorant Garamond', Georgia, serif;
-  --sans: 'Inter', system-ui, sans-serif;
-
-  --surface: #0d1420;
-  --surface-2: #121b2a;
-  --bordure: rgba(200, 192, 176, 0.14);
-  --accent-doux: rgba(58, 96, 128, 0.28);
-  /* Error text: about 9:1 on the Acedia background (WCAG AA). */
-  --erreur: #e3a0a0;
-  --rayon: 8px;
+  /* socle Lun' : identique pour toutes les interfaces */
+  --encre:#0D0B09; --encre-2:#1A1612; --ivoire:#F0EBE1; --papier:#E8E2D6; --lune:#C8C0B0; --lavis:#8A9BAE; --rouge:#7A1818;
+  --fond:var(--encre); --surface-1:var(--encre-2); --surface-2:#221D18; --surface-3:#2B251F;
+  --survol:rgba(240,235,225,.045); --appui:rgba(240,235,225,.08);
+  --bordure:rgba(200,192,176,.12); --bordure-forte:rgba(200,192,176,.24);
+  --texte:var(--ivoire); --texte-2:var(--lune); --texte-3:#958C7E;
+  /* tons : couleur, fond doux, bordure (communs) */
+  --ok:#7CC29B; --ok-doux:rgba(124,194,155,.12); --ok-bord:rgba(124,194,155,.38);
+  --attention:#E0B36A; --attention-doux:rgba(224,179,106,.12); --attention-bord:rgba(224,179,106,.38);
+  --danger:#E3A0A0; --danger-plein:#7A1818; --danger-doux:rgba(227,160,160,.10); --danger-bord:rgba(227,160,160,.38);
+  --info:#8A9BAE; --info-doux:rgba(138,155,174,.12); --info-bord:rgba(138,155,174,.38);
+  --ia:#B9A7E0; --ia-doux:rgba(185,167,224,.11); --ia-bord:rgba(185,167,224,.36);
+  /* forme */
+  --r-1:6px; --r-2:10px; --r-3:14px; --r-rond:999px;
+  --ombre-1:0 1px 2px rgba(0,0,0,.35);
+  --ombre-2:0 12px 32px rgba(0,0,0,.55), 0 2px 6px rgba(0,0,0,.4);
+  --serif:'Cormorant Garamond',Georgia,serif; --sans:'Inter',system-ui,sans-serif;
 }
 
-.lun-acedia {
-  font-family: var(--sans);
-  font-weight: 300;
-  color: var(--ivoire);
-  background: var(--monde-fond);
+/* monde : seule couche qui change d’une interface à l’autre.
+   data-monde se pose sur la racine de chaque vue, pas sur la page.
+   Chaque monde est encadré par @monde / @fin-monde : tools/sync-tokens.mjs --monde le filtre. */
+
+[data-monde='acedia'] {
+  --accent:#3A6080; --accent-survol:#45719A; --accent-texte:#9DBEDA;
+  --accent-doux:rgba(58,96,128,.24); --accent-bord:rgba(110,155,195,.45);
 }
 
-.lun-acedia button {
-  font: inherit;
-  color: inherit;
-  background: none;
-  border: 1px solid var(--bordure);
-  border-radius: var(--rayon);
-  padding: 0.3rem 0.65rem;
-  cursor: pointer;
-}
-
-.lun-acedia button:hover:not(:disabled) {
-  border-color: var(--monde-accent);
-}
-
-.lun-acedia button:focus-visible,
-.lun-acedia input:focus-visible,
-.lun-acedia select:focus-visible,
-.lun-acedia textarea:focus-visible {
-  outline: 2px solid var(--lavis);
-  outline-offset: 1px;
-}
-
-.lun-acedia input,
-.lun-acedia select,
-.lun-acedia textarea {
-  font: inherit;
-  color: var(--ivoire);
-  background: var(--surface-2);
-  border: 1px solid var(--bordure);
-  border-radius: var(--rayon);
-  padding: 0.35rem 0.55rem;
-}

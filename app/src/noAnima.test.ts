@@ -21,4 +21,14 @@ describe('standalone front', () => {
     const offenders = files.filter((f) => /anima(?![a-z])/i.test(readFileSync(f, 'utf8')));
     expect(offenders).toEqual([]);
   });
+
+  it('no em dash in what is displayed', () => {
+    const strip = (t: string) =>
+      t
+        .replace(/\/\*[\s\S]*?\*\//g, '')
+        .replace(/<!--[\s\S]*?-->/g, '')
+        .replace(/(^|[^:'"`\w])\/\/[^\n]*/g, '$1');
+    const offenders = roots.flatMap(sources).filter((f) => strip(readFileSync(f, 'utf8')).includes('—'));
+    expect(offenders).toEqual([]);
+  });
 });

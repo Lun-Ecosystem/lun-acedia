@@ -70,6 +70,15 @@ export function saveAnthropicKey(db: DatabaseSync, secretKey: string, key: strin
   putSetting(db, WARNED, []);
 }
 
+/** Forgets the saved key and its expiry; without a key nothing is refused any more. */
+export function removeAnthropicKey(db: DatabaseSync): void {
+  putSetting(db, KEY, null);
+  putSetting(db, EXPIRES, null);
+  putSetting(db, WARNED, []);
+  putSetting(db, STATE, 'ok');
+  clearDegraded(db, KEY_REASON);
+}
+
 /** The declared expiry of the key in service. */
 export function currentExpiry(
   db: DatabaseSync,

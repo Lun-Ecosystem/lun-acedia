@@ -1,18 +1,24 @@
 <script lang="ts">
-  import { Agenda, Journal, Mailbox, Settings } from '@lun-ecosystem/lunacedia-views';
+  import { untrack } from 'svelte';
+  import {
+    Agenda,
+    Button,
+    Journal,
+    Mailbox,
+    Pending,
+    Settings,
+    StandaloneCard,
+    Tasks,
+    toast,
+    type AcediaClient,
+  } from '@lun-ecosystem/lunacedia-views';
   import { readAuthorization } from './authorization.ts';
   import Authorize from './Authorize.svelte';
   import { createHttpClient } from './httpClient.ts';
   import Pair from './Pair.svelte';
+  import Shell, { HREF, type Screen } from './shell/Shell.svelte';
+  import { EMPTY_STATUS, readStatus, type ShellStatus } from './shell/status.ts';
   import { clearToken, loadToken, saveToken } from './session.ts';
-
-  type Tab = 'mail' | 'agenda' | 'journal' | 'settings';
-  const TABS: { id: Tab; label: string }[] = [
-    { id: 'mail', label: 'Mail' },
-    { id: 'agenda', label: 'Agenda' },
-    { id: 'journal', label: 'Journal' },
-    { id: 'settings', label: 'Réglages' },
-  ];
 
   // The app is served by Lun'Acedia itself (or proxied to it in development).
   const baseUrl = window.location.origin;
@@ -22,8 +28,25 @@
 
   // Back from Google's consent page: land on the settings, where the account shows as connected.
   const params = new URLSearchParams(window.location.search);
-  let tab = $state<Tab>(params.has('google') ? 'settings' : 'mail');
-  if (params.has('google')) history.replaceState(null, '', window.location.pathname);
+  if (params.has('google')) history.replaceState(null, '', `${window.location.pathname}${HREF.reglages}`);
+
+  /** The screen shown, from the hash of the page (`#/agenda`); the mail by default. */
+  const screenOf = (hash: string): Screen =>
+    (Object.keys(HREF) as Screen[]).find((s) => HREF[s] === hash) ?? 'mail';
+  let screen = $state(screenOf(window.location.hash));
+  /** Mail to open on reaching the mail screen (the eye of « À valider »). */
+  let opening = $state<string | undefined>();
+  /** View the mail screen starts on (a box chosen in the rail from another screen). */
+  let mailView = $state<string | undefined>();
+  $effect(() => {
+    const follow = () => {
+      screen = screenOf(window.location.hash);
+      // Opened once: back on the mail later, the list shows alone.
+      if (screen !== 'mail') opening = mailView = undefined;
+    };
+    window.addEventListener('hashchange', follow);
+    return () => window.removeEventListener('hashchange', follow);
+  });
 
   // An app asks for access (`GET /lun/v1/authorize`): the request waits here, through pairing if needed.
   let authorization = $state(readAuthorization(window.location.search));
@@ -51,6 +74,63 @@
 
   const client = $derived(token ? createHttpClient(baseUrl, token, { onUnauthorized: forget }) : null);
 
+  let status = $state<ShellStatus>(EMPTY_STATUS);
+  let account = $state<string | undefined>();
+
+  /*
+   * The counters and the service state, refreshed on server events and after each action. Asks within
+   * REFRESH_DELAY are merged into one read; an older answer arriving late never replaces a newer one.
+   */
+  const REFRESH_DELAY = 400;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let withTasks = false;
+  let reads = 0;
+
+  function refresh(c: AcediaClient, tasks = false) {
+    withTasks ||= tasks;
+    clearTimeout(timer);
+    timer = setTimeout(async () => {
+      const seq = ++reads;
+      const next = await readStatus(
+        c,
+        untrack(() => status),
+        { tasks: withTasks },
+      );
+      withTasks = false;
+      if (seq === reads && c === client) status = next;
+    }, REFRESH_DELAY);
+  }
+
+  $effect(() => {
+    const c = client;
+    if (!c) return;
+    refresh(c, true);
+    c.googleStatus()
+      .then((g) => (account = g.email))
+      .catch(() => {});
+    // The counters follow what happens on the server: sorting, agenda sync, key and account state.
+    const stop = c.subscribe((e) => {
+      if (e.type.startsWith('agenda.')) refresh(c, true);
+      else if (/^(mail|key|credit|google)\./.test(e.type)) refresh(c);
+    });
+    return () => {
+      stop();
+      clearTimeout(timer);
+    };
+  });
+
+  async function togglePause(c: AcediaClient) {
+    const pausing = !status.paused;
+    try {
+      await (pausing ? c.pause() : c.resume());
+      status.paused = pausing;
+      toast(pausing ? 'Tri en pause : rien n’est rangé seul' : 'Tri repris');
+    } catch (err) {
+      toast(err instanceof Error ? err.message : 'Le tri n’a pas changé', { tone: 'danger' });
+    }
+    refresh(c);
+  }
+
   function paired(t: string) {
     saveToken(localStorage, t);
     notice = null;
@@ -59,37 +139,68 @@
 </script>
 
 {#if authorization && 'error' in authorization}
-  <main class="refused lun-acedia">
-    <p class="brand">Lun'Acedia</p>
-    <p class="error" role="alert">{authorization.error}</p>
-    <button type="button" onclick={leaveAuthorization}>Ouvrir Lun'Acedia</button>
-  </main>
+  <div class="refused lun-acedia" data-monde="acedia">
+    <StandaloneCard title="Demande d’accès refusée">
+      <p class="error" role="alert">{authorization.error}</p>
+      <Button variant="principal" size="grand" onclick={leaveAuthorization}>Ouvrir Lun'Acedia</Button>
+    </StandaloneCard>
+  </div>
 {:else if client && authorization}
   <Authorize {client} request={authorization.request} />
 {:else if client}
-  <div class="shell lun-acedia">
-    <nav aria-label="Sections">
-      <span class="name">Lun'Acedia</span>
-      {#each TABS as t (t.id)}
-        <button type="button" aria-current={tab === t.id ? 'page' : undefined} onclick={() => (tab = t.id)}
-          >{t.label}</button
-        >
-      {/each}
-    </nav>
-    <main>
-      {#key client}
-        {#if tab === 'mail'}
-          <Mailbox {client} />
-        {:else if tab === 'agenda'}
-          <Agenda {client} />
-        {:else if tab === 'journal'}
-          <Journal {client} />
+  <Shell
+    current={screen}
+    service={status.service}
+    serviceDetail={status.detail}
+    paused={status.paused}
+    counts={status.counts}
+    {account}
+    ontogglepause={() => togglePause(client)}
+  >
+    {#key client}
+      {#key screen}
+        {#if screen === 'mail'}
+          <Mailbox
+            {client}
+            {opening}
+            start={mailView}
+            onchange={() => refresh(client)}
+            onjournal={() => (location.hash = HREF.journal)}
+          />
+        {:else if screen === 'a-valider'}
+          <Pending
+            {client}
+            onchange={() => refresh(client)}
+            onopen={(id) => {
+              opening = id;
+              location.hash = HREF.mail;
+            }}
+            onjournal={() => (location.hash = HREF.journal)}
+            onview={(view) => {
+              mailView = view;
+              location.hash = HREF.mail;
+            }}
+          />
+        {:else if screen === 'agenda'}
+          <Agenda {client} ontasks={() => (location.hash = HREF.taches)} />
+        {:else if screen === 'taches'}
+          <Tasks {client} />
+        {:else if screen === 'journal'}
+          <Journal
+            {client}
+            onchange={() => refresh(client)}
+            onopen={(id) => {
+              opening = id;
+              location.hash = HREF.mail;
+            }}
+            onsettings={() => (location.hash = HREF.reglages)}
+          />
         {:else}
-          <Settings {client} onSelfRevoked={revokedSelf} />
+          <Settings {client} onSelfRevoked={revokedSelf} onchange={() => refresh(client)} />
         {/if}
       {/key}
-    </main>
-  </div>
+    {/key}
+  </Shell>
 {:else}
   <Pair {baseUrl} {notice} authorizing={authorization !== null} onPaired={paired} />
 {/if}
@@ -97,62 +208,16 @@
 <style>
   :global(html, body) {
     margin: 0;
-    background: var(--monde-fond);
+    background: var(--fond);
     color-scheme: dark;
   }
-  .shell {
-    display: grid;
-    grid-template-rows: auto 1fr;
-    height: 100dvh;
-  }
-  nav {
-    display: flex;
-    align-items: center;
-    gap: 0.4rem;
-    padding: 0.5rem 1rem;
-    padding-top: max(0.5rem, env(safe-area-inset-top));
-    border-bottom: 1px solid var(--bordure);
-    overflow-x: auto;
-  }
-  .name {
-    font-family: var(--serif);
-    font-weight: 500;
-    font-size: 1.35rem;
-    margin-right: auto;
-    white-space: nowrap;
-  }
-  nav button[aria-current='page'] {
-    border-color: var(--monde-accent);
-    background: var(--accent-doux);
-  }
-  main {
-    min-height: 0;
-    overflow: hidden;
-  }
   .refused {
-    max-width: 30rem;
-    margin: 0 auto;
-    padding: 18vh 1rem 2rem;
+    display: grid;
     min-height: 100dvh;
-    box-sizing: border-box;
-    overflow: visible;
-  }
-  .refused .brand {
-    font-family: var(--serif);
-    font-weight: 500;
-    font-size: 1.35rem;
-    margin: 0 0 1.25rem;
   }
   .refused .error {
-    color: var(--erreur);
+    margin: 0 0 18px;
+    color: var(--danger);
     line-height: 1.5;
-  }
-  @media (max-width: 560px) {
-    .name {
-      display: none;
-    }
-    nav button {
-      flex: 1;
-    }
   }
 </style>

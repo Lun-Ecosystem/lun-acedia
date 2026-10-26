@@ -14,6 +14,8 @@ export interface ProposalView {
   tagIds: string[];
   confidence: number;
   status: 'pending' | 'auto' | 'accepted' | 'corrected';
+  /** Why the AI proposed this box (160 characters at most); absent for a rule or an older proposal. */
+  reason?: string;
 }
 
 export interface MailSummary {
@@ -147,7 +149,7 @@ export interface Rule {
   position: number;
 }
 
-export type Origin = 'rule' | 'ai';
+export type Origin = 'rule' | 'ai' | 'user';
 
 export interface JournalEntry {
   id: number;
@@ -164,9 +166,22 @@ export interface JournalEntry {
 export interface Settings {
   /** Confidence (0 to 100) the AI needs to file a mail on its own. */
   threshold: number;
+  /** Confidence (0 to 100, never above `threshold`) from which « Tout valider » validates. */
+  bulkThreshold: number;
 }
 
 export interface GoogleStatus {
   connected: boolean;
   email?: string;
 }
+
+/** What happened today (a calendar day in `Europe/Paris`), from the journal minus the undone entries. */
+export interface TodayStats {
+  /** Mails filed by a rule or by the AI. */
+  autoFiled: number;
+  validated: number;
+  corrected: number;
+}
+
+/** A label change recorded in the journal, so that it can be undone. */
+export type JournaledChange = LabelChange & { journalId: number };

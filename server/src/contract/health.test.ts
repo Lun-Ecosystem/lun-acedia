@@ -18,13 +18,18 @@ describe('GET /lun/v1/health', () => {
     expect((await res.json()).status).toBe('paused');
   });
 
-  it('reports degraded with its reason, over paused', async () => {
+  it('reports degraded with its reason, over paused, and still tells the pause', async () => {
     const h = makeHarness();
     const token = await h.pairClient();
     setPaused(h.db, true);
     addDegraded(h.db, 'credit');
     const res = await h.app.request('/lun/v1/health', { headers: h.auth(token) });
-    expect(await res.json()).toEqual({ status: 'degraded', reason: 'credit', version: '0.0.0-test' });
+    expect(await res.json()).toEqual({
+      status: 'degraded',
+      reason: 'credit',
+      paused: true,
+      version: '0.0.0-test',
+    });
   });
 
   it('keeps several reasons and clears them one by one', async () => {

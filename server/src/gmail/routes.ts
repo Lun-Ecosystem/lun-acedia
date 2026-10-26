@@ -5,7 +5,15 @@ import { stripUndefined } from '../util.ts';
 import { requireToken } from '../contract/auth.ts';
 import type { GoogleClient } from '../google/client.ts';
 import type { MailSummary } from '../types.ts';
-import { applyOp, BadRequestError, batch, NotFoundError, type ActionDeps, type BatchOp } from './actions.ts';
+import {
+  applyOp,
+  BadRequestError,
+  batch,
+  NotFoundError,
+  type ActionDeps,
+  type BatchOp,
+  type LabelChange,
+} from './actions.ts';
 import { findPart } from './body.ts';
 import { defaultFrom, sendMail } from './compose.ts';
 import { fetchFull, listMail, readMail, searchMail, summary } from './read.ts';
@@ -16,14 +24,15 @@ import { GMAIL_API } from './sync.ts';
 export interface MailHooks {
   /** Enriches a listed mail (its proposal). */
   decorate?: (m: StoredMessage) => StoredMessage;
-  /** Called after each mail filed by hand. */
-  onFile?: (id: string, boxId: string) => void;
+  /** Called after each action done by hand; returns the journal id when the action is journaled. */
+  onAction?: (change: LabelChange, op: BatchOp) => number | undefined;
 }
 
 export function gmailRoutes(deps: AppDeps, google: GoogleClient | undefined, hooks: MailHooks = {}): Hono {
   const decorate = hooks.decorate ?? ((m: StoredMessage) => m);
-  const filed = (ids: string[], op: BatchOp) => {
-    if (op.kind === 'file') for (const id of ids) hooks.onFile?.(id, op.boxId);
+  const journaled = (change: LabelChange, op: BatchOp): LabelChange & { journalId?: number } => {
+    const journalId = hooks.onAction?.(change, op);
+    return journalId === undefined ? change : { ...change, journalId };
   };
   const r = new Hono();
   r.use('*', requireToken(deps.db));
@@ -88,8 +97,7 @@ export function gmailRoutes(deps: AppDeps, google: GoogleClient | undefined, hoo
     const op = parsed.data.op as BatchOp;
     return guard(c, async () => {
       const changes = await batch(actionDeps(), parsed.data.ids, op);
-      filed(parsed.data.ids, op);
-      return changes;
+      return changes.map((change) => journaled(change, op));
     });
   });
 
@@ -105,9 +113,7 @@ export function gmailRoutes(deps: AppDeps, google: GoogleClient | undefined, hoo
       if (!parsed.success) return c.json({ error: parsed.error.message }, 400);
       const op = parsed.data as BatchOp;
       return guard(c, async () => {
-        const change = await applyOp(actionDeps(), c.req.param('id'), op);
-        filed([c.req.param('id')], op);
-        return change;
+        return journaled(await applyOp(actionDeps(), c.req.param('id'), op), op);
       });
     });
   }

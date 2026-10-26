@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest';
 import type { AcediaClient } from '@lun-ecosystem/lunacedia-views';
-import { render, screen } from '@testing-library/svelte';
+import { render, screen, within } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import Authorize from './Authorize.svelte';
@@ -29,16 +29,50 @@ describe('Authorize', () => {
     expect(
       screen.getByRole('heading', { level: 1, name: "Assistant local demande l’accès à Lun'Acedia" }),
     ).toBeInTheDocument();
-    expect(screen.getByText('Retour vers 127.0.0.1:53682')).toBeInTheDocument();
-    expect(screen.getByText('lire et ranger les mails')).toBeInTheDocument();
+    expect(screen.getByText('127.0.0.1:53682')).toBeInTheDocument();
+    expect(screen.getByText('127.0.0.1:53682').closest('p')).toHaveTextContent(
+      'Retour ensuite vers 127.0.0.1:53682',
+    );
     expect(
-      screen.getByText('Accès retirable à tout moment dans Réglages, Appareils et applications.'),
+      screen.getByText('Accès retirable à tout moment dans Réglages › Appareils et applications.'),
     ).toBeInTheDocument();
     expect(authorize).not.toHaveBeenCalled();
 
     await user.click(screen.getByRole('button', { name: 'Autoriser' }));
     expect(authorize).toHaveBeenCalledExactlyOnceWith({ ...request, decision: 'allow' });
     expect(navigate).toHaveBeenCalledExactlyOnceWith('http://127.0.0.1:53682/callback?decision=allow');
+  });
+
+  it('lists the four rights, each with its icon', () => {
+    setup();
+    const rights = within(screen.getByRole('list', { name: 'Droits demandés' })).getAllByRole('listitem');
+    expect(rights.map((li) => li.textContent?.trim())).toEqual([
+      'Lire l’état, les coûts et les événements',
+      'Lire et ranger les mails',
+      'Gérer l’agenda, les tâches et les rappels',
+      'Mettre en pause et reprendre le service',
+    ]);
+    for (const li of rights) expect(li.querySelector('svg[aria-hidden="true"]')).not.toBeNull();
+  });
+
+  it('shows the first step done, the second current, and the two buttons side by side, same size class', () => {
+    setup();
+    expect(screen.getByRole('list', { name: 'Étapes' })).toHaveTextContent(/Navigateur relié.*Autoriser/);
+    expect(screen.getByText('Navigateur relié', { exact: false }).closest('li')).not.toHaveAttribute(
+      'aria-current',
+    );
+    const deny = screen.getByRole('button', { name: 'Refuser' });
+    const allow = screen.getByRole('button', { name: 'Autoriser' });
+    // Same size: both fill half of one row; the refusal is a real button, not a link.
+    expect(deny.parentElement).toBe(allow.parentElement);
+    expect(deny.parentElement).toHaveClass('boutons');
+    expect(deny).toHaveClass('grand');
+    expect(allow).toHaveClass('grand');
+  });
+
+  it('shows the return host exactly as validated, as text only', () => {
+    setup({ redirect_uri: 'http://localhost/cb' });
+    expect(screen.getByText('localhost:80')).toBeInTheDocument();
   });
 
   it('sends the refusal and follows its redirect', async () => {

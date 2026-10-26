@@ -1,76 +1,79 @@
 <script lang="ts">
+  import type { Snippet } from 'svelte';
   import type { LabelView } from '../types.ts';
+  import { Plus, Sparkles, Trash } from '../ui/Icon.ts';
+  import Menu from '../ui/Menu.svelte';
+  import type { MenuSection } from '../ui/types.ts';
+  import { boxColor } from './format.ts';
+
+  /*
+   * « Ranger dans » : the boxes in a layer above the page, filtered as one types, the choice of the AI
+   * on top. Opened by its own trigger, or from an element given (a row, a shortcut).
+   */
 
   interface Props {
-    label: string;
-    /** Accessible name of the button when it differs from its text (« ✎ »). */
-    ariaLabel?: string;
     boxes: LabelView[];
-    /** Adds « Corbeille » after the boxes. */
-    withTrash?: boolean;
+    /** The box the AI proposes, shown first. */
+    suggested?: string | null | undefined;
+    /** Adds « Corbeille » (correcting a proposal). */
+    withTrash?: boolean | undefined;
+    open?: boolean | undefined;
+    anchor?: HTMLElement | null | undefined;
+    trigger?: Snippet<[{ props: Record<string, unknown> }]> | undefined;
     onpick: (boxId: string) => void;
+    oncreate: () => void;
   }
-  let { label, ariaLabel, boxes, withTrash = false, onpick }: Props = $props();
-  let open = $state(false);
+  let {
+    boxes,
+    suggested = null,
+    withTrash = false,
+    open = $bindable(false),
+    anchor = null,
+    trigger,
+    onpick,
+    oncreate,
+  }: Props = $props();
 
-  function pick(id: string) {
-    open = false;
-    onpick(id);
-  }
+  const sections = $derived.by((): MenuSection[] => {
+    const top = boxes.find((b) => b.id === suggested);
+    const rest = boxes.filter((b) => b !== top);
+    const first = top ? 2 : 1;
+    return [
+      ...(top
+        ? [
+            {
+              title: 'Suggéré',
+              items: [{ id: top.id, label: top.name, icon: Sparkles, tone: 'ia' as const }],
+            },
+          ]
+        : []),
+      {
+        title: 'Boîtes',
+        items: rest.map((b, i) => ({
+          id: b.id,
+          label: b.name,
+          color: boxColor(b.id),
+          shortcut: i + first <= 9 ? String(i + first) : undefined,
+        })),
+      },
+      {
+        fixed: true,
+        items: [
+          ...(withTrash ? [{ id: 'trash', label: 'Corbeille', icon: Trash, tone: 'danger' as const }] : []),
+          { id: 'nouvelle', label: 'Nouvelle boîte…', icon: Plus },
+        ],
+      },
+    ];
+  });
 </script>
 
-<div class="menu-wrap">
-  <button
-    type="button"
-    aria-haspopup="menu"
-    aria-expanded={open}
-    aria-label={ariaLabel ?? label}
-    onclick={() => (open = !open)}>{label}</button
-  >
-  {#if open}
-    <div class="menu" role="menu">
-      {#each boxes as box (box.id)}
-        <button type="button" role="menuitem" onclick={() => pick(box.id)}>{box.name}</button>
-      {/each}
-      {#if withTrash}
-        <button type="button" role="menuitem" onclick={() => pick('trash')}>Corbeille</button>
-      {/if}
-      {#if boxes.length === 0 && !withTrash}
-        <p class="empty">Aucune boîte : en créer dans les réglages.</p>
-      {/if}
-    </div>
-  {/if}
-</div>
-
-<style>
-  .menu-wrap {
-    position: relative;
-    display: inline-block;
-  }
-  .menu {
-    position: absolute;
-    z-index: 5;
-    top: calc(100% + 4px);
-    left: 0;
-    min-width: 11rem;
-    display: flex;
-    flex-direction: column;
-    padding: 0.3rem;
-    background: var(--surface-2);
-    border: 1px solid var(--bordure);
-    border-radius: var(--rayon);
-    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
-  }
-  .menu button {
-    text-align: left;
-    border: 0;
-  }
-  .menu button:hover {
-    background: var(--accent-doux);
-  }
-  .empty {
-    margin: 0.3rem;
-    font-size: 0.8rem;
-    color: var(--lune);
-  }
-</style>
+<Menu
+  bind:open
+  {sections}
+  {anchor}
+  {trigger}
+  filter="Filtrer les boîtes"
+  empty="Aucune boîte de ce nom"
+  label="Ranger dans"
+  onselect={(id) => (id === 'nouvelle' ? oncreate() : onpick(id))}
+/>

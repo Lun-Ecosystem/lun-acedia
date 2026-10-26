@@ -42,6 +42,39 @@ describe('POST /lun/v1/pair', () => {
     expect(res.status).toBe(401);
   });
 
+  it('takes the code as it is shown, grouped by three', async () => {
+    for (const space of [' ', ' ', ' ']) {
+      const h = makeHarness();
+      const code = issuePairingCode(h.db, h.clock());
+      const res = await h.app.request('/lun/v1/pair', {
+        method: 'POST',
+        headers: json,
+        body: JSON.stringify({ code: ` ${code.slice(0, 3)}${space}${code.slice(3)} `, client: 'core' }),
+      });
+      expect(res.status).toBe(200);
+    }
+  });
+
+  it('still refuses a code with anything but digits and spaces', async () => {
+    const h = makeHarness();
+    const code = issuePairingCode(h.db, h.clock());
+    for (const bad of [`${code}a`, `${code.slice(0, 3)}-${code.slice(3)}`, `${code.slice(0, 5)}x`]) {
+      const res = await h.app.request('/lun/v1/pair', {
+        method: 'POST',
+        headers: json,
+        body: JSON.stringify({ code: bad }),
+      });
+      expect(res.status).toBe(401);
+    }
+    // The real code is still there: the refused tries did not consume it.
+    const ok = await h.app.request('/lun/v1/pair', {
+      method: 'POST',
+      headers: json,
+      body: JSON.stringify({ code }),
+    });
+    expect(ok.status).toBe(200);
+  });
+
   it('issues six-digit codes', () => {
     const h = makeHarness();
     expect(issuePairingCode(h.db, h.clock())).toMatch(/^\d{6}$/);
@@ -78,7 +111,7 @@ describe('first device pairing', () => {
     const h = makeHarness();
     const lines: string[] = [];
     bootstrapPairing(h.db, h.clock(), (l) => lines.push(l));
-    expect(lines.join('\n')).toMatch(/\d{6}/);
+    expect(lines.join('\n')).toMatch(/\d{3} \d{3}$/);
   });
 
   it('logs nothing once a client exists', async () => {

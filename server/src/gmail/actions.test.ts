@@ -31,7 +31,12 @@ describe('mail actions', () => {
     expect(status).toBe(200);
     const modify = h.calls.find((c) => c.url.endsWith('/messages/m1/modify'))!;
     expect(JSON.parse(modify.body!)).toEqual({ addLabelIds: [ecole], removeLabelIds: ['INBOX', perso] });
-    expect(body).toEqual({ id: 'm1', before: ['INBOX', 'UNREAD', perso], after: ['UNREAD', ecole] });
+    expect(body).toEqual({
+      id: 'm1',
+      before: ['INBOX', 'UNREAD', perso],
+      after: ['UNREAD', ecole],
+      journalId: expect.any(Number),
+    });
     expect(getStoredMessage(h.db, 'm1')?.labels).toEqual(['UNREAD', ecole]);
   });
 

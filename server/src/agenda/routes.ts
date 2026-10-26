@@ -7,7 +7,7 @@ import type { GoogleClient } from '../google/client.ts';
 import { answer } from '../triage/routes.ts';
 import { stripUndefined } from '../util.ts';
 import { createEvent, deleteEvent, listCalendars, updateEvent } from './calendar.ts';
-import { createTask, deleteTask, listTaskLists, undatedTasks, updateTask } from './tasks.ts';
+import { allTasks, createTask, deleteTask, listTaskLists, undatedTasks, updateTask } from './tasks.ts';
 import { isDateOrInstant, isDay } from './time.ts';
 import { agendaRange } from './unified.ts';
 
@@ -48,7 +48,10 @@ export function agendaRoutes(deps: AppDeps, google: GoogleClient | undefined): H
   });
   r.get('/calendars', (c) => c.json({ items: listCalendars(deps.db) }));
   r.get('/task-lists', (c) => c.json({ items: listTaskLists(deps.db) }));
-  r.get('/tasks', (c) => c.json({ items: undatedTasks(deps.db) }));
+  // `?all=1`: every task, done ones included; otherwise the open tasks without a date.
+  r.get('/tasks', (c) =>
+    c.json({ items: c.req.query('all') === '1' ? allTasks(deps.db) : undatedTasks(deps.db) }),
+  );
 
   r.post('/events/:calendarId', async (c) => {
     const body = await parse(c, EventBody);

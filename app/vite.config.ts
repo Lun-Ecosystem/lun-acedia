@@ -29,7 +29,7 @@ export default defineConfig({
         start_url: '/',
         display: 'standalone',
         theme_color: '#3A6080',
-        background_color: '#070C14',
+        background_color: '#0D0B09',
         icons: [
           { src: 'icon-192.png', sizes: '192x192', type: 'image/png' },
           { src: 'icon-512.png', sizes: '512x512', type: 'image/png' },
@@ -41,10 +41,15 @@ export default defineConfig({
   resolve: {
     // One copy of each view: the app compiles them straight from views/.
     alias: [
-      { find: '@lun-ecosystem/lunacedia-views/styles.css', replacement: views('tokens.css') },
+      { find: '@lun-ecosystem/lunacedia-views/styles.css', replacement: views('styles.css') },
       { find: '@lun-ecosystem/lunacedia-views/client', replacement: views('client.ts') },
       { find: /^@lun-ecosystem\/lunacedia-views$/, replacement: views('index.ts') },
     ],
+  },
+  build: {
+    // Only the app is built. catalogue.html (components in every state) is a development page: Vite dev
+    // serves any root html file, the build takes this input alone.
+    rolldownOptions: { input: fileURLToPath(new URL('index.html', import.meta.url)) },
   },
   server: {
     proxy: {
@@ -57,5 +62,7 @@ export default defineConfig({
     name: 'app',
     environment: 'node',
     include: ['src/**/*.test.ts'],
+    // Svelte libraries ship .svelte sources (Bits UI, Lucide icons one by one): compile them in tests.
+    server: { deps: { inline: [/bits-ui/, /@lucide\/svelte/, /svelte-toolbelt/, /runed/] } },
   },
 });
