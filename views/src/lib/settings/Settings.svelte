@@ -458,7 +458,7 @@
     display: flex;
     flex-direction: column;
     gap: 10px;
-    padding: 4px 18px 16px;
+    padding: 14px 18px 16px;
   }
   .invite {
     margin: 0;

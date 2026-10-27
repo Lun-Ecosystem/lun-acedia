@@ -22,7 +22,6 @@
 <script lang="ts">
   import type { ModelChoice } from '../types.ts';
   import Badge from '../ui/Badge.svelte';
-  import Field from '../ui/Field.svelte';
   import Select from '../ui/Select.svelte';
 
   /*
@@ -53,20 +52,18 @@
 </script>
 
 <div class="choix">
-  <Field label={use === 'triage' ? 'Modèle du tri' : 'Modèle de Pina'}>
-    {#snippet children()}
-      <Select
-        {items}
-        {disabled}
-        placeholder="Choisir un modèle…"
-        value={value ? keyOf(value.provider, value.model) : ''}
-        onchange={(next) => {
-          const m = models.find((x) => keyOf(x.provider, x.id) === next);
-          if (m) onchange({ provider: m.provider, model: m.id });
-        }}
-      />
-    {/snippet}
-  </Field>
+  <!-- Named by its use, the card around it carries the visible title. -->
+  <Select
+    {items}
+    {disabled}
+    aria-label={use === 'triage' ? 'Modèle du tri' : 'Modèle de Pina'}
+    placeholder="Choisir un modèle…"
+    value={value ? keyOf(value.provider, value.model) : ''}
+    onchange={(next) => {
+      const m = models.find((x) => keyOf(x.provider, x.id) === next);
+      if (m) onchange({ provider: m.provider, model: m.id });
+    }}
+  />
   {#if selected}
     <p class="detail">
       <span>{priceLine(selected)}</span>
