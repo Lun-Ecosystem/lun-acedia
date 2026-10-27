@@ -18,8 +18,8 @@ import { contractRoutes } from './contract/routes.ts';
 import { gmailRoutes, sendAsRoutes } from './gmail/routes.ts';
 import { createGoogleClient, type GoogleClient, type GoogleDeps } from './google/client.ts';
 import { googleRoutes } from './google/oauth.ts';
-import { providerView, removeKey, type KeyChecker, type LlmEnv, type ProviderView } from './llm/keys.ts';
-import { llmRoutes, putKey, type ModelLister } from './llm/routes.ts';
+import type { KeyChecker, LlmEnv } from './llm/keys.ts';
+import { llmRoutes, type ModelLister } from './llm/routes.ts';
 import { serveApp } from './static.ts';
 import { afterUserAction, withProposal } from './triage/pipeline.ts';
 import { triageRoutes } from './triage/routes.ts';
@@ -90,22 +90,6 @@ export function createApp(deps: AppDeps): Hono {
       return c.json({ redirect: allowAuthorization(deps.db, read.request, deps.clock()) });
     if (body.decision === 'deny') return c.json({ redirect: denyAuthorization(read.request) });
     return c.json({ error: "decision attendue : 'allow' ou 'deny'" }, 400);
-  });
-  // shortcut: the former single-key routes, on top of the provider keys; removed with the old settings screen (Task 4).
-  const anthropicView = () => {
-    const view: Partial<ProviderView> = providerView(deps.db, deps.secretKey, deps.llmEnv ?? {}, 'anthropic');
-    delete view.id;
-    delete view.label;
-    return view;
-  };
-  api.get('/anthropic-key', (c) => c.json(anthropicView()));
-  api.put('/anthropic-key', async (c) => {
-    const res = await putKey(deps, 'anthropic', c);
-    return res instanceof Response ? res : c.json(anthropicView());
-  });
-  api.delete('/anthropic-key', (c) => {
-    removeKey(deps.db, 'anthropic');
-    return c.json(anthropicView());
   });
   app.route('/api', api);
   app.route('/api/llm', llmRoutes(deps));

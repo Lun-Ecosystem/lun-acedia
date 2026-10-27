@@ -18,7 +18,8 @@ import {
   saveKey,
   type ProviderView,
 } from './keys.ts';
-import { modelsFor, tierOf, type ModelInfo } from './models.ts';
+import type { ModelOffer } from '../types.ts';
+import { modelsFor, tierOf } from './models.ts';
 import type { ProviderId } from './types.ts';
 
 /** Lists the models of the custom endpoint. */
@@ -34,9 +35,11 @@ type Use = (typeof USES)[number];
 const isUse = (v: unknown): v is Use => USES.includes(v as Use);
 const isProvider = (v: unknown): v is ProviderId => PROVIDERS.includes(v as ProviderId);
 
+/** An http(s) address without credentials: they would be stored and shown in clear. */
 function isHttpUrl(value: string): boolean {
   try {
-    return ['http:', 'https:'].includes(new URL(value).protocol);
+    const u = new URL(value);
+    return ['http:', 'https:'].includes(u.protocol) && !u.username && !u.password;
   } catch {
     return false;
   }
@@ -55,7 +58,7 @@ async function jsonBody(c: Context): Promise<Record<string, unknown> | undefined
  * Checks then saves a key (`{ key, expires?, baseUrl? }`): the view of the provider, or the error answer.
  * The key is never logged nor sent back: the view carries its last 4 characters at most.
  */
-export async function putKey(deps: AppDeps, id: ProviderId, c: Context): Promise<ProviderView | Response> {
+async function putKey(deps: AppDeps, id: ProviderId, c: Context): Promise<ProviderView | Response> {
   if (!deps.secretKey)
     return c.json({ error: 'ACEDIA_SECRET_KEY absente : la clé ne peut pas être enregistrée' }, 400);
   const body = await jsonBody(c);
@@ -69,7 +72,7 @@ export async function putKey(deps: AppDeps, id: ProviderId, c: Context): Promise
     return c.json({ error: 'Date d’échéance attendue au format AAAA-MM-JJ' }, 400);
   const baseUrl = id === 'custom' && typeof body.baseUrl === 'string' ? body.baseUrl.trim() : undefined;
   if (id === 'custom' && !(baseUrl && isHttpUrl(baseUrl)))
-    return c.json({ error: 'Adresse attendue, en http:// ou https://' }, 400);
+    return c.json({ error: 'Adresse attendue, en http:// ou https://, sans identifiants' }, 400);
   const label = LABELS[id];
   const check = await (deps.checkKey ?? checkWithProvider)(id, key, baseUrl);
   if (check === 'refused') return c.json({ error: `Clé refusée par ${label}, rien n’a changé` }, 400);
@@ -81,10 +84,7 @@ export async function putKey(deps: AppDeps, id: ProviderId, c: Context): Promise
 }
 
 /** The models offered for a use: the table's for the configured providers, the custom endpoint's own. */
-async function modelsOffered(
-  deps: AppDeps,
-  use: Use,
-): Promise<(ModelInfo & { tier: ReturnType<typeof tierOf> })[]> {
+async function modelsOffered(deps: AppDeps, use: Use): Promise<ModelOffer[]> {
   const env = deps.llmEnv ?? {};
   const configured = configuredProviders(deps.db, deps.secretKey, env);
   const models = modelsFor(deps.db, use, configured);

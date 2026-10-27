@@ -56,6 +56,7 @@ describe('/api/llm', () => {
       'ftp://llm.example.test',
       'file:///etc/passwd',
       'pas une adresse',
+      'https://moi:secret@llm.example.test/v1',
     ]) {
       const res = await call('PUT', '/providers/custom/key', { key: 'custom-test-0001', baseUrl });
       expect(res.status, String(baseUrl)).toBe(400);

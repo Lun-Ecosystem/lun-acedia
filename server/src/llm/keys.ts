@@ -3,6 +3,7 @@ import { emitEvent } from '../contract/events.ts';
 import { addDegraded, clearDegraded, getState } from '../contract/state.ts';
 import { decrypt, encrypt } from '../crypto.ts';
 import { getSetting, putSetting } from '../db.ts';
+import type { ModelChoice, ProviderView } from '../types.ts';
 import { checkExpiry, isValidDate, warnedKey } from '../keys/expiry.ts';
 import type { Classifier } from '../triage/classifier.ts';
 import { createLlmClassifier } from '../triage/llm-classifier.ts';
@@ -33,20 +34,8 @@ export type LlmEnv = Partial<
   Record<ProviderId, { key?: string | undefined; expires?: string | undefined; baseUrl?: string | undefined }>
 >;
 
-export interface ProviderView {
-  id: ProviderId;
-  label: string;
-  state: 'ok' | 'refused' | 'credit' | 'absent';
-  last4?: string;
-  expires?: string;
-  source?: 'saved' | 'env';
-  baseUrl?: string;
-}
-
-export interface Choice {
-  provider: ProviderId;
-  model: string;
-}
+export type { ProviderView };
+export type Choice = ModelChoice;
 
 const ENV_NAMES: Record<ProviderId, string> = {
   anthropic: 'ANTHROPIC',
@@ -256,7 +245,7 @@ export function keyWorks(db: DatabaseSync, id: ProviderId, now: Date): void {
 
 /**
  * The model chosen for a use, if its provider still has a key; otherwise the computed default, never
- * written: the first model of `modelsFor(use)`, so `anthropic/claude-haiku-5-5` (first of the table)
+ * written: for Pina the triage choice when it is a tool model, else the first model of `modelsFor(use)`, so `anthropic/claude-haiku-5-5` (first of the table)
  * as soon as an Anthropic key exists. `null` without any key.
  */
 export function choiceFor(
@@ -268,7 +257,18 @@ export function choiceFor(
   const configured = configuredProviders(db, secretKey, env);
   const saved = getSetting<Choice | null>(db, `llm.${use}`, null);
   if (saved && configured.includes(saved.provider)) return saved;
-  const first = modelsFor(db, use, configured)[0];
+  const models = modelsFor(db, use, configured);
+  if (use === 'pina') {
+    // Pina follows the triage when its model calls tools (custom models are assumed to, see routes.ts).
+    const triage = choiceFor(db, secretKey, env, 'triage');
+    if (
+      triage &&
+      (triage.provider === 'custom' ||
+        models.some((m) => m.provider === triage.provider && m.id === triage.model))
+    )
+      return triage;
+  }
+  const first = models[0];
   return first ? { provider: first.provider, model: first.id } : null;
 }
 
@@ -291,6 +291,20 @@ export function classifierFor(
   return provider ? createLlmClassifier({ provider, model: choice.model }) : undefined;
 }
 
+/** An address as shown: never its user name nor its password (a `.env` one may carry them). */
+function withoutCredentials(url: string | undefined): string | undefined {
+  if (!url) return url;
+  try {
+    const u = new URL(url);
+    if (!u.username && !u.password) return url;
+    u.username = '';
+    u.password = '';
+    return u.href;
+  } catch {
+    return undefined;
+  }
+}
+
 /** What the settings screen shows of one provider; never more of the key than its last 4 characters. */
 export function providerView(
   db: DatabaseSync,
@@ -306,12 +320,13 @@ export function providerView(
     getState(db).degraded.includes('credit') && choiceFor(db, secretKey, env, 'triage')?.provider === id;
   const state = isRefused(db, id) ? 'refused' : credit ? 'credit' : 'ok';
   const expires = currentExpiry(db, secretKey, env, id);
-  const baseUrl = baseUrlOf(db, env, id, current.source);
+  const baseUrl = withoutCredentials(baseUrlOf(db, env, id, current.source));
   return {
     id,
     label,
     state,
-    last4: current.key.slice(-4),
+    // A key of 4 characters or fewer would show whole.
+    ...(current.key.length > 4 ? { last4: current.key.slice(-4) } : {}),
     ...(expires ? { expires } : {}),
     source: current.source,
     ...(baseUrl ? { baseUrl } : {}),

@@ -55,34 +55,54 @@ describe('createHttpClient', () => {
     expect(JSON.parse(String(fetch.mock.calls[2]![1]?.body))).toEqual(req);
   });
 
-  it('reads, replaces and removes the Anthropic key on its route', async () => {
-    const view = { state: 'ok', last4: 'c0de', expires: '2027-03-01', source: 'saved' };
-    const fetch = vi.fn<typeof globalThis.fetch>(async () => json(view));
+  it('reads, replaces and removes the provider keys, and chooses a model, on the /api/llm routes', async () => {
+    const view = {
+      id: 'custom',
+      label: 'Point d’accès compatible',
+      state: 'ok',
+      last4: 'c0de',
+      source: 'saved',
+    };
+    const models = [{ provider: 'openai', id: 'gpt-6-luna', label: 'GPT-6 Luna', tools: true, tier: '€' }];
+    const choice = { triage: null, pina: null };
+    const fetch = vi.fn<typeof globalThis.fetch>(async (url) => {
+      const path = new URL(String(url)).pathname;
+      if (path === '/api/llm/providers') return json({ providers: [view] });
+      if (path === '/api/llm/models') return json({ models });
+      if (path === '/api/llm/choice') return json(choice);
+      return json(view);
+    });
     const client = createHttpClient(BASE, 'tok-1', { fetch });
-    expect(await client.getAnthropicKey()).toEqual(view);
-    expect(await client.saveAnthropicKey('sk-ant-test-c0de', '2027-03-01')).toEqual(view);
-    await client.saveAnthropicKey('sk-ant-test-c0de');
-    await client.deleteAnthropicKey();
+    expect(await client.getProviders()).toEqual([view]);
+    const key = { key: 'sk-test-c0de', expires: '2027-03-01', baseUrl: 'http://localhost:11434/v1' };
+    expect(await client.saveProviderKey('custom', key)).toEqual(view);
+    await client.removeProviderKey('custom');
+    expect(await client.getModels('pina')).toEqual(models);
+    expect(await client.getModelChoice()).toEqual(choice);
+    await client.setModelChoice('triage', 'openai', 'gpt-6-luna');
     const calls = fetch.mock.calls.map(([url, init]) => [init?.method, String(url)]);
     expect(calls).toEqual([
-      ['GET', `${BASE}/api/anthropic-key`],
-      ['PUT', `${BASE}/api/anthropic-key`],
-      ['PUT', `${BASE}/api/anthropic-key`],
-      ['DELETE', `${BASE}/api/anthropic-key`],
+      ['GET', `${BASE}/api/llm/providers`],
+      ['PUT', `${BASE}/api/llm/providers/custom/key`],
+      ['DELETE', `${BASE}/api/llm/providers/custom/key`],
+      ['GET', `${BASE}/api/llm/models?use=pina`],
+      ['GET', `${BASE}/api/llm/choice`],
+      ['PUT', `${BASE}/api/llm/choice`],
     ]);
-    expect(JSON.parse(String(fetch.mock.calls[1]![1]?.body))).toEqual({
-      key: 'sk-ant-test-c0de',
-      expires: '2027-03-01',
+    expect(JSON.parse(String(fetch.mock.calls[1]![1]?.body))).toEqual(key);
+    expect(JSON.parse(String(fetch.mock.calls[5]![1]?.body))).toEqual({
+      use: 'triage',
+      provider: 'openai',
+      model: 'gpt-6-luna',
     });
-    expect(JSON.parse(String(fetch.mock.calls[2]![1]?.body))).toEqual({ key: 'sk-ant-test-c0de' });
   });
 
-  it('reports a refused Anthropic key with the server message', async () => {
+  it('reports a refused key with the server message', async () => {
     const fetch = vi.fn<typeof globalThis.fetch>(async () =>
       json({ error: 'Anthropic injoignable, rien n’a changé' }, 502),
     );
     const client = createHttpClient(BASE, 'tok-1', { fetch });
-    await expect(client.saveAnthropicKey('sk-ant-test-c0de')).rejects.toMatchObject({
+    await expect(client.saveProviderKey('anthropic', { key: 'sk-ant-test-c0de' })).rejects.toMatchObject({
       status: 502,
       message: 'Anthropic injoignable, rien n’a changé',
     });

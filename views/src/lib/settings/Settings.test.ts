@@ -3,7 +3,10 @@ import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import { fakeClient } from '../../testing/fake-client.ts';
 import type { Rule } from '../types.ts';
+import { stubSelect } from '../../testing/select.ts';
 import Settings from './Settings.svelte';
+
+stubSelect();
 
 const RULES: Rule[] = [
   {
@@ -63,7 +66,13 @@ describe('Settings', () => {
       within(themes)
         .getAllByRole('link')
         .map((l) => l.textContent?.trim()),
-    ).toEqual(['Compte Google', 'Appareils et applications', 'Tri par l’IA', 'Boîtes et règles']);
+    ).toEqual([
+      'Compte Google',
+      'Appareils et applications',
+      'Tri par l’IA',
+      'Boîtes et règles',
+      'Fournisseurs d’IA',
+    ]);
     expect(within(themes).getByRole('link', { name: 'Tri par l’IA' })).toHaveAttribute(
       'aria-current',
       'page',
@@ -371,7 +380,9 @@ describe('Settings', () => {
 
   it('a refused key shows a banner with « Remplacer la clé » on the sorting pages', async () => {
     const { user, go } = await open((c) =>
-      c.getAnthropicKey.mockResolvedValue({ state: 'refused', last4: '7f3a', source: 'saved' }),
+      c.getProviders.mockResolvedValue([
+        { id: 'anthropic', label: 'Anthropic', state: 'refused', last4: '7f3a', source: 'saved' },
+      ]),
     );
     await go('Boîtes et règles');
     const banner = await screen.findByRole('alert');
@@ -379,12 +390,12 @@ describe('Settings', () => {
     expect(banner).toHaveTextContent('Les règles continuent de s’appliquer.');
     await user.click(within(banner).getByRole('button', { name: 'Remplacer la clé' }));
     expect(await screen.findByRole('dialog', { name: 'Remplacer la clé' })).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: 'Tri par l’IA', level: 2 })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Fournisseurs d’IA', level: 2 })).toBeInTheDocument();
   });
 
   it('no banner while the key works', async () => {
     const { go } = await open();
-    await screen.findByText('Se termine par');
+    await screen.findByRole('combobox', { name: 'Modèle du tri' });
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
     await go('Boîtes et règles');
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
@@ -415,23 +426,64 @@ describe('Settings', () => {
     expect(icon('Chrome sur Windows')).toHaveClass('lucide-monitor');
   });
 
-  it('a key that cannot be read still shows its card, to retry or replace it', async () => {
-    const { client, user } = await open((c) =>
-      c.getAnthropicKey.mockRejectedValueOnce(new Error('Serveur injoignable')),
+  it('keys that cannot be read still show a card, to retry', async () => {
+    const { client, user, go } = await open((c) =>
+      c.getProviders.mockRejectedValueOnce(new Error('Serveur injoignable')),
     );
-    const card = await screen.findByRole('region', { name: 'Clé Anthropic' });
-    expect(within(card).getByText('État de la clé inconnu')).toBeInTheDocument();
-    expect(within(card).getByRole('button', { name: 'Remplacer…' })).toBeInTheDocument();
+    await go('Fournisseurs d’IA');
+    const card = await screen.findByRole('region', { name: 'Fournisseurs d’IA' });
+    expect(within(card).getByText('État des clés inconnu')).toBeInTheDocument();
     await user.click(within(card).getByRole('button', { name: 'Réessayer' }));
-    expect(client.getAnthropicKey).toHaveBeenCalledTimes(2);
-    expect(await within(card).findByText('En service')).toBeInTheDocument();
+    expect(client.getProviders).toHaveBeenCalledTimes(2);
+    expect(await screen.findByRole('region', { name: 'Anthropic' })).toBeInTheDocument();
+  });
+
+  it('the triage model picker is in the triage page', async () => {
+    const { client, user } = await open();
+    const picker = await screen.findByRole('combobox', { name: 'Modèle du tri' });
+    await waitFor(() => expect(picker).toHaveTextContent('Claude Haiku 5.5'));
+    expect(client.getModels).toHaveBeenCalledWith('triage');
+    await user.click(picker);
+    const astra = (await screen.findAllByRole('option', { hidden: true })).find((o) =>
+      o.textContent?.includes('GPT-6 Astra'),
+    )!;
+    await user.click(astra);
+    expect(client.setModelChoice).toHaveBeenCalledWith('triage', 'openai', 'gpt-6-astra');
+    await waitFor(() => expect(picker).toHaveTextContent('GPT-6 Astra'));
+  });
+
+  it('with models but none chosen (a custom endpoint alone), the triage page invites to choose', async () => {
+    await open((c) => {
+      c.getModels.mockResolvedValue([
+        { provider: 'custom', id: 'llama4', label: 'llama4', tools: true, tier: null },
+      ]);
+      c.getModelChoice.mockResolvedValue({ triage: null, pina: null });
+    });
+    expect(
+      await screen.findByText(
+        'Aucun modèle choisi : seules les règles trient tant qu’un modèle n’est pas choisi.',
+      ),
+    ).toBeInTheDocument();
+    expect(screen.getByRole('combobox', { name: 'Modèle du tri' })).toHaveTextContent('Choisir un modèle…');
+  });
+
+  it('without any provider, the triage page sends to the providers', async () => {
+    const { user } = await open((c) => {
+      c.getModels.mockResolvedValue([]);
+      c.getModelChoice.mockResolvedValue({ triage: null, pina: null });
+    });
+    const card = await screen.findByRole('region', { name: 'Modèle du tri' });
+    await user.click(await within(card).findByRole('button', { name: 'Ajouter une clé' }));
+    expect(await screen.findByRole('heading', { name: 'Fournisseurs d’IA', level: 2 })).toBeInTheDocument();
   });
 
   it('the theme link says when the key is refused, not only by a dot', async () => {
     const { themes } = await open((c) =>
-      c.getAnthropicKey.mockResolvedValue({ state: 'refused', last4: '7f3a', source: 'saved' }),
+      c.getProviders.mockResolvedValue([
+        { id: 'anthropic', label: 'Anthropic', state: 'refused', last4: '7f3a', source: 'saved' },
+      ]),
     );
-    const link = within(themes).getByRole('link', { name: 'Tri par l’IA' });
+    const link = within(themes).getByRole('link', { name: 'Fournisseurs d’IA' });
     await waitFor(() => expect(link).toHaveAccessibleDescription('Clé refusée'));
   });
 

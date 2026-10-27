@@ -10,6 +10,7 @@ import { makeHarness } from '../testing/harness.ts';
 import { getProposal, triageNew } from '../triage/pipeline.ts';
 import {
   checkKeyExpiries,
+  choiceFor,
   classifierFor,
   configuredProviders,
   currentKey,
@@ -55,9 +56,17 @@ async function client(h: ReturnType<typeof makeHarness>) {
   return async (method: string, body?: unknown) => {
     const init: RequestInit = { method, headers: h.auth(token) };
     if (body !== undefined) init.body = JSON.stringify(body);
-    const res = await h.app.request('/api/anthropic-key', init);
+    const res = await h.app.request(
+      method === 'GET' ? '/api/llm/providers' : '/api/llm/providers/anthropic/key',
+      init,
+    );
     const text = await res.text();
-    return { status: res.status, text, body: JSON.parse(text) as Record<string, unknown> };
+    const json = JSON.parse(text) as Record<string, unknown> & { providers?: Record<string, unknown>[] };
+    // The Anthropic view, without its id and label: what these tests compare.
+    const view = { ...(json.providers?.[0] ?? json) };
+    delete view.id;
+    delete view.label;
+    return { status: res.status, text, body: view };
   };
 }
 
@@ -135,6 +144,34 @@ describe('keys per provider', () => {
     expect(classifierFor(openDb(':memory:'), secretKey, {}, make)).toBeUndefined();
   });
 
+  it('pina defaults to the triage choice when it is a tool model, else to the first tool model', () => {
+    const secretKey = randomBytes(32).toString('base64');
+    const db = openDb(':memory:');
+    saveKey(db, secretKey, 'anthropic', NEW_KEY);
+    saveKey(db, secretKey, 'openai', 'sk-test-openai-5678');
+    putSetting(db, 'llm.triage', { provider: 'openai', model: 'gpt-6.1-sol' });
+    expect(choiceFor(db, secretKey, {}, 'pina')).toEqual({ provider: 'openai', model: 'gpt-6.1-sol' });
+    // A triage model Pina is not offered (unknown to the table): the first tool model.
+    putSetting(db, 'llm.triage', { provider: 'openai', model: 'gpt-old' });
+    expect(choiceFor(db, secretKey, {}, 'pina')).toEqual({
+      provider: 'anthropic',
+      model: 'claude-haiku-5-5',
+    });
+    // A saved Pina choice wins.
+    putSetting(db, 'llm.pina', { provider: 'openai', model: 'gpt-6-astra' });
+    expect(choiceFor(db, secretKey, {}, 'pina')).toEqual({ provider: 'openai', model: 'gpt-6-astra' });
+  });
+
+  it('the view never shows the credentials of an address, nor a key of 4 characters or fewer', () => {
+    const secretKey = randomBytes(32).toString('base64');
+    const db = openDb(':memory:');
+    saveKey(db, secretKey, 'custom', 'abcd', undefined, 'https://moi:secret@llm.example.test/v1');
+    const view = providersView(db, secretKey, {}).find((p) => p.id === 'custom')!;
+    expect(view.baseUrl).toBe('https://llm.example.test/v1');
+    expect(view).not.toHaveProperty('last4');
+    expect(JSON.stringify(view)).not.toMatch(/secret|abcd/);
+  });
+
   it('expiry warnings run per configured provider', () => {
     const secretKey = randomBytes(32).toString('base64');
     const db = openDb(':memory:');
@@ -156,13 +193,23 @@ describe('keys per provider', () => {
   });
 });
 
-describe('/api/anthropic-key (until the settings screen moves to /api/llm)', () => {
+describe('/api/llm/providers/anthropic/key', () => {
   it('PUT verifies, saves encrypted, never returns the key, the next mail uses it', async () => {
     const h = await makeGmailHarness();
     keyRefused(h.db, 'anthropic', h.clock());
-    const res = await h.call('PUT', '/api/anthropic-key', { key: NEW_KEY, expires: '2026-12-01' });
+    const res = await h.call('PUT', '/api/llm/providers/anthropic/key', {
+      key: NEW_KEY,
+      expires: '2026-12-01',
+    });
     expect(res.status).toBe(200);
-    expect(res.body).toEqual({ state: 'ok', last4: '1234', expires: '2026-12-01', source: 'saved' });
+    expect(res.body).toEqual({
+      id: 'anthropic',
+      label: 'Anthropic',
+      state: 'ok',
+      last4: '1234',
+      expires: '2026-12-01',
+      source: 'saved',
+    });
     expect(JSON.stringify(res.body)).not.toContain(NEW_KEY);
     expect(h.keyCheck.calls).toEqual([{ id: 'anthropic', key: NEW_KEY }]);
     // Encrypted at rest.

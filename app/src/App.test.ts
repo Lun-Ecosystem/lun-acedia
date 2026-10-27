@@ -51,8 +51,16 @@ function fakeServer({ keyRefused = false, startPaused = false } = {}) {
         if (keyRefused)
           return json({ status: 'degraded', reason: 'anthropic-key', ...(paused ? { paused } : {}) });
         return json({ status: paused ? 'paused' : 'ok' });
-      case 'GET /api/anthropic-key':
-        return json({ state: keyRefused ? 'refused' : 'ok', last4: '7f3a' });
+      case 'GET /api/llm/providers':
+        return json({
+          providers: [
+            { id: 'anthropic', label: 'Anthropic', state: keyRefused ? 'refused' : 'ok', last4: '7f3a' },
+          ],
+        });
+      case 'GET /api/llm/models':
+        return json({ models: [] });
+      case 'GET /api/llm/choice':
+        return json({ triage: null, pina: null });
       case 'POST /lun/v1/resume':
         paused = false;
         return json({ status: 'ok' });
@@ -173,7 +181,9 @@ describe('Shell', () => {
     const user = userEvent.setup();
     render(App);
     const rail = await screen.findByRole('navigation', { name: 'Sections' });
-    expect(await within(rail).findByText('Clé refusée · les règles continuent')).toBeInTheDocument();
+    expect(
+      await within(rail).findByText('Clé Anthropic refusée · les règles continuent'),
+    ).toBeInTheDocument();
     await user.click(await screen.findByRole('button', { name: 'Reprendre le tri' }));
     expect(calls).toContain('POST /lun/v1/resume');
     expect(calls).not.toContain('POST /lun/v1/pause');

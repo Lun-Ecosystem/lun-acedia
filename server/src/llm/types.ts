@@ -1,5 +1,6 @@
-/** The providers the user can pick; `custom` is any OpenAI-compatible endpoint. */
-export type ProviderId = 'anthropic' | 'openai' | 'google' | 'mistral' | 'custom';
+import type { ProviderId } from '../types.ts';
+
+export type { ProviderId };
 
 export interface Usage {
   inputTokens: number;

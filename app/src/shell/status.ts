@@ -39,12 +39,12 @@ export async function readStatus(
   { tasks = true, now = new Date() }: { tasks?: boolean; now?: Date } = {},
 ): Promise<ShellStatus> {
   const today = parisDay(now);
-  const [inbox, pending, all, health, key, settings] = await Promise.allSettled([
+  const [inbox, pending, all, health, keys, settings] = await Promise.allSettled([
     client.listMail('inbox'),
     client.listMail('pending'),
     tasks ? client.allTasks() : Promise.reject(),
     client.health(),
-    client.getAnthropicKey(),
+    client.getProviders(),
     client.getSettings(),
   ]);
   const value = <T>(r: PromiseSettledResult<T>) => (r.status === 'fulfilled' ? r.value : undefined);
@@ -61,15 +61,26 @@ export async function readStatus(
 
   let { service, detail, paused } = last;
   const state = value(health);
-  const keyState = value(key)?.state;
+  const providers = value(keys);
+  const problem = providers?.find((p) => p.state === 'refused' || p.state === 'credit');
+  /** « Clé OpenAI refusée », or without the name when the keys could not be read. */
+  const refused = (id: string) => {
+    const label = providers?.find((p) => p.id === id)?.label;
+    return `Clé ${label ? `${label} ` : ''}refusée · les règles continuent`;
+  };
+  const reasons = state?.reason?.split(',').map((r) => r.trim()) ?? [];
+  // `<provider>-key`: that provider refused its key (server keyReason).
+  const keyReason = reasons.find((r) => r.endsWith('-key'));
   if (state) paused = state.status === 'paused' || state.paused === true;
-  if (keyState === 'refused' || keyState === 'credit') {
+  if (problem) {
     service = 'cle-refusee';
-    detail = keyState === 'credit' ? DEGRADED.credit! : 'Clé refusée · les règles continuent';
+    detail = problem.state === 'credit' ? DEGRADED.credit! : refused(problem.id);
   } else if (state?.status === 'degraded') {
     // Degraded wins over paused on the server: something is broken and must show.
-    service = state.reason?.includes('credit') ? 'cle-refusee' : 'pause';
-    detail = DEGRADED[state.reason?.split(',')[0]?.trim() ?? ''] ?? 'Service dégradé';
+    service = keyReason || reasons.includes('credit') ? 'cle-refusee' : 'pause';
+    detail = keyReason
+      ? refused(keyReason.slice(0, -'-key'.length))
+      : (DEGRADED[reasons[0] ?? ''] ?? 'Service dégradé');
   } else if (state?.status === 'paused') {
     service = 'pause';
     detail = 'Rien n’est rangé seul';

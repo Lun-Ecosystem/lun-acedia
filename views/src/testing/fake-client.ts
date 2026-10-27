@@ -7,6 +7,8 @@ import type {
   LabelView,
   MailDetail,
   MailSummary,
+  ModelOffer,
+  ProviderView,
 } from '../lib/types.ts';
 
 export const LABELS: LabelView[] = [
@@ -14,6 +16,35 @@ export const LABELS: LabelView[] = [
   { id: 'L-ecole', name: 'École', type: 'user', role: 'box' },
   { id: 'L-perso', name: 'Perso', type: 'user', role: 'box' },
   { id: 'L-urgent', name: 'Urgent', type: 'user', role: 'tag' },
+];
+
+/** Anthropic in service (saved, with an expiry), OpenAI from `.env`, the others without a key. */
+export const PROVIDERS: ProviderView[] = [
+  { id: 'anthropic', label: 'Anthropic', state: 'ok', last4: '7f3a', expires: '2026-12-31', source: 'saved' },
+  { id: 'openai', label: 'OpenAI', state: 'ok', last4: '9876', source: 'env' },
+  { id: 'google', label: 'Google Gemini', state: 'absent' },
+  { id: 'mistral', label: 'Mistral', state: 'absent' },
+  { id: 'custom', label: 'Point d’accès compatible', state: 'absent' },
+];
+
+export const MODELS: ModelOffer[] = [
+  {
+    provider: 'anthropic',
+    id: 'claude-haiku-5-5',
+    label: 'Claude Haiku 5.5',
+    tools: true,
+    price: { input: 0.1, output: 0.5 },
+    tier: '€',
+  },
+  {
+    provider: 'openai',
+    id: 'gpt-6-astra',
+    label: 'GPT-6 Astra',
+    tools: true,
+    price: { input: 10, output: 50 },
+    tier: '€€€',
+  },
+  { provider: 'openai', id: 'gpt-maison', label: 'GPT maison', tools: true, tier: null },
 ];
 
 const mail = (n: number, extra: Partial<MailSummary> = {}): MailSummary => ({
@@ -155,14 +186,21 @@ export function fakeClient(opts: { mails?: MailSummary[]; journal?: JournalEntry
     ]),
     revokeClient: vi.fn<AcediaClient['revokeClient']>(async () => {}),
     authorize: vi.fn<AcediaClient['authorize']>(notUsed),
-    getAnthropicKey: vi.fn<AcediaClient['getAnthropicKey']>(async () => ({
-      state: 'ok',
-      last4: '7f3a',
-      expires: '2026-12-31',
-      source: 'saved',
+    getProviders: vi.fn<AcediaClient['getProviders']>(async () => PROVIDERS.map((p) => ({ ...p }))),
+    saveProviderKey: vi.fn<AcediaClient['saveProviderKey']>(notUsed),
+    removeProviderKey: vi.fn<AcediaClient['removeProviderKey']>(async (id) => {
+      const { label } = PROVIDERS.find((p) => p.id === id)!;
+      return { id, label, state: 'absent' as const };
+    }),
+    getModels: vi.fn<AcediaClient['getModels']>(async () => MODELS.map((m) => ({ ...m }))),
+    getModelChoice: vi.fn<AcediaClient['getModelChoice']>(async () => ({
+      triage: { provider: 'anthropic', model: 'claude-haiku-5-5' },
+      pina: { provider: 'anthropic', model: 'claude-haiku-5-5' },
     })),
-    saveAnthropicKey: vi.fn<AcediaClient['saveAnthropicKey']>(notUsed),
-    deleteAnthropicKey: vi.fn<AcediaClient['deleteAnthropicKey']>(async () => ({ state: 'absent' as const })),
+    setModelChoice: vi.fn<AcediaClient['setModelChoice']>(async (_use, provider, model) => ({
+      provider,
+      model,
+    })),
     health: vi.fn<AcediaClient['health']>(async () => ({ status: 'ok' as const })),
     pause: vi.fn<AcediaClient['pause']>(async () => {}),
     resume: vi.fn<AcediaClient['resume']>(async () => {}),

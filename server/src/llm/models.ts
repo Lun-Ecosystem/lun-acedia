@@ -1,18 +1,9 @@
 import type { DatabaseSync } from 'node:sqlite';
 import { parisDayStart } from '../triage/journal.ts';
+import type { CostTier, ModelInfo } from '../types.ts';
 import type { ProviderId, Usage } from './types.ts';
 
-export interface ModelInfo {
-  provider: ProviderId;
-  id: string;
-  label: string;
-  /** The provider documents tool calling for this model. */
-  tools: boolean;
-  /** Dollars per million tokens; absent when no official price was found (shown « prix inconnu »). */
-  price?: { input: number; output: number };
-}
-
-export type CostTier = '€' | '€€' | '€€€' | null;
+export type { CostTier, ModelInfo };
 
 /**
  * Built-in table, prices in dollars per million tokens (standard tier, short prompts), read on 2026-10-26:

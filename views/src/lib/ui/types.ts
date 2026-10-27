@@ -14,6 +14,8 @@ export type Size = 'petit' | 'normal' | 'grand';
 export interface Option {
   value: string;
   label: string;
+  /** Second line of the entry, in the open list only. */
+  hint?: string;
   disabled?: boolean;
 }
 

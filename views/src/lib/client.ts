@@ -12,7 +12,11 @@ import type {
   LunEvent,
   MailDetail,
   MailPage,
+  ModelChoice,
+  ModelOffer,
   ProposalView,
+  ProviderId,
+  ProviderView,
   Role,
   Rule,
   RuleField,
@@ -63,19 +67,6 @@ export interface LinkedClient {
   kind: 'device' | 'app';
   createdAt: string;
   current: boolean;
-}
-
-/**
- * The Anthropic key in service, as `GET /api/anthropic-key` describes it: never the key itself, only
- * its last 4 characters. `credit` means the key works but its credit is spent.
- */
-export interface AnthropicKeyStatus {
-  state: 'ok' | 'refused' | 'credit' | 'absent';
-  last4?: string;
-  /** Declared expiry, `AAAA-MM-JJ`. */
-  expires?: string;
-  /** Where the key in service comes from: saved in the settings or declared in `.env`. */
-  source?: 'saved' | 'env';
 }
 
 /** An app asking for access (`GET /lun/v1/authorize`), as the authorization page received it. */
@@ -143,11 +134,20 @@ export interface AcediaClient {
   revokeClient(id: number): Promise<void>;
   /** Records the decision of a linked device; returns where to send the browser back. */
   authorize(req: AuthorizationRequest & { decision: 'allow' | 'deny' }): Promise<{ redirect: string }>;
-  getAnthropicKey(): Promise<AnthropicKeyStatus>;
-  /** Checks the key with Anthropic, then saves it; rejects (nothing changed) when refused or unreachable. */
-  saveAnthropicKey(key: string, expires?: string): Promise<AnthropicKeyStatus>;
+  /** The five AI providers and the state of their key; never more of a key than its last 4 characters. */
+  getProviders(): Promise<ProviderView[]>;
+  /** Checks the key with the provider, then saves it; rejects (nothing changed) when refused or unreachable. */
+  saveProviderKey(
+    id: ProviderId,
+    key: { key: string; expires?: string; baseUrl?: string },
+  ): Promise<ProviderView>;
   /** Forgets the saved key; answers what remains in service (the `.env` key, or none). */
-  deleteAnthropicKey(): Promise<AnthropicKeyStatus>;
+  removeProviderKey(id: ProviderId): Promise<ProviderView>;
+  /** The models offered for a use, from the configured providers (Pina: tool models only). */
+  getModels(use: 'triage' | 'pina'): Promise<ModelOffer[]>;
+  /** The model of each use, chosen or computed; `null` without any provider. */
+  getModelChoice(): Promise<{ triage: ModelChoice | null; pina: ModelChoice | null }>;
+  setModelChoice(use: 'triage' | 'pina', provider: ProviderId, model: string): Promise<ModelChoice>;
   /** State of the service (`GET /lun/v1/health`): sorting active, paused, or degraded (`paused` then tells a pause). */
   health(): Promise<{ status: 'ok' | 'paused' | 'degraded'; reason?: string; paused?: boolean }>;
   /** Pauses everything automatic (the AI and the rules); what is asked by hand still runs. */
@@ -268,10 +268,14 @@ export function httpClient(opts: { baseUrl: string; token: string; fetch?: typeo
       await call('DELETE', `/api/clients/${id}`);
     },
     authorize: (req) => call('POST', '/api/authorizations', req),
-    getAnthropicKey: () => call('GET', '/api/anthropic-key'),
-    saveAnthropicKey: (key, expires) =>
-      call('PUT', '/api/anthropic-key', expires ? { key, expires } : { key }),
-    deleteAnthropicKey: () => call('DELETE', '/api/anthropic-key'),
+    getProviders: async () =>
+      (await call<{ providers: ProviderView[] }>('GET', '/api/llm/providers')).providers,
+    saveProviderKey: (id, key) => call('PUT', `/api/llm/providers/${id}/key`, key),
+    removeProviderKey: (id) => call('DELETE', `/api/llm/providers/${id}/key`),
+    getModels: async (use) =>
+      (await call<{ models: ModelOffer[] }>('GET', `/api/llm/models?use=${use}`)).models,
+    getModelChoice: () => call('GET', '/api/llm/choice'),
+    setModelChoice: (use, provider, model) => call('PUT', '/api/llm/choice', { use, provider, model }),
     health: () => call('GET', '/lun/v1/health'),
     pause: async () => {
       await call('POST', '/lun/v1/pause', {});

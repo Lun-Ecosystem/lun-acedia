@@ -1,8 +1,16 @@
 <script lang="ts">
   import { onMount, tick } from 'svelte';
-  import type { AcediaClient, AnthropicKeyStatus, LinkedClient } from '../client.ts';
+  import type { AcediaClient, LinkedClient } from '../client.ts';
   import { errorText } from '../mail/format.ts';
-  import type { GoogleStatus, LabelView, Rule, Settings } from '../types.ts';
+  import type {
+    GoogleStatus,
+    LabelView,
+    ModelChoice,
+    ModelOffer,
+    ProviderView,
+    Rule,
+    Settings,
+  } from '../types.ts';
   import Badge from '../ui/Badge.svelte';
   import Banner from '../ui/Banner.svelte';
   import Button from '../ui/Button.svelte';
@@ -11,22 +19,26 @@
     ChevronRight,
     Folder,
     ICON_STROKE,
+    Key,
     Mail,
     Monitor,
     Pause,
     Play,
+    Plus,
     Sparkles,
     type IconComponent,
   } from '../ui/Icon.ts';
   import NavGroup from '../ui/NavGroup.svelte';
   import NavLink from '../ui/NavLink.svelte';
   import SettingsCard from '../ui/SettingsCard.svelte';
+  import SettingsRow from '../ui/SettingsRow.svelte';
   import { toast } from '../ui/toasts.svelte.ts';
   import type { Tone } from '../ui/types.ts';
-  import AnthropicKey from './AnthropicKey.svelte';
   import Boxes from './Boxes.svelte';
   import Devices from './Devices.svelte';
   import GoogleAccount from './GoogleAccount.svelte';
+  import ModelPicker from './ModelPicker.svelte';
+  import Providers from './Providers.svelte';
   import Rules from './Rules.svelte';
   import Threshold from './Threshold.svelte';
 
@@ -48,7 +60,7 @@
     onchange?: (() => void) | undefined;
   } = $props();
 
-  type Theme = 'google' | 'appareils' | 'tri' | 'boites';
+  type Theme = 'google' | 'appareils' | 'tri' | 'boites' | 'fournisseurs';
   interface Page {
     id: Theme;
     label: string;
@@ -76,8 +88,7 @@
       label: 'Tri par l’IA',
       icon: Sparkles,
       group: 'Tri',
-      description:
-        'La clé qui fait tourner le tri, et le niveau de confiance à partir duquel l’IA agit seule.',
+      description: 'Le modèle qui trie, et le niveau de confiance à partir duquel l’IA agit seule.',
     },
     {
       id: 'boites',
@@ -86,8 +97,16 @@
       group: 'Tri',
       description: 'Où l’IA peut ranger, et ce qui est rangé avant même de lui demander.',
     },
+    {
+      id: 'fournisseurs',
+      label: 'Fournisseurs d’IA',
+      icon: Key,
+      group: 'IA',
+      description:
+        'Une clé par fournisseur, vérifiée avant d’être enregistrée et jamais affichée en entier. Les modèles proposés viennent des fournisseurs en service.',
+    },
   ];
-  const GROUPS = ['Compte', 'Tri'];
+  const GROUPS = ['Compte', 'Tri', 'IA'];
 
   let theme = $state<Theme>('tri');
   /** On a phone: a theme is open (else the list of themes shows). */
@@ -96,16 +115,19 @@
 
   let labels = $state<LabelView[]>([]);
   let rules = $state<Rule[]>([]);
-  let key = $state<AnthropicKeyStatus | null>(null);
+  let providers = $state<ProviderView[] | null>(null);
+  let models = $state<ModelOffer[] | null>(null);
+  let choice = $state<ModelChoice | null>(null);
+  let choosing = $state(false);
   let google = $state<GoogleStatus | null>(null);
   let clients = $state<LinkedClient[]>([]);
   let settings = $state<Settings | null>(null);
   let paused = $state(false);
-  let replacing = $state(false);
+  let editing = $state<ProviderView['id'] | null>(null);
   let pausing = $state(false);
   let error = $state<string | null>(null);
-  /** The key could not be read: its card still shows, to retry or replace it. */
-  let keyFailed = $state(false);
+  /** The keys could not be read: a card still shows, to retry. */
+  let keysFailed = $state(false);
   let heading = $state<HTMLElement | null>(null);
   let nav = $state<HTMLElement | null>(null);
   const uid = $props.id();
@@ -114,21 +136,45 @@
     const fail = (err: unknown) => (error = errorText(err));
     client.listLabels().then((l) => (labels = l), fail);
     client.listRules().then((r) => (rules = r), fail);
-    client.getAnthropicKey().then(
-      (k) => (key = k),
+    client.getProviders().then(
+      (p) => (providers = p),
       (err: unknown) => {
-        keyFailed = true;
+        keysFailed = true;
         fail(err);
       },
     );
+    loadModels();
     client.googleStatus().then((g) => (google = g), fail);
     client.listClients().then((c) => (clients = c), fail);
     client.getSettings().then((s) => (settings = s), fail);
     client.health().then((h) => (paused = h.status === 'paused' || h.paused === true), fail);
   });
 
-  const keyProblem = $derived(key?.state === 'refused' || key?.state === 'credit');
-  const KEY_BADGE: Record<AnthropicKeyStatus['state'], { text: string; tone: Tone }> = {
+  /** The models of the triage, read again when a key comes or goes. */
+  function loadModels() {
+    const fail = (err: unknown) => (error = errorText(err));
+    client.getModels('triage').then((m) => (models = m), fail);
+    client.getModelChoice().then((c) => (choice = c.triage), fail);
+  }
+
+  async function choose(next: ModelChoice) {
+    const before = choice;
+    choice = next;
+    choosing = true;
+    try {
+      choice = await client.setModelChoice('triage', next.provider, next.model);
+      toast('Modèle du tri enregistré');
+    } catch (err) {
+      choice = before;
+      toast(errorText(err), { tone: 'danger' });
+    } finally {
+      choosing = false;
+    }
+  }
+
+  /** The first provider whose key is refused or out of credit. */
+  const problem = $derived(providers?.find((p) => p.state === 'refused' || p.state === 'credit'));
+  const KEY_BADGE: Record<ProviderView['state'], { text: string; tone: Tone }> = {
     ok: { text: 'En service', tone: 'ok' },
     refused: { text: 'Clé refusée', tone: 'danger' },
     credit: { text: 'Crédit épuisé', tone: 'attention' },
@@ -140,6 +186,7 @@
     google: google ? (google.connected ? 'Connecté' : 'Non connecté') : '',
     appareils: String(clients.length),
     tri: '',
+    fournisseurs: providers ? `${providers.filter((p) => p.state !== 'absent').length} en service` : '',
     boites: `${plural(labels.filter((l) => l.role === 'box').length, 'boîte')} · ${plural(rules.length, 'règle')}`,
   });
 
@@ -161,9 +208,16 @@
   }
 
   function replaceKey() {
-    theme = 'tri';
+    theme = 'fournisseurs';
     opened = true;
-    replacing = true;
+    editing = problem?.id ?? null;
+  }
+
+  async function goProviders() {
+    theme = 'fournisseurs';
+    opened = true;
+    await tick();
+    heading?.focus();
   }
 
   async function togglePause() {
@@ -196,15 +250,15 @@
                 icon={p.icon}
                 current={theme === p.id}
                 onclick={open(p.id)}
-                aria-describedby={p.id === 'tri' && keyProblem ? `${uid}-cle` : undefined}
+                aria-describedby={p.id === 'fournisseurs' && problem ? `${uid}-cle` : undefined}
               />
-              {#if p.id === 'tri' && keyProblem}
+              {#if p.id === 'fournisseurs' && problem}
                 <span class="alerte" aria-hidden="true"></span>
-                <span class="sr" id="{uid}-cle">{KEY_BADGE[key!.state].text}</span>
+                <span class="sr" id="{uid}-cle">{KEY_BADGE[problem.state].text}</span>
               {/if}
               <span class="resume" aria-hidden="true">
-                {#if p.id === 'tri'}
-                  {#if key}<Badge tone={KEY_BADGE[key.state].tone}>{KEY_BADGE[key.state].text}</Badge>{/if}
+                {#if p.id === 'fournisseurs' && problem}
+                  <Badge tone={KEY_BADGE[problem.state].tone}>{KEY_BADGE[problem.state].text}</Badge>
                 {:else}
                   {summary[p.id]}
                 {/if}
@@ -220,11 +274,11 @@
   <div class="contenu">
     <div class="colonne">
       <Button variant="fantome" size="petit" icon={ArrowLeft} class="retour" onclick={back}>Réglages</Button>
-      {#if keyProblem && (theme === 'tri' || theme === 'boites')}
+      {#if problem && theme !== 'google' && theme !== 'appareils'}
         <Banner
-          title={key?.state === 'credit'
-            ? 'Crédit Anthropic épuisé : le tri par l’IA est en pause.'
-            : 'Clé Anthropic refusée : le tri par l’IA est en pause.'}
+          title={problem.state === 'credit'
+            ? `Crédit ${problem.label} épuisé : le tri par l’IA est en pause.`
+            : `Clé ${problem.label} refusée : le tri par l’IA est en pause.`}
         >
           Les règles continuent de s’appliquer. Les nouveaux mails restent en réception.
           {#snippet action()}
@@ -244,20 +298,49 @@
         <GoogleAccount {client} bind:status={google} />
       {:else if theme === 'appareils'}
         <Devices {client} bind:clients {onSelfRevoked} />
-      {:else if theme === 'tri'}
-        {#if key || keyFailed}
-          <!-- A new or removed key changes the service state shown around the screen. -->
-          <AnthropicKey
+      {:else if theme === 'fournisseurs'}
+        {#if providers || keysFailed}
+          <!-- A new or removed key changes the models offered and the service state around the screen. -->
+          <Providers
             {client}
-            bind:status={
-              () => key,
+            bind:providers={
+              () => providers,
               (next) => {
-                key = next;
+                providers = next;
+                keysFailed = false;
+                loadModels();
                 onchange?.();
               }
             }
-            bind:replacing
+            bind:editing
           />
+        {/if}
+      {:else if theme === 'tri'}
+        {#if models}
+          <SettingsCard
+            title="Modèle du tri"
+            description="Le modèle qui lit chaque nouveau mail et propose sa boîte."
+          >
+            {#if models.length === 0}
+              <SettingsRow
+                label="Aucun fournisseur d’IA en service"
+                hint="Seules les règles trient les nouveaux mails."
+              >
+                <Button variant="principal" size="petit" icon={Plus} onclick={goProviders}
+                  >Ajouter une clé</Button
+                >
+              </SettingsRow>
+            {:else}
+              <div class="modele">
+                {#if !choice}
+                  <p class="invite">
+                    Aucun modèle choisi : seules les règles trient tant qu’un modèle n’est pas choisi.
+                  </p>
+                {/if}
+                <ModelPicker use="triage" {models} value={choice} onchange={choose} disabled={choosing} />
+              </div>
+            {/if}
+          </SettingsCard>
         {/if}
         {#if settings}<Threshold {client} bind:settings />{/if}
         <SettingsCard
@@ -369,6 +452,17 @@
   }
   .tete p {
     margin: 0;
+    color: var(--texte-2);
+  }
+  .modele {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 4px 18px 16px;
+  }
+  .invite {
+    margin: 0;
+    font-size: 13px;
     color: var(--texte-2);
   }
   .erreur {
