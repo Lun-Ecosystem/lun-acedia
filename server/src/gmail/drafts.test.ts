@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { message, textPart } from '../testing/fake-gmail.ts';
 import { makeGmailHarness } from '../testing/gmail-harness.ts';
 import { createDraft, deleteDraft, getDraft, sendDraft, updateDraft } from './drafts.ts';
 
@@ -69,6 +70,57 @@ describe('drafts', () => {
     });
     expect(res.status).toBe(200);
     expect(h.gmail.drafts.size).toBe(1);
+    expect(h.gmail.sent).toHaveLength(0);
+  });
+
+  it('draft.create with replyTo threads the draft, from the alias that received the mail', async () => {
+    const original = message({
+      id: 'm1',
+      to: "Lun'Ecosystem <contact@lun.example>",
+      payload: {
+        ...textPart('text/plain', 'Bonjour'),
+        headers: [
+          { name: 'Message-ID', value: '<abc@mail>' },
+          { name: 'References', value: '<old@mail>' },
+        ],
+      },
+    });
+    const h = await makeGmailHarness([original]);
+    const res = await h.call('POST', '/lun/v1/actions/draft.create', {
+      to: 'prof@ecole.fr',
+      subject: 'Re: Sujet',
+      text: 'Merci',
+      replyTo: 'm1',
+    });
+    expect(res.status).toBe(200);
+    const raw = [...h.gmail.drafts.values()][0]!;
+    expect(raw.threadId).toBe('t-m1');
+    const mime = Buffer.from(raw.raw, 'base64url').toString('utf8');
+    expect(mime).toContain('In-Reply-To: <abc@mail>');
+    expect(mime).toContain('References: <old@mail> <abc@mail>');
+    expect(mime).toContain('<contact@lun.example>');
+  });
+
+  it('draft.create with an unknown replyTo is not found, not a 500', async () => {
+    const h = await makeGmailHarness();
+    const res = await h.call('POST', '/lun/v1/actions/draft.create', {
+      to: 'a@b.fr',
+      subject: 's',
+      text: 't',
+      replyTo: 'nope',
+    });
+    expect(res.body.ok).toBe(false);
+    expect(h.gmail.drafts.size).toBe(0);
+  });
+
+  it('rejects a line break in a header value, on the routes and the action', async () => {
+    const h = await makeGmailHarness();
+    const to = 'a@b.fr\r\nBcc: x@example.org';
+    expect((await h.call('POST', '/api/drafts', { ...draft, to })).status).toBe(400);
+    expect((await h.call('POST', '/api/mail/send', { ...draft, to })).status).toBe(400);
+    const res = await h.call('POST', '/lun/v1/actions/draft.create', { to, subject: 's', text: 't' });
+    expect(res.status).toBe(400);
+    expect(h.gmail.drafts.size).toBe(0);
     expect(h.gmail.sent).toHaveLength(0);
   });
 });

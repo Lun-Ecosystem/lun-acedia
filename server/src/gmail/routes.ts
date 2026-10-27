@@ -15,7 +15,7 @@ import {
   type LabelChange,
 } from './actions.ts';
 import { findPart } from './body.ts';
-import { defaultFrom, sendMail, type Draft } from './compose.ts';
+import { defaultFrom, headerValue, sendMail, type Draft } from './compose.ts';
 import { createDraft, deleteDraft, getDraft, sendDraft, updateDraft } from './drafts.ts';
 import { fetchFull, listMail, readMail, searchMail, summary } from './read.ts';
 import type { StoredMessage } from './store.ts';
@@ -187,13 +187,13 @@ const BatchBody = z.object({ ids: z.array(z.string().min(1)).min(1).max(500), op
 
 const DraftBody = z.object({
   from: z.string().min(1),
-  to: z.string().min(1),
-  cc: z.string().optional(),
+  to: headerValue.min(1),
+  cc: headerValue.optional(),
   subject: z.string(),
   html: z.string(),
   text: z.string().optional(),
-  inReplyTo: z.string().optional(),
-  references: z.string().optional(),
+  inReplyTo: headerValue.optional(),
+  references: headerValue.optional(),
   threadId: z.string().optional(),
 });
 

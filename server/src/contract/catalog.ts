@@ -24,11 +24,11 @@ import {
   type ActionDeps,
 } from '../gmail/actions.ts';
 import { plainText } from '../gmail/body.ts';
-import { defaultFrom } from '../gmail/compose.ts';
+import { defaultFrom, headerValue, textToHtml } from '../gmail/compose.ts';
 import { createDraft, deleteDraft, updateDraft } from '../gmail/drafts.ts';
-import { listMail, readMail, searchMail, summary } from '../gmail/read.ts';
+import { fetchFull, listMail, readMail, searchMail, summary } from '../gmail/read.ts';
 import type { GoogleClient } from '../google/client.ts';
-import { viewFilter } from '../gmail/store.ts';
+import { header, upsertMessage, viewFilter } from '../gmail/store.ts';
 import type { MailDetail } from '../types.ts';
 import { listJournal, todayStats, undo } from '../triage/journal.ts';
 import { createLabel, listLabels, setRole } from '../triage/labels.ts';
@@ -266,29 +266,38 @@ export function registerCatalog(
 
   // Drafts only: there is no action that sends a mail, and none may ever be added.
   const DraftFields = {
-    to: z.string().min(1),
-    cc: z.string().optional(),
+    to: headerValue.min(1),
+    cc: headerValue.optional(),
     subject: z.string(),
     text: z.string(),
-    replyTo: z.object({ id: Id.describe('Message-ID du mail auquel on répond'), threadId: Id }).optional(),
+    replyTo: Id.optional().describe(
+      'Pour répondre : l’id du mail renvoyé par mail.read ou mail.list ; le fil et l’adresse d’envoi en découlent',
+    ),
   };
   type DraftInput = z.infer<z.ZodObject<typeof DraftFields>>;
   const toDraft = async (i: DraftInput) => {
-    const html = `<p>${i.text
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/\n/g, '<br>')}</p>`;
+    const deps = mail();
+    let reply: { inReplyTo?: string; references?: string; threadId: string } | undefined;
+    if (i.replyTo) {
+      const original = await fetchFull(deps.google, i.replyTo);
+      if (!original) throw new NotFoundError();
+      upsertMessage(deps.db, original);
+      const messageId = header(original, 'Message-ID');
+      const references = [header(original, 'References'), messageId].filter(Boolean).join(' ');
+      reply = stripUndefined({
+        inReplyTo: messageId || undefined,
+        references: references || undefined,
+        threadId: original.threadId,
+      });
+    }
     return stripUndefined({
-      from: (await defaultFrom(mail())).default,
+      from: (await defaultFrom(deps, i.replyTo)).default,
       to: i.to,
       cc: i.cc,
       subject: i.subject,
-      html,
+      html: textToHtml(i.text),
       text: i.text,
-      inReplyTo: i.replyTo?.id,
-      references: i.replyTo?.id,
-      threadId: i.replyTo?.threadId,
+      ...reply,
     });
   };
   add(
