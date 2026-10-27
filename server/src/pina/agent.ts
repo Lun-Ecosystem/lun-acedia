@@ -4,6 +4,7 @@ import { recordCost } from '../contract/costs.ts';
 import { keyRefused, keyWorks } from '../llm/keys.ts';
 import { costOf, priceOf, spentToday } from '../llm/models.ts';
 import { ProviderError, type ChatMessage, type LlmProvider, type ToolCall } from '../llm/types.ts';
+import { markPina } from '../triage/journal.ts';
 import { listLabels } from '../triage/labels.ts';
 import { beforeOf, inverseOf } from './inverse.ts';
 import { systemPrompt, toolName } from './prompt.ts';
@@ -17,7 +18,10 @@ import {
   messagesOf,
   pendingInTurn,
   pinaSettings,
+  putInverseBack,
+  setCardInput,
   setCardStatus,
+  takeInverse,
   type Card,
 } from './store.ts';
 
@@ -102,6 +106,9 @@ export async function runCard(deps: Pick<PinaDeps, 'db' | 'actions' | 'clock'>, 
     const before = beforeOf(deps.db, card.action, card.input);
     const out = await runAction(deps.actions, card.action, card.input);
     const at = deps.clock();
+    const journalId =
+      out.ok && isObject(out.result) ? (out.result as { journalId?: unknown }).journalId : undefined;
+    if (typeof journalId === 'number') markPina(deps.db, journalId);
     const settled = out.ok
       ? setCardStatus(deps.db, cardId, 'pending', 'done', {
           result: out.result,
@@ -121,6 +128,32 @@ export async function runCard(deps: Pick<PinaDeps, 'db' | 'actions' | 'clock'>, 
 export function refuseCard(deps: Pick<PinaDeps, 'db' | 'clock'>, cardId: number): boolean {
   if (running.has(cardId)) return false;
   return setCardStatus(deps.db, cardId, 'pending', 'refused', { at: deps.clock() });
+}
+
+/** « Modifier »: replaces a pending card's input, validated by the action's schema. */
+export function editCard(
+  deps: Pick<PinaDeps, 'db' | 'actions'>,
+  cardId: number,
+  input: unknown,
+): { ok: true } | { ok: false; error: string; status: 400 | 409 } {
+  const card = getCard(deps.db, cardId);
+  if (!card || card.status !== 'pending' || running.has(cardId))
+    return { ok: false, error: 'Carte déjà décidée', status: 409 };
+  const parsed = deps.actions.get(card.action)?.schema.safeParse(input);
+  if (!parsed?.success)
+    return { ok: false, error: parsed ? parsed.error.message : 'Action inconnue', status: 400 };
+  return setCardInput(deps.db, cardId, input)
+    ? { ok: true }
+    : { ok: false, error: 'Carte déjà décidée', status: 409 };
+}
+
+/** « Annuler »: runs a done card's inverse, once. `undefined` when there is none (or already taken). */
+export async function undoCard(deps: Pick<PinaDeps, 'db' | 'actions'>, cardId: number) {
+  const inverse = takeInverse(deps.db, cardId);
+  if (!inverse) return undefined;
+  const out = await runAction(deps.actions, inverse.action, inverse.input);
+  if (!out.ok) putInverseBack(deps.db, cardId, inverse);
+  return out;
 }
 
 /** The daily tidy: earlier days' pending cards expire, except one being run right now. */

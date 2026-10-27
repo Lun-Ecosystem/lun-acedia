@@ -61,6 +61,11 @@ export function logAuto(
   return Number(info.lastInsertRowid);
 }
 
+/** A gesture Pina just did through the catalog is journaled as hers (the hook wrote it as CrOliX's). */
+export function markPina(db: DatabaseSync, journalId: number): void {
+  db.prepare("UPDATE journal SET origin = 'pina' WHERE id = ? AND origin = 'user'").run(journalId);
+}
+
 /** Records a gesture of CrOliX; `previous` is what an undo restores besides the labels. */
 export function logUser(
   db: DatabaseSync,
@@ -230,7 +235,7 @@ export function todayStats(db: DatabaseSync, now: Date): TodayStats {
     if (r.origin === 'user') {
       if (r.action === 'validate') stats.validated += r.n;
       if (r.action === 'correct') stats.corrected += r.n;
-    } else stats.autoFiled += r.n;
+    } else if (r.origin !== 'pina') stats.autoFiled += r.n;
   }
   return stats;
 }

@@ -8,6 +8,8 @@ const SETTINGS = 'Réglages et clés : à la main seulement';
 const DEVICES = 'Appareils et codes : à la main seulement';
 const FILE = 'Pièce jointe : binaire, sans usage pour Pina';
 
+const PINA = 'Pina elle-même';
+
 export const PARITY: Record<string, Parity> = {
   'POST /api/pairing-codes': { excluded: DEVICES },
   'GET /api/clients': { excluded: DEVICES },
@@ -22,6 +24,14 @@ export const PARITY: Record<string, Parity> = {
   'GET /api/google/status': { excluded: SETTINGS },
   'GET /api/settings': { excluded: SETTINGS },
   'PUT /api/settings': { excluded: SETTINGS },
+  'GET /api/pina/today': { excluded: PINA },
+  'GET /api/pina/days': { excluded: PINA },
+  'GET /api/pina/days/:day': { excluded: PINA },
+  'POST /api/pina/messages': { excluded: PINA },
+  'POST /api/pina/cards/:id': { excluded: PINA },
+  'POST /api/pina/cards/:id/undo': { excluded: PINA },
+  'GET /api/pina/settings': { excluded: PINA },
+  'PUT /api/pina/settings': { excluded: PINA },
   'GET /api/mail': { action: 'mail.list' },
   'GET /api/mail/:id': { action: 'mail.read' },
   'GET /api/mail/:id/attachments/:partId': { excluded: FILE },

@@ -2,6 +2,7 @@ import { createApp, type AppDeps } from '../app.ts';
 import { ActionRegistry } from '../contract/actions.ts';
 import { issuePairingCode } from '../contract/auth.ts';
 import { openDb } from '../db.ts';
+import type { PinaDeps } from '../pina/agent.ts';
 import type { KeyCheck, KeyChecker } from '../llm/keys.ts';
 
 /** A fresh app on an in-memory database, with a clock the test moves by hand. */
@@ -13,6 +14,8 @@ export function makeHarness(
   const clock = () => now;
   const actions = new ActionRegistry();
   const logs: string[] = [];
+  /** The provider Pina gets; tests set `choice` (a simulated one, never the network). */
+  const pina: { choice: ReturnType<PinaDeps['provider']> } = { choice: undefined };
   // Never the network: the key check answers what the test sets.
   const keyCheck = {
     result: 'ok' as KeyCheck,
@@ -29,6 +32,7 @@ export function makeHarness(
     actions,
     log: (l) => logs.push(l),
     checkKey,
+    pinaProvider: () => pina.choice,
     ...extra,
   });
 
@@ -37,6 +41,7 @@ export function makeHarness(
     db,
     actions,
     clock,
+    pina,
     /** Warnings the app logged. */
     logs,
     /** What the fake key check answers, and the keys it was given. */

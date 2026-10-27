@@ -18,8 +18,10 @@ import { contractRoutes } from './contract/routes.ts';
 import { draftRoutes, gmailRoutes, sendAsRoutes } from './gmail/routes.ts';
 import { createGoogleClient, type GoogleClient, type GoogleDeps } from './google/client.ts';
 import { googleRoutes } from './google/oauth.ts';
-import type { KeyChecker, LlmEnv } from './llm/keys.ts';
+import { choiceFor, makeProvider, providerFor, type KeyChecker, type LlmEnv } from './llm/keys.ts';
 import { llmRoutes, type ModelLister } from './llm/routes.ts';
+import type { PinaDeps } from './pina/agent.ts';
+import { pinaRoutes } from './pina/routes.ts';
 import { serveApp } from './static.ts';
 import { afterUserAction, withProposal } from './triage/pipeline.ts';
 import { triageRoutes } from './triage/routes.ts';
@@ -44,6 +46,8 @@ export interface AppDeps {
   checkKey?: KeyChecker | undefined;
   /** How the custom endpoint lists its models; its `models.list` by default. */
   listCustomModels?: ModelLister | undefined;
+  /** Pina's model, looked up at each use; the chosen provider (real factory) by default. */
+  pinaProvider?: PinaDeps['provider'] | undefined;
 }
 
 export function createApp(deps: AppDeps): Hono {
@@ -93,6 +97,18 @@ export function createApp(deps: AppDeps): Hono {
   });
   app.route('/api', api);
   app.route('/api/llm', llmRoutes(deps));
+  const pinaProvider: PinaDeps['provider'] =
+    deps.pinaProvider ??
+    (() => {
+      const env = deps.llmEnv ?? {};
+      const choice = choiceFor(deps.db, deps.secretKey, env, 'pina');
+      const provider = choice && providerFor(deps.db, deps.secretKey, env, choice.provider, makeProvider);
+      return choice && provider ? { provider, model: choice.model } : undefined;
+    });
+  app.route(
+    '/api/pina',
+    pinaRoutes({ db: deps.db, actions: deps.actions, clock: deps.clock, provider: pinaProvider }),
+  );
 
   const auth = googleRoutes(deps);
   app.route('/oauth', auth.callback);

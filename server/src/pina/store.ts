@@ -112,6 +112,28 @@ export function setCardStatus(
   return info.changes > 0;
 }
 
+/** « Modifier »: the input of a card still pending (`false` once decided). */
+export function setCardInput(db: DatabaseSync, id: number, input: unknown): boolean {
+  const info = db
+    .prepare("UPDATE pina_cards SET input = ? WHERE id = ? AND status = 'pending'")
+    .run(JSON.stringify(input), id);
+  return info.changes > 0;
+}
+
+/** Takes a done card's inverse for good: only one caller gets it, so an undo cannot run twice. */
+export function takeInverse(db: DatabaseSync, id: number): { action: string; input: unknown } | undefined {
+  const card = getCard(db, id);
+  if (card?.status !== 'done' || !card.inverse) return undefined;
+  const info = db
+    .prepare("UPDATE pina_cards SET inverse = NULL WHERE id = ? AND status = 'done' AND inverse IS NOT NULL")
+    .run(id);
+  return info.changes > 0 ? (card.inverse as { action: string; input: unknown }) : undefined;
+}
+
+export function putInverseBack(db: DatabaseSync, id: number, inverse: unknown): void {
+  db.prepare('UPDATE pina_cards SET inverse = ? WHERE id = ?').run(JSON.stringify(inverse), id);
+}
+
 export function cardsOf(db: DatabaseSync, day: string): Card[] {
   return db.prepare('SELECT * FROM pina_cards WHERE day = ? ORDER BY id').all(day).map(toCard);
 }

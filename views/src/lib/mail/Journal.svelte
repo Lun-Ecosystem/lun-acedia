@@ -49,6 +49,7 @@
   const ORIGINS = {
     ai: { label: 'IA', by: 'par l’IA', icon: Sparkles },
     rule: { label: 'Règle', by: 'par une règle', icon: Funnel },
+    pina: { label: 'Pina', by: 'par Pina', icon: Sparkles },
     user: { label: 'À la main', by: 'à la main', icon: Hand },
   } as const;
 

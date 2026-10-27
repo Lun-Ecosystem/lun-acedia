@@ -160,7 +160,7 @@ export interface Rule {
   position: number;
 }
 
-export type Origin = 'rule' | 'ai' | 'user';
+export type Origin = 'rule' | 'ai' | 'user' | 'pina';
 
 export interface JournalEntry {
   id: number;
