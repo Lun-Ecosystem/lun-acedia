@@ -129,9 +129,12 @@ export function pendingInTurn(db: DatabaseSync, turn: number): number {
   return (r as { n: number }).n;
 }
 
-/** Cards of an earlier day can no longer be validated. */
-export function expireOld(db: DatabaseSync, today: string): void {
-  db.prepare("UPDATE pina_cards SET status = 'expired' WHERE status = 'pending' AND day < ?").run(today);
+/** Cards of an earlier day can no longer be validated; `keep` are the cards being run right now. */
+export function expireOld(db: DatabaseSync, today: string, keep: number[] = []): void {
+  db.prepare(
+    `UPDATE pina_cards SET status = 'expired' WHERE status = 'pending' AND day < ?
+     AND id NOT IN (SELECT value FROM json_each(?))`,
+  ).run(today, JSON.stringify(keep));
 }
 
 /** Drops the days older than `retentionDays` before `today` (a day string); today is always kept. */

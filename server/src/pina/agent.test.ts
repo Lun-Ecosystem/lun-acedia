@@ -5,10 +5,10 @@ import { spentToday } from '../llm/models.ts';
 import { ProviderError, type ChatResult, type LlmProvider, type ToolCall } from '../llm/types.ts';
 import { makeAgendaHarness } from '../testing/agenda-harness.ts';
 import { message, textPart } from '../testing/fake-gmail.ts';
-import { ask, resume, runCard, type PinaDeps } from './agent.ts';
+import { ask, expireCards, refuseCard, resume, runCard, toolsOf, type PinaDeps } from './agent.ts';
 import { inverseOf } from './inverse.ts';
 import { systemPrompt } from './prompt.ts';
-import { cardsOf, dayOf, getCard, messagesOf, putPinaSettings, setCardStatus } from './store.ts';
+import { cardsOf, dayOf, getCard, messagesOf, putPinaSettings } from './store.ts';
 
 type ChatRequest = Parameters<LlmProvider['chat']>[0];
 
@@ -206,7 +206,7 @@ describe('Pina agent loop', () => {
   it('no provider → fixed message, no throw', async () => {
     const s = await setup();
     await ask({ ...s.deps, provider: () => undefined }, 'Bonjour', { screen: 'mail' });
-    expect(s.last()).toEqual({
+    expect(s.last()).toMatchObject({
       role: 'assistant',
       text: 'Aucun modèle choisi pour Pina : à régler dans Réglages › Fournisseurs d’IA.',
       toolCalls: [],
@@ -264,7 +264,7 @@ describe('Pina turns with several cards', () => {
     await resume(s.deps, event!.id);
     expect(s.requests).toHaveLength(1);
 
-    setCardStatus(s.h.db, task!.id, 'pending', 'refused', { at: s.h.clock() });
+    expect(refuseCard(s.deps, task!.id)).toBe(true);
     await resume(s.deps, task!.id);
     expect(s.requests).toHaveLength(2);
     const [created, refused] = toolResults(s.requests[1]);
@@ -332,10 +332,24 @@ describe('inverseOf', () => {
       action: 'journal.undo',
       input: { id: 7 },
     });
-    expect(inverseOf('mail.markRead', { id: 'm1', read: true }, { id: 'm1' }, undefined)).toEqual({
+    const change = (before: string[], after: string[]) => ({ id: 'm1', before, after });
+    expect(inverseOf('mail.markRead', { id: 'm1', read: true }, change(['UNREAD'], []), undefined)).toEqual({
       action: 'mail.markRead',
       input: { id: 'm1', read: false },
     });
+    expect(inverseOf('mail.markRead', { id: 'm1', read: true }, change([], []), undefined)).toBeNull();
+    // A tag the mail already had is not removed by the undo.
+    expect(
+      inverseOf(
+        'mail.tags',
+        { id: 'm1', add: ['T1', 'T2'], remove: [] },
+        change(['T1'], ['T1', 'T2']),
+        undefined,
+      ),
+    ).toEqual({ action: 'mail.tags', input: { id: 'm1', add: [], remove: ['T2'] } });
+    expect(
+      inverseOf('mail.tags', { id: 'm1', add: ['T1'], remove: [] }, change(['T1'], ['T1']), undefined),
+    ).toBeNull();
     expect(inverseOf('label.create', { name: 'x', role: 'box' }, { id: 'L' }, undefined)).toBeNull();
     expect(inverseOf('journal.undo', { id: 1 }, {}, undefined)).toBeNull();
   });
@@ -360,5 +374,95 @@ describe('systemPrompt', () => {
     expect(p).toContain('« École » (id L1)');
     expect(p).not.toContain('INBOX');
     expect(p).not.toContain('—');
+  });
+});
+
+describe('Pina fix round 1', () => {
+  it('a card cannot be refused or expired while its action runs; it ends done with its inverse', async () => {
+    const s = await setup([calls(tool('task.create', { title: 'Appeler la banque' }))]);
+    const original = s.h.actions.get('task.create')!;
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    s.h.actions.register(
+      'task.create',
+      original.description,
+      original.schema,
+      async (input) => {
+        await gate;
+        return original.run(input);
+      },
+      'write',
+    );
+    await ask(s.deps, 'Ajoute la banque', { screen: 'tasks' });
+    const [card] = cardsOf(s.h.db, s.day);
+    const run = runCard(s.deps, card!.id);
+    expect(refuseCard(s.deps, card!.id)).toBe(false);
+    expireCards(s.h.db, '2099-01-01');
+    expect(getCard(s.h.db, card!.id)?.status).toBe('pending');
+    release();
+    expect(await run).toMatchObject({ status: 'done', inverse: { action: 'task.delete' } });
+  });
+
+  it('resume after a later question: the request ends on the decision, rounds count only the turn', async () => {
+    const reads = Array.from({ length: 20 }, (_, i) => calls(tool('mail.read', { id: 'm1' }, `r${i}`)));
+    const s = await setup([calls(tool('event.create', EVENT)), answer('Oui ?'), ...reads]);
+    await ask(s.deps, 'Ajoute le dentiste', { screen: 'agenda' });
+    await ask(s.deps, 'Et sinon ?', { screen: 'agenda' });
+    const [card] = cardsOf(s.h.db, s.day);
+    await runCard(s.deps, card!.id);
+    await resume(s.deps, card!.id);
+    const after = s.requests[2]!.messages;
+    expect(after.at(-1)).toMatchObject({ role: 'user' });
+    expect((after.at(-1) as { text: string }).text).toContain('event_create');
+    expect((after.at(-1) as { text: string }).text).toContain('Dentiste');
+    // Every tool call answered exactly once, right after its assistant message.
+    for (const [i, m] of after.entries())
+      if (m.role === 'assistant')
+        expect(
+          after.slice(i + 1, i + 1 + m.toolCalls.length).map((t) => t.role === 'tool' && t.callId),
+        ).toEqual(m.toolCalls.map((c) => c.id));
+    // The first turn used 1 round, the later question's answer does not count: 7 more.
+    expect(s.requests).toHaveLength(2 + 7);
+  });
+
+  it('call ids reused across turns are told apart', async () => {
+    const s = await setup([
+      calls(tool('mail.read', { id: 'm1' })),
+      answer('Lu.'),
+      calls(tool('task.create', { title: 'Appeler la banque' })),
+      answer('Ajoutée.'),
+    ]);
+    await ask(s.deps, 'Lis', { screen: 'mail' });
+    await ask(s.deps, 'Ajoute la banque', { screen: 'tasks' });
+    const [card] = cardsOf(s.h.db, s.day);
+    await runCard(s.deps, card!.id);
+    await resume(s.deps, card!.id);
+    expect(s.requests).toHaveLength(4);
+    expect(toolResults(s.requests[3])[1]!.content).toContain('Appeler la banque');
+    expect(s.last()).toMatchObject({ text: 'Ajoutée.' });
+  });
+
+  it('the tool map refuses a catalog name with "_" and duplicate tool names', () => {
+    const a = (name: string) => ({ name, description: 'd', effect: 'read' as const, input: {} });
+    expect(() => toolsOf([a('mail_read')])).toThrow('_');
+    expect(() => toolsOf([a('mail.read'), a('mail.read')])).toThrow('double');
+    expect(toolsOf([a('mail.read')]).specs.map((t) => t.name)).toEqual(['mail_read']);
+  });
+
+  it('the prompt names the tools as the model sees them', () => {
+    const p = systemPrompt({ now: new Date(), context: { screen: 'mail' }, instructions: '', labels: [] });
+    expect(p).toContain('draft_create');
+    expect(p).not.toContain('draft.create');
+  });
+
+  it('two concurrent requests keep a valid order', async () => {
+    const s = await setup([answer('Un.'), answer('Deux.')]);
+    await Promise.all([
+      ask(s.deps, 'Premier', { screen: 'mail' }),
+      ask(s.deps, 'Second', { screen: 'mail' }),
+    ]);
+    expect(
+      s.thread().map((m) => (m.role === 'user' ? m.text : m.role === 'assistant' ? m.text : m.role)),
+    ).toEqual(['Premier', 'Un.', 'Second', 'Deux.']);
   });
 });

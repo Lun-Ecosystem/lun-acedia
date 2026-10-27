@@ -22,7 +22,8 @@ import {
   llmEnvFrom,
   PROVIDERS,
 } from './llm/keys.ts';
-import { dayOf, expireOld, pinaSettings, purge } from './pina/store.ts';
+import { expireCards } from './pina/agent.ts';
+import { dayOf, pinaSettings, purge } from './pina/store.ts';
 import { triageNew } from './triage/pipeline.ts';
 import { recoverQueue } from './triage/queue.ts';
 import { startLoop } from './util.ts';
@@ -101,7 +102,7 @@ setInterval(() => pruneEvents(db, clock()), 3600_000).unref();
 // Pina's thread: yesterday's pending cards expire and old days go, at start then every day.
 const tidyPina = () => {
   const today = dayOf(clock());
-  expireOld(db, today);
+  expireCards(db, today);
   purge(db, today, pinaSettings(db).retentionDays);
 };
 tidyPina();

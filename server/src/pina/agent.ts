@@ -1,17 +1,18 @@
 import type { DatabaseSync } from 'node:sqlite';
-import type { ActionRegistry } from '../contract/actions.ts';
+import type { Action, ActionRegistry } from '../contract/actions.ts';
 import { recordCost } from '../contract/costs.ts';
 import { keyRefused, keyWorks } from '../llm/keys.ts';
 import { costOf, priceOf, spentToday } from '../llm/models.ts';
 import { ProviderError, type ChatMessage, type LlmProvider, type ToolCall } from '../llm/types.ts';
 import { listLabels } from '../triage/labels.ts';
 import { beforeOf, inverseOf } from './inverse.ts';
-import { systemPrompt } from './prompt.ts';
+import { systemPrompt, toolName } from './prompt.ts';
 import {
   addCard,
   appendMessage,
   cardsOf,
   dayOf,
+  expireOld,
   getCard,
   messagesOf,
   pendingInTurn,
@@ -55,9 +56,20 @@ const REFUSED =
   'CrOliX a refusé cette action : elle n’a pas été faite. Ne la refais pas sans qu’il le demande.';
 const EXPIRED = 'Cette action a expiré sans être validée : elle n’a pas été faite.';
 const WAITING = 'En attente de la validation de CrOliX : pas encore faite.';
+const LATE = 'Décisions de CrOliX sur tes actions en attente, prises depuis :';
 
-// Tool names take only [a-zA-Z0-9_-] at both providers; no catalog name has an underscore.
-const toolName = (action: string) => action.replaceAll('.', '_');
+/** The tools sent to the model, and the action behind each tool name. */
+export function toolsOf(actions: Action[]) {
+  const byTool = new Map<string, Action>();
+  for (const a of actions) {
+    // The mapping must stay reversible: a catalog name with `_` could meet another one.
+    if (a.name.includes('_')) throw new Error(`Nom d’action avec « _ » : ${a.name}`);
+    if (byTool.has(toolName(a.name))) throw new Error(`Nom d’outil en double : ${toolName(a.name)}`);
+    byTool.set(toolName(a.name), a);
+  }
+  const specs = actions.map((a) => ({ name: toolName(a.name), description: a.description, input: a.input }));
+  return { byTool, specs };
+}
 
 type Outcome = { ok: true; result: unknown } | { ok: false; error: string };
 
@@ -74,12 +86,13 @@ async function runAction(actions: ActionRegistry, name: string, input: unknown):
   }
 }
 
+// Cards are decided through runCard, refuseCard and expireCards only (Task 10 too), never setCardStatus.
 const running = new Set<number>();
 
 /**
  * Runs a pending card's action (validated by CrOliX, or at once in `immediate` mode) and settles it:
  * `done` with its inverse, or `failed`. `undefined` when the card is not pending or already running,
- * so that it never runs twice.
+ * so that it never runs twice; while it runs, nothing else can decide it.
  */
 export async function runCard(deps: Pick<PinaDeps, 'db' | 'actions' | 'clock'>, cardId: number) {
   const card = getCard(deps.db, cardId);
@@ -89,92 +102,167 @@ export async function runCard(deps: Pick<PinaDeps, 'db' | 'actions' | 'clock'>, 
     const before = beforeOf(deps.db, card.action, card.input);
     const out = await runAction(deps.actions, card.action, card.input);
     const at = deps.clock();
-    if (out.ok) {
-      const inverse = inverseOf(card.action, card.input, out.result, before) ?? undefined;
-      setCardStatus(deps.db, cardId, 'pending', 'done', { result: out.result, inverse, at });
-    } else setCardStatus(deps.db, cardId, 'pending', 'failed', { error: out.error, at });
+    const settled = out.ok
+      ? setCardStatus(deps.db, cardId, 'pending', 'done', {
+          result: out.result,
+          inverse: inverseOf(card.action, card.input, out.result, before) ?? undefined,
+          at,
+        })
+      : setCardStatus(deps.db, cardId, 'pending', 'failed', { error: out.error, at });
+    // Impossible while every decision goes through this file: said loudly if it ever happens.
+    if (!settled) console.error(`Pina : carte ${cardId} décidée pendant son exécution`, JSON.stringify(out));
   } finally {
     running.delete(cardId);
   }
   return getCard(deps.db, cardId);
 }
 
-const toolResult = (callId: string, out: Outcome): ChatMessage =>
-  out.ok
-    ? { role: 'tool', callId, content: JSON.stringify(out.result ?? null), isError: false }
-    : { role: 'tool', callId, content: out.error, isError: true };
+/** CrOliX refuses a card: `false` when it is no longer pending or its action is running. */
+export function refuseCard(deps: Pick<PinaDeps, 'db' | 'clock'>, cardId: number): boolean {
+  if (running.has(cardId)) return false;
+  return setCardStatus(deps.db, cardId, 'pending', 'refused', { at: deps.clock() });
+}
 
-function cardResult(c: Card): ChatMessage {
-  if (c.status === 'done') return toolResult(c.callId, { ok: true, result: c.result });
-  if (c.status === 'refused') return { role: 'tool', callId: c.callId, content: REFUSED, isError: false };
-  return toolResult(c.callId, { ok: false, error: c.status === 'failed' ? (c.error ?? 'Échec') : EXPIRED });
+/** The daily tidy: earlier days' pending cards expire, except one being run right now. */
+export function expireCards(db: DatabaseSync, today: string): void {
+  expireOld(db, today, [...running]);
+}
+
+/** A stored message knows its turn (a request is its own turn); the providers never see it. */
+type Stored = ChatMessage & { turn?: number };
+
+const toolResult = (turn: number, callId: string, out: Outcome): Stored =>
+  out.ok
+    ? { role: 'tool', callId, content: JSON.stringify(out.result ?? null), isError: false, turn }
+    : { role: 'tool', callId, content: out.error, isError: true, turn };
+
+function cardResult(c: Card): Stored {
+  if (c.status === 'done') return toolResult(c.turn, c.callId, { ok: true, result: c.result });
+  if (c.status === 'refused')
+    return { role: 'tool', callId: c.callId, content: REFUSED, isError: false, turn: c.turn };
+  const error = c.status === 'failed' ? (c.error ?? 'Échec') : EXPIRED;
+  return toolResult(c.turn, c.callId, { ok: false, error });
 }
 
 /**
- * The day's thread as the provider takes it: each tool result right after the call that asked it,
- * wherever it was stored, and a call still waiting for CrOliX answered « en attente ».
+ * The day's thread as the provider takes it. Each call is answered exactly once, right after its
+ * assistant message: by its result, or « en attente » when CrOliX spoke again before deciding. A
+ * decision taken after that comes later as a user note, so that the thread ends on what is new.
+ * Results are matched by turn and call id: some servers reuse call ids.
  */
 function history(db: DatabaseSync, day: string): ChatMessage[] {
-  const thread = messagesOf(db, day).map((m) => m.message);
-  const results = new Map(thread.flatMap((m) => (m.role === 'tool' ? [[m.callId, m] as const] : [])));
-  return thread.flatMap((m): ChatMessage[] => {
-    if (m.role === 'tool') return [];
-    if (m.role === 'user') return [{ role: 'user', text: m.text }];
-    return [
-      m,
-      ...m.toolCalls.map(
-        (c): ChatMessage =>
-          results.get(c.id) ?? { role: 'tool', callId: c.id, content: WAITING, isError: false },
-      ),
-    ];
-  });
+  const out: ChatMessage[] = [];
+  const names = new Map<string, string>();
+  let open = new Map<string, string>(); // `turn:callId` → callId, for the last assistant message
+  let note: { role: 'user'; text: string } | undefined;
+  const close = () => {
+    for (const callId of open.values()) out.push({ role: 'tool', callId, content: WAITING, isError: false });
+    open = new Map();
+  };
+  for (const { message } of messagesOf(db, day)) {
+    const m = message as Stored;
+    if (m.role === 'tool') {
+      const key = `${m.turn}:${m.callId}`;
+      if (open.delete(key)) {
+        out.push({ role: 'tool', callId: m.callId, content: m.content, isError: m.isError });
+        continue;
+      }
+      const line = `- ${names.get(key) ?? 'action'} (${m.callId})${m.isError ? ', erreur' : ''} : ${m.content}`;
+      if (note) note.text += `\n${line}`;
+      else {
+        close();
+        out.push((note = { role: 'user', text: `${LATE}\n${line}` }));
+      }
+      continue;
+    }
+    close();
+    note = undefined;
+    if (m.role === 'user') out.push({ role: 'user', text: m.text });
+    else {
+      const reply: ChatMessage = { role: 'assistant', text: m.text, toolCalls: m.toolCalls };
+      if (m.replay !== undefined) reply.replay = m.replay;
+      out.push(reply);
+      for (const c of m.toolCalls) {
+        open.set(`${m.turn}:${c.id}`, c.id);
+        names.set(`${m.turn}:${c.id}`, c.name);
+      }
+    }
+  }
+  close();
+  return out;
 }
 
 const isObject = (v: unknown) => typeof v === 'object' && v !== null && !Array.isArray(v);
 
+/** One loop per day at a time, so that a resume and a request never interleave their messages. */
+const chains = new Map<string, Promise<void>>();
+function serial(day: string, run: () => Promise<void>): Promise<void> {
+  const next = (chains.get(day) ?? Promise.resolve()).catch(() => undefined).then(run);
+  chains.set(day, next);
+  const forget = () => {
+    if (chains.get(day) === next) chains.delete(day);
+  };
+  next.then(forget, forget);
+  return next;
+}
+
 /** One CrOliX request: the turn runs until an answer, a card to decide, or a bound. */
-export async function ask(deps: PinaDeps, text: string, context: ScreenContext): Promise<void> {
+export function ask(deps: PinaDeps, text: string, context: ScreenContext): Promise<void> {
   const day = dayOf(deps.clock());
-  // The context rides with the request, so that a resumed turn sees the same screen.
-  const request = { role: 'user' as const, text, context };
-  const turn = appendMessage(deps.db, day, request, deps.clock());
-  await loop(deps, day, turn, context);
+  return serial(day, async () => {
+    // The context rides with the request, so that a resumed turn sees the same screen.
+    const request = { role: 'user' as const, text, context };
+    const turn = appendMessage(deps.db, day, request, deps.clock());
+    await loop(deps, day, turn, context);
+  });
 }
 
 /** After a decision: once no card of the turn is pending, their outcomes go to the model and it goes on. */
 export async function resume(deps: PinaDeps, cardId: number): Promise<void> {
   const card = getCard(deps.db, cardId);
-  if (!card || pendingInTurn(deps.db, card.turn) > 0) return;
-  const thread = messagesOf(deps.db, card.day);
-  const answered = new Set(thread.flatMap((m) => (m.message.role === 'tool' ? [m.message.callId] : [])));
-  const open = cardsOf(deps.db, card.day).filter((c) => c.turn === card.turn && !answered.has(c.callId));
-  // Already resumed (a second click): nothing left to say. Checked and written with no await between.
-  if (!open.length) return;
-  for (const c of open) appendMessage(deps.db, card.day, cardResult(c), deps.clock());
-  const request = thread.find((m) => m.id === card.turn)?.message as { context?: ScreenContext } | undefined;
-  await loop(deps, card.day, card.turn, request?.context ?? { screen: 'mail' });
+  if (!card) return;
+  await serial(card.day, async () => {
+    if (pendingInTurn(deps.db, card.turn) > 0) return;
+    const thread = messagesOf(deps.db, card.day);
+    const answered = new Set(
+      thread.flatMap(({ message: m }) =>
+        m.role === 'tool' && (m as Stored).turn === card.turn ? [m.callId] : [],
+      ),
+    );
+    const open = cardsOf(deps.db, card.day).filter((c) => c.turn === card.turn && !answered.has(c.callId));
+    // Already resumed (a second click): nothing left to say.
+    if (!open.length) return;
+    for (const c of open) appendMessage(deps.db, card.day, cardResult(c), deps.clock());
+    const request = thread.find((m) => m.id === card.turn)?.message as
+      { context?: ScreenContext } | undefined;
+    await loop(deps, card.day, card.turn, request?.context ?? { screen: 'mail' });
+  });
 }
 
 async function loop(deps: PinaDeps, day: string, turn: number, context: ScreenContext): Promise<void> {
   const { db } = deps;
+  const store = (m: Stored) => {
+    const stored: Stored = { ...m, turn };
+    appendMessage(db, day, stored, deps.clock());
+  };
   const say = (text: string) => {
-    appendMessage(db, day, { role: 'assistant', text, toolCalls: [] }, deps.clock());
+    store({ role: 'assistant', text, toolCalls: [] });
   };
   const choice = deps.provider();
   if (!choice) return say(NO_PROVIDER);
   const { provider, model } = choice;
   const settings = pinaSettings(db);
-  const actions = deps.actions.list();
-  const byTool = new Map(actions.map((a) => [toolName(a.name), a]));
-  const tools = actions.map((a) => ({ name: toolName(a.name), description: a.description, input: a.input }));
+  const { byTool, specs: tools } = toolsOf(deps.actions.list());
   const system = systemPrompt({
     now: deps.clock(),
     context,
     instructions: settings.instructions,
     labels: listLabels(db),
   });
-  // A resumed turn keeps the rounds it already used.
-  let rounds = messagesOf(db, day).filter((m) => m.id > turn && m.message.role === 'assistant').length;
+  // A resumed turn keeps the rounds it already used, and only its own.
+  let rounds = messagesOf(db, day).filter(
+    ({ message: m }) => m.role === 'assistant' && (m as Stored).turn === turn,
+  ).length;
 
   for (;;) {
     if (rounds >= MAX_ROUNDS) return say(TOO_LONG);
@@ -202,13 +290,13 @@ async function loop(deps: PinaDeps, day: string, turn: number, context: ScreenCo
     if (!res.toolCalls.length) return say(res.text.trim() ? res.text : EMPTY);
     const reply: ChatMessage = { role: 'assistant', text: res.text, toolCalls: res.toolCalls };
     if (res.replay !== undefined) reply.replay = res.replay;
-    appendMessage(db, day, reply, deps.clock());
+    store(reply);
 
     let waiting = 0;
     for (const call of res.toolCalls) {
       const out = await handle(call);
       if (out === 'card') waiting += 1;
-      else appendMessage(db, day, toolResult(call.id, out), deps.clock());
+      else store(toolResult(turn, call.id, out));
     }
     if (waiting) return;
   }

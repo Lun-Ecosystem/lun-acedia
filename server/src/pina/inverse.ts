@@ -27,6 +27,22 @@ export function beforeOf(db: DatabaseSync, action: string, input: unknown): unkn
   return undefined;
 }
 
+/**
+ * The journal keeps neither read, tags nor untrash: their opposite gesture undoes them, from the labels
+ * before and after the write (`LabelChange`), so that only what really changed is put back.
+ */
+function opposite(action: string, id: unknown, change: Fields): Inverse | null {
+  const before = Array.isArray(change.before) ? (change.before as string[]) : [];
+  const after = Array.isArray(change.after) ? (change.after as string[]) : [];
+  const added = after.filter((l) => !before.includes(l));
+  const removed = before.filter((l) => !after.includes(l));
+  if (!added.length && !removed.length) return null;
+  if (action === 'mail.markRead') return { action, input: { id, read: !before.includes('UNREAD') } };
+  if (action === 'mail.tags') return { action, input: { id, add: removed, remove: added } };
+  if (action === 'mail.untrash') return { action: 'mail.trash', input: { id } };
+  return null;
+}
+
 /** The action that undoes a done write (its « Annuler »), or `null` when there is none. */
 export function inverseOf(action: string, input: unknown, result: unknown, before: unknown): Inverse | null {
   const i = fields(input);
@@ -60,12 +76,7 @@ export function inverseOf(action: string, input: unknown, result: unknown, befor
     case 'mail.tags':
     case 'mail.markRead':
       if (typeof r.journalId === 'number') return { action: 'journal.undo', input: { id: r.journalId } };
-      // The journal keeps neither read, tags nor untrash: their opposite gesture undoes them.
-      if (action === 'mail.markRead') return { action, input: { id: i.id, read: !i.read } };
-      if (action === 'mail.tags')
-        return { action, input: { id: i.id, add: i.remove ?? [], remove: i.add ?? [] } };
-      if (action === 'mail.untrash') return { action: 'mail.trash', input: { id: i.id } };
-      return null;
+      return opposite(action, i.id, r);
     default:
       return null;
   }
