@@ -15,7 +15,8 @@ import {
   type LabelChange,
 } from './actions.ts';
 import { findPart } from './body.ts';
-import { defaultFrom, sendMail } from './compose.ts';
+import { defaultFrom, sendMail, type Draft } from './compose.ts';
+import { createDraft, deleteDraft, getDraft, sendDraft, updateDraft } from './drafts.ts';
 import { fetchFull, listMail, readMail, searchMail, summary } from './read.ts';
 import type { StoredMessage } from './store.ts';
 import { GMAIL_API } from './sync.ts';
@@ -129,6 +130,34 @@ export function sendAsRoutes(deps: AppDeps, google: GoogleClient | undefined): H
     if (!google) return c.json({ error: 'Google n’est pas configuré sur ce serveur' }, 503);
     return c.json(await defaultFrom({ db: deps.db, google, now: deps.clock }, c.req.query('replyTo')));
   });
+  return r;
+}
+
+/** `/api/drafts`: the composer's drafts. Sending is here only, on the screen's request. */
+export function draftRoutes(deps: AppDeps, google: GoogleClient | undefined): Hono {
+  const r = new Hono();
+  r.use('*', requireToken(deps.db));
+  r.use('*', async (c, next) => {
+    if (!google) return c.json({ error: 'Google n’est pas configuré sur ce serveur' }, 503);
+    await next();
+  });
+  const d = (): ActionDeps => ({ db: deps.db, google: google!, now: deps.clock });
+  const withBody = (save: (draft: Draft, id: string) => Promise<unknown>) => async (c: Context) => {
+    const parsed = DraftBody.safeParse(await c.req.json().catch(() => undefined));
+    if (!parsed.success) return c.json({ error: parsed.error.message }, 400);
+    return guard(c, () => save(stripUndefined(parsed.data), c.req.param('id') ?? ''));
+  };
+  r.post(
+    '/',
+    withBody((draft) => createDraft(d(), draft)),
+  );
+  r.get('/:id', (c) => guard(c, () => getDraft(d(), c.req.param('id'))));
+  r.put(
+    '/:id',
+    withBody((draft, id) => updateDraft(d(), id, draft)),
+  );
+  r.delete('/:id', (c) => guard(c, () => deleteDraft(d(), c.req.param('id'))));
+  r.post('/:id/send', (c) => guard(c, () => sendDraft(d(), c.req.param('id'))));
   return r;
 }
 

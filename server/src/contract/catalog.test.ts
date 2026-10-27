@@ -41,6 +41,9 @@ const NEW_NAMES = [
   'rule.update',
   'rule.delete',
   'stats.today',
+  'draft.create',
+  'draft.update',
+  'draft.delete',
 ];
 
 const EFFECTS: Record<string, string> = {
@@ -57,6 +60,7 @@ const EFFECTS: Record<string, string> = {
   'task.list': 'read',
   'journal.list': 'read',
   'rule.list': 'read',
+  'draft.delete': 'delete',
   'stats.today': 'read',
 };
 
@@ -70,7 +74,15 @@ async function setup() {
 }
 
 describe('contract actions', () => {
-  it('lists the 33 actions, each with an object JSON Schema', async () => {
+  it('has draft.create/update/delete and no action name containing "send"', async () => {
+    const { h } = await setup();
+    const { actions } = (await h.call('GET', '/lun/v1/actions')).body as { actions: { name: string }[] };
+    const names = actions.map((a) => a.name);
+    expect(names).toEqual(expect.arrayContaining(['draft.create', 'draft.update', 'draft.delete']));
+    expect(names.filter((n) => /send/i.test(n))).toEqual([]);
+  });
+
+  it('lists the 36 actions, each with an object JSON Schema', async () => {
     const { h } = await setup();
     const { actions } = (await h.call('GET', '/lun/v1/actions')).body as {
       actions: { name: string; description: string; input: { type: string } }[];

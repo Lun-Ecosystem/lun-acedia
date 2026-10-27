@@ -120,6 +120,16 @@ export interface Draft {
   threadId?: string;
 }
 
+/** A Gmail draft as the composer and Pina see it; `replyTo.id` is the Message-ID of the mail answered. */
+export interface DraftView {
+  id: string;
+  to: string;
+  cc?: string;
+  subject: string;
+  text: string;
+  replyTo?: { id: string; threadId: string };
+}
+
 export interface SendAsAddress {
   email: string;
   name?: string;

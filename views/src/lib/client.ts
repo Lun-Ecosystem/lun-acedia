@@ -4,6 +4,7 @@ import type {
   AgendaTask,
   BatchOp,
   Draft,
+  DraftView,
   GoogleStatus,
   JournalEntry,
   JournaledChange,
@@ -96,6 +97,12 @@ export interface AcediaClient {
   /** `journalId` is present for the filing, archive, trash and spam operations. */
   batch(ids: string[], op: BatchOp): Promise<(LabelChange & { journalId?: number })[]>;
   send(draft: Draft): Promise<{ id: string; threadId: string }>;
+  createDraft(draft: Draft): Promise<DraftView>;
+  getDraft(id: string): Promise<DraftView>;
+  updateDraft(id: string, draft: Draft): Promise<DraftView>;
+  deleteDraft(id: string): Promise<{ ok: true }>;
+  /** Sends a saved draft: the composer's button, the only way a mail leaves. */
+  sendDraft(id: string): Promise<{ id: string; threadId: string }>;
   sendAs(replyTo?: string): Promise<{ addresses: SendAsAddress[]; default: string }>;
   validate(id: string): Promise<ProposalView & { journalId: number }>;
   correct(
@@ -218,6 +225,11 @@ export function httpClient(opts: { baseUrl: string; token: string; fetch?: typeo
     markRead: (id, read) => call('POST', `/api/mail/${enc(id)}/read`, { read }),
     batch: (ids, op) => call('POST', '/api/mail/batch', { ids, op }),
     send: (draft) => call('POST', '/api/mail/send', draft),
+    createDraft: (draft) => call('POST', '/api/drafts', draft),
+    getDraft: (id) => call('GET', `/api/drafts/${enc(id)}`),
+    updateDraft: (id, draft) => call('PUT', `/api/drafts/${enc(id)}`, draft),
+    deleteDraft: (id) => call('DELETE', `/api/drafts/${enc(id)}`),
+    sendDraft: (id) => call('POST', `/api/drafts/${enc(id)}/send`, {}),
     sendAs: (replyTo) => call('GET', `/api/send-as${replyTo ? `?replyTo=${enc(replyTo)}` : ''}`),
     validate: (id) => call('POST', `/api/mail/${enc(id)}/validate`, {}),
     correct: (id, boxId, tagIds, opts) =>

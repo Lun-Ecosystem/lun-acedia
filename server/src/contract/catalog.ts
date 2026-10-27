@@ -24,6 +24,8 @@ import {
   type ActionDeps,
 } from '../gmail/actions.ts';
 import { plainText } from '../gmail/body.ts';
+import { defaultFrom } from '../gmail/compose.ts';
+import { createDraft, deleteDraft, updateDraft } from '../gmail/drafts.ts';
 import { listMail, readMail, searchMail, summary } from '../gmail/read.ts';
 import type { GoogleClient } from '../google/client.ts';
 import { viewFilter } from '../gmail/store.ts';
@@ -260,6 +262,51 @@ export function registerCatalog(
     'Marque un mail comme lu ou non lu.',
     z.object({ id: Id, read: z.boolean() }),
     ({ id, read }) => markRead(mail(), id, read),
+  );
+
+  // Drafts only: there is no action that sends a mail, and none may ever be added.
+  const DraftFields = {
+    to: z.string().min(1),
+    cc: z.string().optional(),
+    subject: z.string(),
+    text: z.string(),
+    replyTo: z.object({ id: Id.describe('Message-ID du mail auquel on répond'), threadId: Id }).optional(),
+  };
+  type DraftInput = z.infer<z.ZodObject<typeof DraftFields>>;
+  const toDraft = async (i: DraftInput) => {
+    const html = `<p>${i.text
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/\n/g, '<br>')}</p>`;
+    return stripUndefined({
+      from: (await defaultFrom(mail())).default,
+      to: i.to,
+      cc: i.cc,
+      subject: i.subject,
+      html,
+      text: i.text,
+      inReplyTo: i.replyTo?.id,
+      references: i.replyTo?.id,
+      threadId: i.replyTo?.threadId,
+    });
+  };
+  add(
+    'write',
+    'draft.create',
+    'Prépare un brouillon de mail (jamais envoyé : CrOliX le relit et l’envoie lui-même).',
+    z.object(DraftFields),
+    async (i) => createDraft(mail(), await toDraft(i)),
+  );
+  add(
+    'write',
+    'draft.update',
+    'Remplace le contenu d’un brouillon.',
+    z.object({ id: Id, ...DraftFields }),
+    async ({ id, ...i }) => updateDraft(mail(), id, await toDraft(i)),
+  );
+  add('delete', 'draft.delete', 'Supprime un brouillon.', z.object({ id: Id }), ({ id }) =>
+    deleteDraft(mail(), id),
   );
 
   add(

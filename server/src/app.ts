@@ -15,7 +15,7 @@ import {
 } from './contract/auth.ts';
 import { allowAuthorization, denyAuthorization, readAuthorizationRequest } from './contract/authorize.ts';
 import { contractRoutes } from './contract/routes.ts';
-import { gmailRoutes, sendAsRoutes } from './gmail/routes.ts';
+import { draftRoutes, gmailRoutes, sendAsRoutes } from './gmail/routes.ts';
 import { createGoogleClient, type GoogleClient, type GoogleDeps } from './google/client.ts';
 import { googleRoutes } from './google/oauth.ts';
 import type { KeyChecker, LlmEnv } from './llm/keys.ts';
@@ -105,6 +105,7 @@ export function createApp(deps: AppDeps): Hono {
         afterUserAction({ db: deps.db, google: google!, now: deps.clock }, change, op),
     }),
   );
+  app.route('/api/drafts', draftRoutes(deps, google));
   app.route('/api/send-as', sendAsRoutes(deps, google));
   app.route('/api', triageRoutes(deps, google));
   app.route('/api', agendaRoutes(deps, google));

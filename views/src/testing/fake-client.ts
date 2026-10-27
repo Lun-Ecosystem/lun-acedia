@@ -127,6 +127,11 @@ export function fakeClient(opts: { mails?: MailSummary[]; journal?: JournalEntry
     ),
     batch: vi.fn<AcediaClient['batch']>(notUsed),
     send: vi.fn<AcediaClient['send']>(async () => ({ id: 'sent1', threadId: 't-new' })),
+    createDraft: vi.fn<AcediaClient['createDraft']>(notUsed),
+    getDraft: vi.fn<AcediaClient['getDraft']>(notUsed),
+    updateDraft: vi.fn<AcediaClient['updateDraft']>(notUsed),
+    deleteDraft: vi.fn<AcediaClient['deleteDraft']>(notUsed),
+    sendDraft: vi.fn<AcediaClient['sendDraft']>(notUsed),
     sendAs: vi.fn<AcediaClient['sendAs']>(async () => ({
       addresses: [{ email: 'moi@example.com', name: 'Moi', primary: true }],
       default: 'moi@example.com',

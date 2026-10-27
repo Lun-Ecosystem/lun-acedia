@@ -96,8 +96,11 @@ export async function defaultFrom(
   return { addresses, default: replyFrom(addresses, original?.to ?? '') };
 }
 
-/** Sends a mail; `from` must be one of the "Send mail as" addresses of the account. */
-export async function sendMail(deps: ActionDeps, draft: Draft): Promise<{ id: string; threadId: string }> {
+/** The Gmail `message` body of a draft; `from` must be one of the "Send mail as" addresses. */
+export async function rawMessage(
+  deps: ActionDeps,
+  draft: Draft,
+): Promise<{ raw: string; threadId?: string }> {
   const addresses = await listSendAs(deps.google);
   const wanted = parseAddress(draft.from).addr.toLowerCase();
   const sender = addresses.find((a) => a.email.toLowerCase() === wanted);
@@ -105,7 +108,10 @@ export async function sendMail(deps: ActionDeps, draft: Draft): Promise<{ id: st
     throw new BadRequestError(`« ${draft.from} » ne fait pas partie des adresses « Envoyer en tant que »`);
   const from = sender.name ? `${encodeHeader(sender.name)} <${sender.email}>` : sender.email;
   const raw = Buffer.from(buildMime({ ...draft, from }), 'utf8').toString('base64url');
-  const body: { raw: string; threadId?: string } = { raw };
-  if (draft.threadId) body.threadId = draft.threadId;
-  return deps.google.request('POST', `${GMAIL_API}/messages/send`, body);
+  return draft.threadId ? { raw, threadId: draft.threadId } : { raw };
+}
+
+/** Sends a mail. */
+export async function sendMail(deps: ActionDeps, draft: Draft): Promise<{ id: string; threadId: string }> {
+  return deps.google.request('POST', `${GMAIL_API}/messages/send`, await rawMessage(deps, draft));
 }
