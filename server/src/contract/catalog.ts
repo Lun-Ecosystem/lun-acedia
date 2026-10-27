@@ -1,11 +1,21 @@
 import type { DatabaseSync } from 'node:sqlite';
 import { z } from 'zod';
-import { createEvent, deleteEvent, mainCalendar, updateEvent } from '../agenda/calendar.ts';
-import { createTask, deleteTask, mainTaskList, updateTask } from '../agenda/tasks.ts';
+import { createEvent, deleteEvent, listCalendars, mainCalendar, updateEvent } from '../agenda/calendar.ts';
+import {
+  allTasks,
+  createTask,
+  deleteTask,
+  listTaskLists,
+  mainTaskList,
+  updateTask,
+} from '../agenda/tasks.ts';
 import { isDateOrInstant, isDay } from '../agenda/time.ts';
 import { agendaRange } from '../agenda/unified.ts';
 import {
   archiveMail,
+  markRead,
+  reportSpam,
+  untrashMail,
   BadRequestError,
   fileMail,
   NotFoundError,
@@ -14,12 +24,17 @@ import {
   type ActionDeps,
 } from '../gmail/actions.ts';
 import { plainText } from '../gmail/body.ts';
-import { readMail, searchMail, summary } from '../gmail/read.ts';
+import { listMail, readMail, searchMail, summary } from '../gmail/read.ts';
 import type { GoogleClient } from '../google/client.ts';
+import { viewFilter } from '../gmail/store.ts';
 import type { MailDetail } from '../types.ts';
+import { listJournal, todayStats, undo } from '../triage/journal.ts';
+import { createLabel, listLabels, setRole } from '../triage/labels.ts';
 import { correct, onManualFile, validate, withProposal } from '../triage/pipeline.ts';
+import { createRule, deleteRule, listRules, updateRule } from '../triage/rules.ts';
+import { RoleSchema, RuleSchema } from '../triage/routes.ts';
 import { stripUndefined } from '../util.ts';
-import { InvalidInputError, type ActionRegistry } from './actions.ts';
+import { InvalidInputError, type ActionRegistry, type Effect } from './actions.ts';
 
 const When = z.string().refine(isDateOrInstant, 'Date attendue (AAAA-MM-JJ ou ISO 8601)');
 const Day = z.string().refine(isDay, 'Date attendue (AAAA-MM-JJ)');
@@ -54,22 +69,30 @@ export function registerCatalog(
   };
   /** Input that passed the schema but makes no sense (not a box…) is a 400 for the core too. */
   const add = <T>(
+    effect: Effect,
     name: string,
     description: string,
     schema: z.ZodType<T>,
     run: (input: T) => Promise<unknown>,
   ) =>
-    actions.register(name, description, schema, async (input) => {
-      try {
-        return await run(input);
-      } catch (err) {
-        if (err instanceof BadRequestError) throw new InvalidInputError(err.message);
-        throw err;
-      }
-    });
+    actions.register(
+      name,
+      description,
+      schema,
+      async (input) => {
+        try {
+          return await run(input);
+        } catch (err) {
+          if (err instanceof BadRequestError) throw new InvalidInputError(err.message);
+          throw err;
+        }
+      },
+      effect,
+    );
   const ok = { ok: true };
 
   add(
+    'read',
     'mail.search',
     'Cherche des mails (même syntaxe que la recherche Gmail) ; renvoie leurs résumés.',
     z.object({ q: z.string().min(1), max: z.number().int().min(1).max(50).optional() }),
@@ -78,7 +101,7 @@ export function registerCatalog(
       return { items: found.items.slice(0, max ?? 20).map((m) => summary(withProposal(deps.db, m))) };
     },
   );
-  add('mail.read', 'Lit un mail : en-têtes et texte.', z.object({ id: Id }), async ({ id }) => {
+  add('read', 'mail.read', 'Lit un mail : en-têtes et texte.', z.object({ id: Id }), async ({ id }) => {
     const read = await readMail(deps.db, mail().google, id, (m) => withProposal(deps.db, m));
     if (!read) throw new NotFoundError();
     // The core reads text: the rendered HTML stays for the views.
@@ -87,6 +110,7 @@ export function registerCatalog(
     return { ...detail, text: plainText(read.payload) };
   });
   add(
+    'write',
     'mail.file',
     'Range un mail dans une boîte (il quitte la boîte de réception).',
     z.object({ id: Id, boxId: Id }),
@@ -97,24 +121,31 @@ export function registerCatalog(
     },
   );
   add(
+    'write',
     'mail.trash',
     'Met un mail à la corbeille (jamais de suppression définitive).',
     z.object({ id: Id }),
     ({ id }) => trashMail(mail(), id),
   );
-  add('mail.archive', 'Archive un mail (il quitte la boîte de réception).', z.object({ id: Id }), ({ id }) =>
-    archiveMail(mail(), id),
+  add(
+    'write',
+    'mail.archive',
+    'Archive un mail (il quitte la boîte de réception).',
+    z.object({ id: Id }),
+    ({ id }) => archiveMail(mail(), id),
   );
   add(
+    'write',
     'mail.tags',
     'Ajoute ou retire des étiquettes à un mail.',
     z.object({ id: Id, add: z.array(Id).default([]), remove: z.array(Id).default([]) }),
     ({ id, add: tags, remove }) => setTags(mail(), id, tags, remove),
   );
-  add('mail.validate', 'Accepte la proposition de tri d’un mail.', z.object({ id: Id }), ({ id }) =>
+  add('write', 'mail.validate', 'Accepte la proposition de tri d’un mail.', z.object({ id: Id }), ({ id }) =>
     validate(mail(), id),
   );
   add(
+    'write',
     'mail.correct',
     'Range un mail autrement que proposé (boîte, `trash` ou `spam`, et étiquettes).',
     z.object({ id: Id, boxId: Id, tagIds: z.array(Id).default([]) }),
@@ -122,12 +153,14 @@ export function registerCatalog(
   );
 
   add(
+    'read',
     'agenda.list',
     'Événements et tâches datées d’une période [from, to).',
     z.object({ from: When, to: When }),
     async ({ from, to }) => ({ items: agendaRange(deps.db, from, to) }),
   );
   add(
+    'write',
     'event.create',
     'Crée un événement (dans l’agenda principal par défaut).',
     z.object({
@@ -144,12 +177,14 @@ export function registerCatalog(
     },
   );
   add(
+    'write',
     'event.update',
     'Modifie un événement (seuls les champs donnés changent).',
     z.object({ calendarId: Id, id: Id, ...z.object(EventFields).partial().shape }),
     ({ calendarId, id, ...patch }) => updateEvent(mail(), calendarId, id, stripUndefined(patch)),
   );
   add(
+    'delete',
     'event.delete',
     'Supprime un événement.',
     z.object({ calendarId: Id, id: Id }),
@@ -160,6 +195,7 @@ export function registerCatalog(
   );
 
   add(
+    'write',
     'task.create',
     'Crée une tâche (dans la liste principale par défaut).',
     z.object({
@@ -175,16 +211,138 @@ export function registerCatalog(
     },
   );
   add(
+    'write',
     'task.update',
     'Modifie une tâche (seuls les champs donnés changent).',
     z.object({ listId: Id, id: Id, ...z.object(TaskFields).partial().shape, done: z.boolean().optional() }),
     ({ listId, id, ...patch }) => updateTask(mail(), listId, id, stripUndefined(patch)),
   );
-  add('task.complete', 'Coche une tâche.', z.object({ listId: Id, id: Id }), ({ listId, id }) =>
+  add('write', 'task.complete', 'Coche une tâche.', z.object({ listId: Id, id: Id }), ({ listId, id }) =>
     updateTask(mail(), listId, id, { done: true }),
   );
-  add('task.delete', 'Supprime une tâche.', z.object({ listId: Id, id: Id }), async ({ listId, id }) => {
-    await deleteTask(mail(), listId, id);
-    return ok;
-  });
+  add(
+    'delete',
+    'task.delete',
+    'Supprime une tâche.',
+    z.object({ listId: Id, id: Id }),
+    async ({ listId, id }) => {
+      await deleteTask(mail(), listId, id);
+      return ok;
+    },
+  );
+
+  add(
+    'read',
+    'mail.list',
+    'Liste une page d’une vue (inbox, pending, trash, spam, sent) ou d’une boîte (son id), du plus récent au plus ancien.',
+    z.object({ view: Id, cursor: z.string().optional() }),
+    async ({ view, cursor }) => {
+      // A bare box id is what label.list gives; the screen's own view name is `box:<id>`.
+      const named = viewFilter(view) ? view : `box:${view}`;
+      const page = await listMail(deps.db, mail().google, named, cursor);
+      if (!page) throw new BadRequestError(`Vue inconnue : ${view}`);
+      const body: { items: ReturnType<typeof summary>[]; cursor?: string } = {
+        items: page.items.map((m) => summary(withProposal(deps.db, m))),
+      };
+      if (page.cursor) body.cursor = page.cursor;
+      return body;
+    },
+  );
+  add('write', 'mail.untrash', 'Sort un mail de la corbeille.', z.object({ id: Id }), ({ id }) =>
+    untrashMail(mail(), id),
+  );
+  add('write', 'mail.spam', 'Signale un mail comme indésirable.', z.object({ id: Id }), ({ id }) =>
+    reportSpam(mail(), id),
+  );
+  add(
+    'write',
+    'mail.markRead',
+    'Marque un mail comme lu ou non lu.',
+    z.object({ id: Id, read: z.boolean() }),
+    ({ id, read }) => markRead(mail(), id, read),
+  );
+
+  add(
+    'read',
+    'label.list',
+    'Liste les étiquettes avec leur rôle (boîte, étiquette ou aucun).',
+    z.object({}),
+    () => Promise.resolve({ labels: listLabels(deps.db) }),
+  );
+  add(
+    'write',
+    'label.create',
+    'Crée une boîte ou une étiquette.',
+    z.object({ name: z.string().trim().min(1), role: RoleSchema }),
+    ({ name, role }) => createLabel(mail(), name, role),
+  );
+  add(
+    'write',
+    'label.setRole',
+    'Change le rôle d’une étiquette (`box`, `tag`, ou null pour aucun).',
+    z.object({ id: Id, role: RoleSchema.nullable() }),
+    async ({ id, role }) => {
+      setRole(deps.db, id, role);
+      return listLabels(deps.db).find((l) => l.id === id);
+    },
+  );
+
+  add('read', 'calendar.list', 'Liste les agendas synchronisés.', z.object({}), async () => ({
+    items: listCalendars(deps.db),
+  }));
+  add('read', 'tasklist.list', 'Liste les listes de tâches.', z.object({}), async () => ({
+    items: listTaskLists(deps.db),
+  }));
+  add(
+    'read',
+    'task.list',
+    'Liste les tâches, faites ou non (d’une liste si listId est donné).',
+    z.object({ listId: Id.optional() }),
+    async ({ listId }) => ({
+      items: allTasks(deps.db).filter((t) => !listId || t.listId === listId),
+    }),
+  );
+
+  add(
+    'read',
+    'journal.list',
+    'Journal du tri, du plus récent au plus ancien.',
+    z.object({ limit: z.number().int().min(1).max(200).optional() }),
+    async ({ limit }) => listJournal(deps.db, undefined, limit),
+  );
+  add(
+    'write',
+    'journal.undo',
+    'Annule une entrée du journal du tri.',
+    z.object({ id: z.number().int() }),
+    ({ id }) => undo(mail(), id),
+  );
+
+  add('read', 'rule.list', 'Liste les règles de tri.', z.object({}), async () => ({
+    rules: listRules(deps.db),
+  }));
+  add('write', 'rule.create', 'Crée une règle de tri.', RuleSchema, async (input) =>
+    createRule(deps.db, stripUndefined(input)),
+  );
+  add(
+    'write',
+    'rule.update',
+    'Modifie une règle (seuls les champs donnés changent).',
+    RuleSchema.partial().extend({ id: z.number().int(), position: z.number().int().optional() }),
+    async ({ id, ...patch }) => updateRule(deps.db, id, stripUndefined(patch)),
+  );
+  add(
+    'delete',
+    'rule.delete',
+    'Supprime une règle de tri.',
+    z.object({ id: z.number().int() }),
+    async ({ id }) => {
+      deleteRule(deps.db, id);
+      return ok;
+    },
+  );
+
+  add('read', 'stats.today', 'Ce que le tri a fait aujourd’hui.', z.object({}), async () =>
+    todayStats(deps.db, deps.clock()),
+  );
 }

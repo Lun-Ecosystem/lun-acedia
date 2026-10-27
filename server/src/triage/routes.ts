@@ -11,8 +11,8 @@ import { getSetting, putSetting } from '../db.ts';
 import { correct, DEFAULT_BULK_THRESHOLD, DEFAULT_THRESHOLD, validate } from './pipeline.ts';
 import { createRule, deleteRule, listRules, updateRule } from './rules.ts';
 
-const RoleSchema = z.enum(['box', 'tag']);
-const RuleSchema = z.object({
+export const RoleSchema = z.enum(['box', 'tag']);
+export const RuleSchema = z.object({
   field: z.enum(['from', 'fromDomain', 'to', 'subject']),
   op: z.enum(['equals', 'contains']),
   value: z.string().trim().min(1),
