@@ -66,9 +66,11 @@ const ITEMS: AgendaItem[] = [
 async function open(items = ITEMS) {
   const { client } = fakeClient();
   client.agenda.mockResolvedValue(structuredClone(items));
+  // A read-only calendar first: it must never be the one a new event goes to.
   client.listCalendars.mockResolvedValue([
-    { id: 'perso', title: 'Personnel' },
-    { id: 'famille', title: 'Famille' },
+    { id: 'feries', title: 'Jours fériés', writable: false },
+    { id: 'perso', title: 'Personnel', writable: true },
+    { id: 'famille', title: 'Famille', writable: true },
   ]);
   client.listTaskLists.mockResolvedValue([{ id: 'list1', title: 'Mes tâches' }]);
   const user = userEvent.setup();

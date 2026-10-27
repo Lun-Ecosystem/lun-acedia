@@ -131,7 +131,7 @@ export interface AcediaClient {
   undatedTasks(): Promise<AgendaTask[]>;
   /** Every task of every list, done ones included. */
   allTasks(): Promise<AgendaTask[]>;
-  listCalendars(): Promise<{ id: string; title: string }[]>;
+  listCalendars(): Promise<{ id: string; title: string; writable: boolean }[]>;
   listTaskLists(): Promise<{ id: string; title: string }[]>;
   saveEvent(item: EventDraft): Promise<AgendaEvent>;
   deleteEvent(calendarId: string, id: string): Promise<void>;

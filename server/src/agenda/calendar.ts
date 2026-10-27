@@ -31,6 +31,8 @@ interface CalendarListEntry {
   summaryOverride?: string;
   selected?: boolean;
   primary?: boolean;
+  /** `owner`, `writer`, `reader` or `freeBusyReader`: holidays and birthdays are read-only. */
+  accessRole?: string;
   defaultReminders?: GoogleReminder[];
 }
 
@@ -213,10 +215,16 @@ export async function syncCalendars(deps: SyncDeps): Promise<number> {
   for (const c of selected) {
     deps.db
       .prepare(
-        `INSERT INTO calendars (id, title, default_reminders) VALUES (?, ?, ?)
-         ON CONFLICT(id) DO UPDATE SET title = excluded.title, default_reminders = excluded.default_reminders`,
+        `INSERT INTO calendars (id, title, default_reminders, writable) VALUES (?, ?, ?, ?)
+         ON CONFLICT(id) DO UPDATE SET title = excluded.title, default_reminders = excluded.default_reminders,
+           writable = excluded.writable`,
       )
-      .run(c.id, c.summaryOverride ?? c.summary ?? c.id, JSON.stringify(popups(c.defaultReminders)));
+      .run(
+        c.id,
+        c.summaryOverride ?? c.summary ?? c.id,
+        JSON.stringify(popups(c.defaultReminders)),
+        c.accessRole === 'owner' || c.accessRole === 'writer' ? 1 : 0,
+      );
     const token = getSyncState(deps.db, `cal:${c.id}`);
     try {
       changes += await pullCalendar(deps, c.id, token);
@@ -233,11 +241,12 @@ export async function syncCalendars(deps: SyncDeps): Promise<number> {
 /** The account's main calendar (Google's `primary`, by its real id). */
 export const mainCalendar = (db: DatabaseSync) => getSyncState(db, 'calendar:main');
 
-export function listCalendars(db: DatabaseSync): { id: string; title: string }[] {
-  return db.prepare('SELECT id, title FROM calendars ORDER BY title').all() as {
-    id: string;
-    title: string;
-  }[];
+/** The main calendar first (the editor's default), then by title; `writable` false for holidays, birthdays… */
+export function listCalendars(db: DatabaseSync): { id: string; title: string; writable: boolean }[] {
+  const rows = db
+    .prepare('SELECT id, title, writable FROM calendars ORDER BY id = ? DESC, title')
+    .all(mainCalendar(db) ?? '') as { id: string; title: string; writable: number }[];
+  return rows.map((r) => ({ id: r.id, title: r.title, writable: r.writable === 1 }));
 }
 
 export interface EventInput {
