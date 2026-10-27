@@ -4,6 +4,7 @@
  * and a scripted classifier. Nothing here reads `.env`, and nothing reaches the network.
  */
 import { randomBytes } from 'node:crypto';
+import type { DatabaseSync } from 'node:sqlite';
 import type { Hono } from 'hono';
 import { syncAgenda } from '../agenda/unified.ts';
 import { createApp } from '../app.ts';
@@ -15,6 +16,9 @@ import { createGoogleClient, saveTokens } from '../google/client.ts';
 import type { Classification, Classifier } from '../triage/classifier.ts';
 import { triageNew } from '../triage/pipeline.ts';
 import { keyRefused, saveKey } from '../llm/keys.ts';
+import type { ChatMessage } from '../llm/types.ts';
+import { addCard, appendMessage, dayOf, setCardStatus } from '../pina/store.ts';
+import { markPina } from '../triage/journal.ts';
 import { createRule } from '../triage/rules.ts';
 import { FakeAgenda } from '../testing/fake-agenda.ts';
 import { fakeFetch } from '../testing/fake-fetch.ts';
@@ -270,6 +274,95 @@ function seedAgenda(agenda: FakeAgenda, now: Date) {
   task('list1', 't7', 'Acheter du pain', { status: 'completed', due: due(0) });
 }
 
+/**
+ * Today's thread of Pina, written as her loop would have (the demo has no model): a mail she filed
+ * (done, with Annuler), a reply drafted, and a task waiting for Valider.
+ */
+function seedPina(db: DatabaseSync, now: Date, refs: { journalId: number; perso: string }) {
+  const day = dayOf(now);
+  const at = (min: number) => new Date(now.getTime() - min * 60_000);
+  const say = (min: number, message: ChatMessage & { turn?: number; context?: unknown }) =>
+    appendMessage(db, day, message as ChatMessage, at(min));
+  const turnOf = (min: number, text: string, context: object) => say(min, { role: 'user', text, context });
+  const card = (
+    turn: number,
+    min: number,
+    callId: string,
+    action: string,
+    input: unknown,
+    done?: { result: unknown; inverse: unknown },
+  ) => {
+    const id = addCard(db, { day, turn, callId, action, input, effect: 'write', now: at(min) });
+    if (done) setCardStatus(db, id, 'pending', 'done', { ...done, at: at(min - 1) });
+    return id;
+  };
+
+  const t1 = turnOf(48, 'Range les photos du week-end dans Perso.', { screen: 'mail', mailId: 'm12' });
+  const file = { id: 'm12', boxId: refs.perso };
+  say(48, {
+    role: 'assistant',
+    text: '',
+    toolCalls: [{ id: 'c1', name: 'mail_file', input: file }],
+    turn: t1,
+  });
+  card(t1, 48, 'c1', 'mail.file', file, {
+    result: { id: 'm12', journalId: refs.journalId },
+    inverse: { action: 'journal.undo', input: { id: refs.journalId } },
+  });
+  say(47, { role: 'tool', callId: 'c1', content: '{"ok":true}', isError: false, turn: t1 });
+  say(47, {
+    role: 'assistant',
+    text: 'C’est rangé dans Perso, avec les autres souvenirs.',
+    toolCalls: [],
+    turn: t1,
+  });
+
+  const t2 = turnOf(30, 'Réponds à Camille que mercredi 12 h 30 au Café des Arts, c’est parfait.', {
+    screen: 'mail',
+    mailId: 'm06',
+  });
+  const draft = {
+    to: 'Camille Durand <camille@example.com>',
+    subject: 'Re: Déjeuner mercredi ?',
+    text: 'Salut Camille,\n\nMercredi 12 h 30 au Café des Arts, c’est parfait. À mercredi !\n\nNatsume',
+    replyTo: 'm06',
+  };
+  say(30, {
+    role: 'assistant',
+    text: '',
+    toolCalls: [{ id: 'c1', name: 'draft_create', input: draft }],
+    turn: t2,
+  });
+  card(t2, 30, 'c1', 'draft.create', draft, {
+    result: { id: 'demo-draft-1', to: draft.to, subject: draft.subject, text: draft.text },
+    inverse: { action: 'draft.delete', input: { id: 'demo-draft-1' } },
+  });
+  say(29, { role: 'tool', callId: 'c1', content: '{"id":"demo-draft-1"}', isError: false, turn: t2 });
+  say(29, {
+    role: 'assistant',
+    text: 'Ton brouillon est prêt ! Relis-le avant de l’envoyer, c’est toi qui cliques.',
+    toolCalls: [],
+    turn: t2,
+  });
+
+  const t3 = turnOf(
+    2,
+    'Mets-moi une tâche pour payer la taxe foncière, quelques jours avant la date limite.',
+    {
+      screen: 'mail',
+      mailId: 'm04',
+    },
+  );
+  const task = { title: 'Payer la taxe foncière', due: '2026-11-12' };
+  say(1, {
+    role: 'assistant',
+    text: 'Oh, la taxe foncière ! Date limite le 15 novembre : je te la cale au 12, histoire d’avoir de la marge.',
+    toolCalls: [{ id: 'c1', name: 'task_create', input: task }],
+    turn: t3,
+  });
+  card(t3, 1, 'c1', 'task.create', task);
+}
+
 /** Builds the demo app, seeded, with one paired device. */
 export async function createDemo(
   opts: { staticDir?: string; keyRefused?: boolean } = {},
@@ -369,9 +462,13 @@ export async function createDemo(
   }
   const { added } = await syncGmail(deps);
   await triageNew({ ...deps, classifier: scriptedClassifier }, added);
-  // Two gestures by hand, so the journal also shows « À la main ».
+  // A gesture by hand, so the journal also shows « À la main »; the second one is Pina's.
   await call('POST', '/api/mail/batch', { ids: ['m07'], op: { kind: 'archive' } });
-  await call('POST', '/api/mail/batch', { ids: ['m12'], op: { kind: 'file', boxId: ids['Perso'] } });
+  const filed = (
+    await call('POST', '/api/mail/batch', { ids: ['m12'], op: { kind: 'file', boxId: ids['Perso'] } })
+  )[0].journalId as number;
+  markPina(db, filed);
+  seedPina(db, clock(), { journalId: filed, perso: ids['Perso']! });
 
   seedAgenda(agenda, clock());
   await syncAgenda(deps);
