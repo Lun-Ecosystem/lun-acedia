@@ -25,7 +25,13 @@
 
   let { card, text, busy, readonly, onaccept, onrefuse, onundo, onopen, onrephrase }: Props = $props();
 
-  const input = $derived((card.input ?? {}) as { id?: string; to?: string; subject?: string; text?: string });
+  const input = $derived(
+    (card.input ?? {}) as { id?: string; to?: string; cc?: string; subject?: string; text?: string },
+  );
+  /** The draft an update replaces, as the card text names it. */
+  const replaces = $derived(
+    card.action === 'draft.update' ? text.fields.find((f) => f.key === undefined) : undefined,
+  );
   /** The Gmail draft: `draft.create` answers it, `draft.update` names it. */
   /** « Camille Durand », without the address, as the mockup names the recipient. */
   const to = $derived((input.to ?? '').replace(/\s*<[^>]*>/g, '').trim() || (input.to ?? ''));
@@ -34,7 +40,14 @@
 
 {#snippet preview()}
   <div class="brouillon">
-    <div class="a">À {to}{input.subject ? ` · ${input.subject}` : ''}</div>
+    {#if replaces}<div class="a">
+        Remplace {replaces.label === 'Identifiant'
+          ? `l’identifiant ${replaces.value}`
+          : `“${replaces.value}”`}
+      </div>{/if}
+    <div class="a">
+      À {to}{input.cc ? ` · Copie ${input.cc}` : ''}{input.subject ? ` · ${input.subject}` : ''}
+    </div>
     <p>{(input.text ?? '').replace(/\s+/g, ' ')}</p>
   </div>
 {/snippet}

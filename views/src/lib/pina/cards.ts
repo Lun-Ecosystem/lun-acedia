@@ -75,13 +75,26 @@ function fields(input: Input, spec: [label: string, key: string, kind?: 'when' |
   });
 }
 
+const RULE_FIELDS: Record<string, string> = {
+  from: 'Expéditeur',
+  fromDomain: 'Domaine de l’expéditeur',
+  to: 'Destinataire',
+  subject: 'Objet',
+};
+const RULE_OPS: Record<string, string> = { equals: 'est exactement', contains: 'contient' };
+
+/** Journal entries and rules both have numeric ids: an entry is named under its own key. */
+const journalKey = (id: unknown) => `journal:${str(id)}`;
+
 export function describe(card: Pick<PinaCard, 'action' | 'input'>, names: Names): CardText {
   const input = (card.input ?? {}) as Input;
   const label = (id: unknown) => names.labels.get(str(id)) ?? str(id);
-  const mail = (): CardField[] => {
-    const subject = names.targets.get(str(input.id))?.name;
-    return subject ? [{ label: 'Mail', value: subject }] : [];
+  /** What a write acts on: its name when today's thread knows it, else its id, so no card is blind. */
+  const named = (what: string, key = str(input.id)): CardField[] => {
+    const name = names.targets.get(key)?.name;
+    return [name ? { label: what, value: name } : { label: 'Identifiant', value: str(input.id) }];
   };
+  const mail = () => named('Mail');
   /** A deletion says what goes: its name and date when today's thread knows them, its id always. */
   const doomed = (what: string, date = 'Date'): CardField[] => {
     const t = names.targets.get(str(input.id));
@@ -103,6 +116,16 @@ export function describe(card: Pick<PinaCard, 'action' | 'input'>, names: Names)
     ['Notes', 'notes'],
   ];
   const tags = (ids: unknown) => (Array.isArray(ids) ? ids.map(label).join(', ') : '');
+  const rule = (): CardField[] => [
+    ...(input.field ? [{ label: 'Champ', value: RULE_FIELDS[str(input.field)] ?? str(input.field) }] : []),
+    ...(input.op ? [{ label: 'Condition', value: RULE_OPS[str(input.op)] ?? str(input.op) }] : []),
+    ...fields(input, [['Valeur', 'value']]),
+    ...(input.boxId ? [{ label: 'Boîte', value: label(input.boxId) }] : []),
+    ...(Array.isArray(input.tagIds) ? [{ label: 'Étiquettes', value: tags(input.tagIds) || 'aucune' }] : []),
+    ...(typeof input.enabled === 'boolean'
+      ? [{ label: 'Active', value: input.enabled ? 'oui' : 'non' }]
+      : []),
+  ];
 
   switch (card.action) {
     case 'mail.file':
@@ -169,7 +192,7 @@ export function describe(card: Pick<PinaCard, 'action' | 'input'>, names: Names)
       return {
         icon: icons.Calendar,
         title: 'Modifier un événement',
-        fields: fields(input, event),
+        fields: [...named('Événement'), ...fields(input, event)],
         done: 'Événement modifié',
       };
     case 'event.delete':
@@ -187,14 +210,21 @@ export function describe(card: Pick<PinaCard, 'action' | 'input'>, names: Names)
         done: `Tâche${quoted(input.title)} créée`,
       };
     case 'task.update':
+      if (typeof input.done === 'boolean')
+        return {
+          icon: icons.Check,
+          title: input.done ? 'Cocher une tâche' : 'Décocher une tâche',
+          fields: [...named('Tâche'), ...fields(input, task)],
+          done: input.done ? 'Tâche cochée' : 'Tâche décochée',
+        };
       return {
         icon: icons.List,
         title: 'Modifier une tâche',
-        fields: fields(input, task),
+        fields: [...named('Tâche'), ...fields(input, task)],
         done: 'Tâche modifiée',
       };
     case 'task.complete':
-      return { icon: icons.Check, title: 'Cocher une tâche', fields: [], done: 'Tâche cochée' };
+      return { icon: icons.Check, title: 'Cocher une tâche', fields: named('Tâche'), done: 'Tâche cochée' };
     case 'task.delete':
       return {
         icon: icons.Trash,
@@ -207,11 +237,15 @@ export function describe(card: Pick<PinaCard, 'action' | 'input'>, names: Names)
       return {
         icon: icons.Reply,
         title: input.replyTo ? 'Brouillon de réponse' : 'Brouillon',
-        fields: fields(input, [
-          ['À', 'to'],
-          ['Objet', 'subject'],
-          ['Texte', 'text'],
-        ]),
+        fields: [
+          ...(card.action === 'draft.update' ? named('Brouillon') : []),
+          ...fields(input, [
+            ['À', 'to'],
+            ['Copie', 'cc'],
+            ['Objet', 'subject'],
+            ['Texte', 'text'],
+          ]),
+        ],
         done: 'Brouillon prêt, non envoyé',
       };
     case 'draft.delete':
@@ -232,20 +266,30 @@ export function describe(card: Pick<PinaCard, 'action' | 'input'>, names: Names)
       return {
         icon: icons.Folder,
         title: 'Changer le rôle d’un libellé',
-        fields: [{ label: 'Libellé', value: label(input.id) }],
+        fields: [
+          names.labels.has(str(input.id))
+            ? { label: 'Libellé', value: label(input.id) }
+            : { label: 'Identifiant', value: str(input.id) },
+          {
+            label: 'Nouveau rôle',
+            value: input.role === 'box' ? 'Boîte' : input.role === 'tag' ? 'Étiquette' : 'aucun rôle',
+          },
+        ],
         done: 'Rôle changé',
       };
     case 'journal.undo':
-      return { icon: icons.Undo, title: 'Annuler une action du journal', fields: [], done: 'Action annulée' };
+      return {
+        icon: icons.Undo,
+        title: 'Annuler une action du journal',
+        fields: named('Annule', journalKey(input.id)),
+        done: 'Action annulée',
+      };
     case 'rule.create':
     case 'rule.update':
       return {
         icon: icons.Funnel,
         title: card.action === 'rule.create' ? 'Créer une règle de tri' : 'Modifier une règle de tri',
-        fields: [
-          ...fields(input, [['Valeur', 'value']]),
-          ...(input.boxId ? [{ label: 'Boîte', value: label(input.boxId) }] : []),
-        ],
+        fields: [...(card.action === 'rule.update' ? named('Règle') : []), ...rule()],
         done: card.action === 'rule.create' ? 'Règle créée' : 'Règle modifiée',
       };
     case 'rule.delete':
@@ -283,7 +327,9 @@ export function targetsOf(thread: PinaThread | null): Map<string, Target> {
     const o = v as Record<string, unknown>;
     const id = str(o.id);
     const name = str(o.subject) || str(o.title) || str(o.summary) || str(o.value);
-    if (id && name) out.set(id, { name, when: instant(o.start) ?? (str(o.due) || undefined) });
+    // A journal entry names the mail it moved; its id is not a rule's.
+    const key = 'messageId' in o && 'origin' in o ? journalKey(id) : id;
+    if (id && name) out.set(key, { name, when: instant(o.start) ?? (str(o.due) || undefined) });
     for (const x of Object.values(o)) walk(x, depth + 1);
   };
   for (const { message: m } of thread?.messages ?? []) {

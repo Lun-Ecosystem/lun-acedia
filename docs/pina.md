@@ -27,6 +27,11 @@ Elle agit uniquement par le catalogue d’actions d’Acedia, le même que celui
 - **Plafond quotidien** de dépense : au-delà, elle attend le lendemain ou que le plafond soit relevé.
 - Une action refusée n’est pas refaite sans nouvelle demande.
 
+## Ce que Pina ne fait pas encore
+
+- **Transférer un mail.** Le transfert se fait depuis l’écran du mail (Transférer) : ses brouillons n’ont pas
+  de mail transféré à joindre.
+
 ## Réglages
 
 Dans Réglages › Pina : le mode (Valider avant chaque action, ou Faire tout de suite), les consignes (ses instructions

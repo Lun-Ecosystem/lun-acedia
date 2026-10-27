@@ -172,6 +172,13 @@ describe('keys per provider', () => {
     expect(JSON.stringify(view)).not.toMatch(/secret|abcd/);
   });
 
+  it('a key refused outside the triage names its provider and leaves the triage running', () => {
+    const db = openDb(':memory:');
+    keyRefused(db, 'openai', new Date('2026-11-02T08:00:00.000Z'), false);
+    expect(getState(db).degraded).toEqual([]);
+    expect(eventsSince(db).find((e) => e.type === 'key.invalid')?.title).toBe('Clé OpenAI refusée');
+  });
+
   it('expiry warnings run per configured provider', () => {
     const secretKey = randomBytes(32).toString('base64');
     const db = openDb(':memory:');

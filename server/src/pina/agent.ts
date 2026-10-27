@@ -3,7 +3,13 @@ import type { Action, ActionRegistry } from '../contract/actions.ts';
 import { recordCost } from '../contract/costs.ts';
 import { keyRefused, keyWorks } from '../llm/keys.ts';
 import { costOf, priceOf, spentToday } from '../llm/models.ts';
-import { ProviderError, type ChatMessage, type LlmProvider, type ToolCall } from '../llm/types.ts';
+import {
+  ProviderError,
+  type ChatMessage,
+  type LlmProvider,
+  type ProviderId,
+  type ToolCall,
+} from '../llm/types.ts';
 import { markPina } from '../triage/journal.ts';
 import { listLabels } from '../triage/labels.ts';
 import type { ScreenContext } from '../types.ts';
@@ -33,6 +39,8 @@ export interface PinaDeps {
   actions: ActionRegistry;
   provider: () => { provider: LlmProvider; model: string } | undefined;
   clock: () => Date;
+  /** The provider the triage uses: a key it shares with Pina pauses the triage when refused. */
+  triageProvider?: () => ProviderId | undefined;
 }
 
 const MAX_ROUNDS = 8;
@@ -306,8 +314,8 @@ async function loop(deps: PinaDeps, day: string, turn: number, context: ScreenCo
       res = await provider.chat({ model, system, messages: history(db, day), tools, maxTokens: MAX_TOKENS });
     } catch (err) {
       if (!(err instanceof ProviderError)) throw err;
-      // shortcut: keyRefused's event title speaks of the triage; one shared event per key change.
-      if (err.kind === 'key') keyRefused(db, provider.id, deps.clock());
+      if (err.kind === 'key')
+        keyRefused(db, provider.id, deps.clock(), deps.triageProvider?.() === provider.id);
       return say(FAILED[err.kind]);
     }
     rounds += 1;

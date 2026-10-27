@@ -13,15 +13,27 @@ import {
   putPinaSettings,
 } from './store.ts';
 
+// The ids go into the system prompt: no line break, nothing but an id's characters.
+const ContextId = z
+  .string()
+  .regex(/^[\w-]{1,200}$/)
+  .optional();
 const Context = z.object({
   screen: z.enum(['mail', 'pending', 'agenda', 'tasks', 'journal', 'settings', 'compose']),
-  mailId: z.string().max(200).optional(),
-  day: z.string().max(200).optional(),
-  listId: z.string().max(200).optional(),
-  draftId: z.string().max(200).optional(),
+  mailId: ContextId,
+  day: ContextId,
+  listId: ContextId,
+  draftId: ContextId,
 });
 const Message = z.object({ text: z.string().min(1).max(4000), context: Context });
-const Decision = z.object({ decision: z.enum(['accept', 'refuse']), input: z.unknown().optional() });
+const MAX_INPUT = 20_000;
+const Decision = z.object({
+  decision: z.enum(['accept', 'refuse']),
+  input: z
+    .unknown()
+    .optional()
+    .refine((v) => v === undefined || JSON.stringify(v).length <= MAX_INPUT, 'Entrée trop longue'),
+});
 const DAY = /^\d{4}-\d{2}-\d{2}$/;
 
 /** Pina over HTTP; mounted under `/api/pina`, behind the device token. */

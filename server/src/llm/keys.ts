@@ -174,8 +174,10 @@ export function saveKey(
   if (id === 'custom') putSetting(db, BASE_URL, baseUrl ?? null);
 }
 
-/** Changes (or clears) the declared expiry of a saved key, the key untouched; the warnings start over. */
+/** Changes (or clears) the declared expiry of a saved key, the key untouched; a new date's warnings start over. */
 export function saveExpiry(db: DatabaseSync, id: ProviderId, expires: string | null): void {
+  // The same date again keeps its warnings: J-14 and J-3 are not said twice.
+  if (getSetting<string | null>(db, expiresOf(id), null) === expires) return;
   putSetting(db, expiresOf(id), expires);
   putSetting(db, warnedKey(id), []);
 }
@@ -215,9 +217,12 @@ export function checkKeyExpiries(
     checkExpiry(db, now, currentExpiry(db, secretKey, env, id), `Clé ${LABELS[id]}`, id);
 }
 
-/** The provider refused the key: the AI using it pauses (the rules go on); one `key.invalid` per change. */
-export function keyRefused(db: DatabaseSync, id: ProviderId, now: Date): void {
-  addDegraded(db, keyReason(id));
+/**
+ * The provider refused the key; one `key.invalid` per change. When the triage uses it (`pausesTriage`),
+ * the AI triage pauses (the rules go on); Pina alone on another provider leaves the triage as it is.
+ */
+export function keyRefused(db: DatabaseSync, id: ProviderId, now: Date, pausesTriage = true): void {
+  if (pausesTriage) addDegraded(db, keyReason(id));
   if (isRefused(db, id)) return;
   putSetting(db, stateOf(id), 'refused');
   emitEvent(
@@ -225,7 +230,9 @@ export function keyRefused(db: DatabaseSync, id: ProviderId, now: Date): void {
     {
       type: 'key.invalid',
       importance: 'normal',
-      title: `Clé ${LABELS[id]} refusée : le tri par l’IA est en pause, les règles continuent`,
+      title: pausesTriage
+        ? `Clé ${LABELS[id]} refusée : le tri par l’IA est en pause, les règles continuent`
+        : `Clé ${LABELS[id]} refusée`,
       data: { provider: id },
     },
     now,

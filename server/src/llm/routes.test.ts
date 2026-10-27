@@ -74,6 +74,10 @@ describe('/api/llm', () => {
     const expiring = () => eventsSince(h.db).filter((e) => e.type === 'key.expiring');
     expect(expiring()).toHaveLength(1);
     expect(h.keyCheck.calls).toEqual([]);
+    // The same date saved again keeps its flags: no second warning.
+    await call('PUT', '/providers/anthropic/expires', { expires: '2026-11-10' });
+    expect(expiring()).toHaveLength(1);
+    expect(getSetting(h.db, 'anthropic.expiryWarned', null)).toEqual([14]);
 
     const cleared = await call('PUT', '/providers/anthropic/expires', { expires: null });
     expect(cleared.status).toBe(200);

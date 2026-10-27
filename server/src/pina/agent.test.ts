@@ -1,11 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import { recordCost } from '../contract/costs.ts';
 import { eventsSince } from '../contract/events.ts';
+import { getState } from '../contract/state.ts';
 import { spentToday } from '../llm/models.ts';
 import { ProviderError, type ChatResult, type LlmProvider, type ToolCall } from '../llm/types.ts';
 import { makeAgendaHarness } from '../testing/agenda-harness.ts';
 import { message, textPart } from '../testing/fake-gmail.ts';
-import { ask, expireCards, refuseCard, resume, runCard, toolsOf, type PinaDeps } from './agent.ts';
+import { ask, expireCards, refuseCard, resume, runCard, toolsOf, undoCard, type PinaDeps } from './agent.ts';
+import { listLabels } from '../triage/labels.ts';
 import { inverseOf } from './inverse.ts';
 import { systemPrompt } from './prompt.ts';
 import { cardsOf, dayOf, getCard, messagesOf, putPinaSettings } from './store.ts';
@@ -224,6 +226,25 @@ describe('Pina agent loop', () => {
     expect(eventsSince(s.h.db, undefined).map((e) => e.type)).toContain('key.invalid');
   });
 
+  it('a refused key pauses the triage only when the triage uses that provider', async () => {
+    const refusing = () => {
+      throw new ProviderError('key', '401');
+    };
+    const other = await setup([refusing]);
+    await ask({ ...other.deps, triageProvider: () => 'openai' }, 'Bonjour', { screen: 'mail' });
+    expect(getState(other.h.db).degraded).toEqual([]);
+    expect(eventsSince(other.h.db).find((e) => e.type === 'key.invalid')?.title).toBe(
+      'Clé Anthropic refusée',
+    );
+
+    const same = await setup([refusing]);
+    await ask({ ...same.deps, triageProvider: () => 'anthropic' }, 'Bonjour', { screen: 'mail' });
+    expect(getState(same.h.db).degraded).toContain('anthropic-key');
+    expect(eventsSince(same.h.db).find((e) => e.type === 'key.invalid')?.title).toMatch(
+      /tri par l’IA est en pause/,
+    );
+  });
+
   it('an empty final answer is stored as a short Pina message', async () => {
     const s = await setup([answer('')]);
     await ask(s.deps, 'Bonjour', { screen: 'mail' });
@@ -289,6 +310,38 @@ describe('Pina turns with several cards', () => {
     expect(s.h.calls.filter((c) => c.method === 'POST' && c.url.includes('tasks'))).toHaveLength(1);
   });
 
+  it('label.setRole keeps the role read before, so its done card can be undone', async () => {
+    const s = await setup();
+    const box = (await s.h.actions.get('label.create')!.run({ name: 'École', role: 'box' })) as {
+      id: string;
+    };
+    s.provider.chat = (() => {
+      let n = 0;
+      return () =>
+        Promise.resolve(n++ ? answer('Fait.') : calls(tool('label.setRole', { id: box.id, role: 'tag' })));
+    })();
+    putPinaSettings(s.h.db, { mode: 'immediate' });
+    await ask(s.deps, 'Fais-en une étiquette', { screen: 'settings' });
+    const [card] = cardsOf(s.h.db, s.day);
+    expect(card).toMatchObject({
+      status: 'done',
+      inverse: { action: 'label.setRole', input: { id: box.id, role: 'box' } },
+    });
+    expect(await undoCard(s.deps, card!.id)).toMatchObject({ ok: true });
+    expect(listLabels(s.h.db).find((l) => l.id === box.id)?.role).toBe('box');
+  });
+
+  it('two concurrent undos of the same card run the inverse once', async () => {
+    const s = await setup([calls(tool('task.create', { title: 'Appeler la banque' }))]);
+    putPinaSettings(s.h.db, { mode: 'immediate' });
+    await ask(s.deps, 'Ajoute la banque', { screen: 'tasks' });
+    const [card] = cardsOf(s.h.db, s.day);
+    const deletes = () => s.h.calls.filter((c) => c.method === 'DELETE' && c.url.includes('tasks')).length;
+    const [a, b] = await Promise.all([undoCard(s.deps, card!.id), undoCard(s.deps, card!.id)]);
+    expect([a, b].filter(Boolean)).toHaveLength(1);
+    expect(deletes()).toBe(1);
+  });
+
   it('a later question while a card waits still sends a valid thread', async () => {
     const s = await setup([calls(tool('event.create', EVENT)), answer('Oui ?')]);
     await ask(s.deps, 'Ajoute le dentiste', { screen: 'agenda' });
@@ -325,6 +378,22 @@ describe('inverseOf', () => {
       input: { listId: 'l', id: 't', due: null },
     });
     expect(inverseOf('event.update', { calendarId: 'p', id: 'e' }, {}, undefined)).toBeNull();
+  });
+
+  it('leaves out a field the cached state lacks, rather than restoring it as text', () => {
+    const before = { id: 3, field: 'from', op: 'equals', value: 'a@example.org', boxId: 'B' };
+    expect(inverseOf('rule.update', { id: 3, value: 'b@example.org', tagIds: ['T'] }, {}, before)).toEqual({
+      action: 'rule.update',
+      input: { id: 3, value: 'a@example.org' },
+    });
+  });
+
+  it('any result with a journal line is undone by it, validation and correction included', () => {
+    for (const action of ['mail.validate', 'mail.correct'])
+      expect(inverseOf(action, { id: 'm1' }, { id: 'm1', journalId: 9 }, undefined)).toEqual({
+        action: 'journal.undo',
+        input: { id: 9 },
+      });
   });
 
   it('undoes a journaled mail gesture through the journal, and has no inverse for the rest', () => {

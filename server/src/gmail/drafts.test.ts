@@ -5,7 +5,7 @@ import { createDraft, deleteDraft, getDraft, sendDraft, updateDraft } from './dr
 
 const draft = {
   from: 'test@example.com',
-  to: 'prof@ecole.fr',
+  to: 'prof@example.org',
   subject: 'Re: Rendu décalé',
   html: '<p>Merci</p>',
   text: 'Merci',
@@ -22,7 +22,7 @@ describe('drafts', () => {
     expect(view).toEqual({
       id: 'd1',
       from: 'test@example.com',
-      to: 'prof@ecole.fr',
+      to: 'prof@example.org',
       subject: 'Re: Rendu décalé',
       text: 'Merci',
       replyTo: { id: '<abc@mail>', threadId: 't-1' },
@@ -47,8 +47,8 @@ describe('drafts', () => {
   it('updates, reads and deletes a draft', async () => {
     const h = await makeGmailHarness();
     const { id } = await createDraft(h.deps, draft);
-    await updateDraft(h.deps, id, { ...draft, text: 'Autre', html: '<p>Autre</p>', cc: 'x@y.fr' });
-    expect(await getDraft(h.deps, id)).toMatchObject({ text: 'Autre', cc: 'x@y.fr' });
+    await updateDraft(h.deps, id, { ...draft, text: 'Autre', html: '<p>Autre</p>', cc: 'y@example.org' });
+    expect(await getDraft(h.deps, id)).toMatchObject({ text: 'Autre', cc: 'y@example.org' });
     await deleteDraft(h.deps, id);
     await expect(getDraft(h.deps, id)).rejects.toThrow(/introuvable/);
   });
@@ -79,7 +79,7 @@ describe('drafts', () => {
   it('draft.create from the catalog only prepares a draft', async () => {
     const h = await makeGmailHarness();
     const res = await h.call('POST', '/lun/v1/actions/draft.create', {
-      to: 'prof@ecole.fr',
+      to: 'prof@example.org',
       subject: 'Hello',
       text: 'Bonjour',
     });
@@ -102,7 +102,7 @@ describe('drafts', () => {
     });
     const h = await makeGmailHarness([original]);
     const res = await h.call('POST', '/lun/v1/actions/draft.create', {
-      to: 'prof@ecole.fr',
+      to: 'prof@example.org',
       subject: 'Re: Sujet',
       text: 'Merci',
       replyTo: 'm1',
@@ -121,7 +121,7 @@ describe('drafts', () => {
     const { id } = await createDraft(h.deps, { ...draft, from: "Lun'Ecosystem <contact@lun.example>" });
     const res = await h.call('POST', '/lun/v1/actions/draft.update', {
       id,
-      to: 'a@b.fr',
+      to: 'a@example.org',
       subject: 's',
       text: 't',
     });
@@ -132,7 +132,7 @@ describe('drafts', () => {
   it('draft.create with an unknown replyTo is not found, not a 500', async () => {
     const h = await makeGmailHarness();
     const res = await h.call('POST', '/lun/v1/actions/draft.create', {
-      to: 'a@b.fr',
+      to: 'a@example.org',
       subject: 's',
       text: 't',
       replyTo: 'nope',
@@ -143,7 +143,7 @@ describe('drafts', () => {
 
   it('rejects a line break in a header value, on the routes and the action', async () => {
     const h = await makeGmailHarness();
-    const to = 'a@b.fr\r\nBcc: x@example.org';
+    const to = 'a@example.org\r\nBcc: x@example.org';
     expect((await h.call('POST', '/api/drafts', { ...draft, to })).status).toBe(400);
     expect((await h.call('POST', '/api/mail/send', { ...draft, to })).status).toBe(400);
     const res = await h.call('POST', '/lun/v1/actions/draft.create', { to, subject: 's', text: 't' });

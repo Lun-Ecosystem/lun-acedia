@@ -107,7 +107,13 @@ export function createApp(deps: AppDeps): Hono {
     });
   app.route(
     '/api/pina',
-    pinaRoutes({ db: deps.db, actions: deps.actions, clock: deps.clock, provider: pinaProvider }),
+    pinaRoutes({
+      db: deps.db,
+      actions: deps.actions,
+      clock: deps.clock,
+      provider: pinaProvider,
+      triageProvider: () => choiceFor(deps.db, deps.secretKey, deps.llmEnv ?? {}, 'triage')?.provider,
+    }),
   );
 
   const auth = googleRoutes(deps);
