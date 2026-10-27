@@ -5,7 +5,6 @@
  */
 import { randomBytes } from 'node:crypto';
 import type { DatabaseSync } from 'node:sqlite';
-import type { Hono } from 'hono';
 import { syncAgenda } from '../agenda/unified.ts';
 import { createApp } from '../app.ts';
 import { ActionRegistry } from '../contract/actions.ts';
@@ -401,22 +400,21 @@ function seedPina(db: DatabaseSync, now: Date, refs: { journalId: number; perso:
 }
 
 /** Builds the demo app, seeded, with one paired device. */
-export async function createDemo(
-  opts: { staticDir?: string; keyRefused?: boolean } = {},
-): Promise<{ app: Hono; token: string }> {
+export async function createDemo(opts: { staticDir?: string; keyRefused?: boolean; pina?: boolean } = {}) {
   const db = openDb(':memory:');
   const clock = () => new Date();
   const secretKey = randomBytes(32).toString('base64');
   const config = { clientId: 'demo', clientSecret: 'demo', redirectUri: 'http://localhost/demo' };
   const gmail = new FakeGmail();
   const agenda = new FakeAgenda(clock);
+  const actions = new ActionRegistry();
   // The only fetch the app ever gets: it answers from the fakes and throws on anything else.
   const fake = fakeFetch(gmail.handler, (call) => agenda.handler(call));
   const app = createApp({
     db,
     clock,
     version: 'demo',
-    actions: new ActionRegistry(),
+    actions,
     google: { config, secretKey, fetch: fake.fetch },
     secretKey,
     staticDir: opts.staticDir,
@@ -517,18 +515,21 @@ export async function createDemo(
     html: '<div>Salut Camille,<br><br>Mercredi 12 h 30 au Café des Arts, c’est parfait. À mercredi !<br><br>Natsume</div>',
     threadId: camille.threadId,
   });
-  seedPina(db, clock(), { journalId: filed, perso: ids['Perso']!, draftId: drafted.id as string });
-  // What those turns cost today: Réglages › Pina shows it against the daily cap.
-  recordCost(
-    db,
-    { provider: 'anthropic', model: 'claude-haiku-5-5', amount: 0.18, calls: 6 },
-    clock(),
-    'pina',
-  );
+  // `pina: false` (the evaluation script) starts Pina's day empty.
+  if (opts.pina !== false) {
+    seedPina(db, clock(), { journalId: filed, perso: ids['Perso']!, draftId: drafted.id as string });
+    // What those turns cost today: Réglages › Pina shows it against the daily cap.
+    recordCost(
+      db,
+      { provider: 'anthropic', model: 'claude-haiku-5-5', amount: 0.18, calls: 6 },
+      clock(),
+      'pina',
+    );
+  }
 
   seedAgenda(agenda, clock());
   await syncAgenda(deps);
   // Last: the scripted triage above marks the key as working.
   if (opts.keyRefused) keyRefused(db, 'anthropic', clock());
-  return { app, token };
+  return { app, token, db, actions, clock, gmail, calls: fake.calls, deps };
 }
