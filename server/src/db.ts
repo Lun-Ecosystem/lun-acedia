@@ -140,6 +140,31 @@ const MIGRATIONS: string[] = [
   'ALTER TABLE proposals ADD COLUMN reason TEXT',
   'ALTER TABLE journal ADD COLUMN restore TEXT',
   'ALTER TABLE costs ADD COLUMN purpose TEXT',
+  `CREATE TABLE pina_messages (
+     id INTEGER PRIMARY KEY AUTOINCREMENT,
+     day TEXT NOT NULL,
+     at TEXT NOT NULL,
+     role TEXT NOT NULL,
+     body TEXT NOT NULL
+   );
+   CREATE INDEX pina_messages_by_day ON pina_messages (day);
+   CREATE TABLE pina_cards (
+     id INTEGER PRIMARY KEY AUTOINCREMENT,
+     day TEXT NOT NULL,
+     turn INTEGER NOT NULL,
+     created_at TEXT NOT NULL,
+     call_id TEXT NOT NULL,
+     action TEXT NOT NULL,
+     input TEXT NOT NULL,
+     effect TEXT NOT NULL,
+     status TEXT NOT NULL CHECK (status IN ('pending', 'done', 'refused', 'failed', 'expired')),
+     result TEXT,
+     error TEXT,
+     inverse TEXT,
+     decided_at TEXT
+   );
+   CREATE INDEX pina_cards_by_day ON pina_cards (day);
+   CREATE INDEX pina_cards_by_turn ON pina_cards (turn);`,
 ];
 
 export function openDb(path: string): DatabaseSync {
