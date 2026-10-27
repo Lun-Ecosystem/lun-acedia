@@ -6,6 +6,7 @@ import { costOf, priceOf, spentToday } from '../llm/models.ts';
 import { ProviderError, type ChatMessage, type LlmProvider, type ToolCall } from '../llm/types.ts';
 import { markPina } from '../triage/journal.ts';
 import { listLabels } from '../triage/labels.ts';
+import type { ScreenContext } from '../types.ts';
 import { beforeOf, inverseOf } from './inverse.ts';
 import { systemPrompt, toolName } from './prompt.ts';
 import {
@@ -25,13 +26,7 @@ import {
   type Card,
 } from './store.ts';
 
-export interface ScreenContext {
-  screen: 'mail' | 'pending' | 'agenda' | 'tasks' | 'journal' | 'settings' | 'compose';
-  mailId?: string;
-  day?: string;
-  listId?: string;
-  draftId?: string;
-}
+export type { ScreenContext } from '../types.ts';
 
 export interface PinaDeps {
   db: DatabaseSync;

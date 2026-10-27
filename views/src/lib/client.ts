@@ -15,6 +15,9 @@ import type {
   MailPage,
   ModelChoice,
   ModelOffer,
+  PinaCard,
+  PinaSettings,
+  PinaThread,
   ProposalView,
   ProviderId,
   ProviderView,
@@ -22,6 +25,7 @@ import type {
   Rule,
   RuleField,
   RuleOp,
+  ScreenContext,
   SendAsAddress,
   Settings,
   TodayStats,
@@ -160,6 +164,23 @@ export interface AcediaClient {
   /** Pauses everything automatic (the AI and the rules); what is asked by hand still runs. */
   pause(): Promise<void>;
   resume(): Promise<void>;
+  /** Today's thread of Pina (a new one each Paris day). */
+  pinaToday(): Promise<PinaThread>;
+  /** The days of the thread still kept, the latest first. */
+  pinaDays(): Promise<{ day: string; messages: number }[]>;
+  /** A past day of the thread, to read. */
+  pinaDay(day: string): Promise<PinaThread>;
+  /** Asks Pina; answers today's thread once her turn stops (a reply, a card to decide, a bound). */
+  pinaAsk(text: string, context: ScreenContext): Promise<PinaThread>;
+  /** Accepts (with the input changed by « Modifier », if any) or refuses a card; 409 when already decided or expired. */
+  pinaDecide(
+    id: number,
+    decision: 'accept' | 'refuse',
+    input?: unknown,
+  ): Promise<PinaThread & { card: PinaCard }>;
+  /** Undoes a done card by its inverse; 409 without one, or when already undone. */
+  pinaUndo(id: number): Promise<{ card: PinaCard; result: unknown }>;
+  getPinaSettings(): Promise<PinaSettings>;
   /** Calls `onEvent` for each satellite event; returns the function that stops listening. */
   subscribe(onEvent: (e: LunEvent) => void): () => void;
 }
@@ -295,6 +316,15 @@ export function httpClient(opts: { baseUrl: string; token: string; fetch?: typeo
     resume: async () => {
       await call('POST', '/lun/v1/resume', {});
     },
+    pinaToday: () => call('GET', '/api/pina/today'),
+    pinaDays: async () =>
+      (await call<{ days: { day: string; messages: number }[] }>('GET', '/api/pina/days')).days,
+    pinaDay: (day) => call('GET', `/api/pina/days/${enc(day)}`),
+    pinaAsk: (text, context) => call('POST', '/api/pina/messages', { text, context }),
+    pinaDecide: (id, decision, input) =>
+      call('POST', `/api/pina/cards/${id}`, input === undefined ? { decision } : { decision, input }),
+    pinaUndo: (id) => call('POST', `/api/pina/cards/${id}/undo`, {}),
+    getPinaSettings: () => call('GET', '/api/pina/settings'),
     subscribe(onEvent) {
       const stop = new AbortController();
       let lastId: string | undefined;

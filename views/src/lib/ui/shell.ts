@@ -1,4 +1,5 @@
-import { getContext, setContext, type Snippet } from 'svelte';
+import { getContext, onDestroy, setContext, type Snippet } from 'svelte';
+import type { ScreenContext } from '../types.ts';
 
 /*
  * What the screen shown gives to the app shell around it: its main action on top of the rail, its
@@ -33,3 +34,28 @@ export const provideShell = (register: ShellRegister) => setContext(KEY, registe
 
 /** For a screen: the shell around it, if any. */
 export const shellOf = () => getContext<ShellRegister | undefined>(KEY);
+
+/** The screen context, plus what Pina's context pill says of it (the subject of the mail open). */
+export type ShownContext = {
+  [K in Exclude<keyof ScreenContext, 'screen'>]?: ScreenContext[K] | undefined;
+} & { screen: ScreenContext['screen']; label?: string | undefined };
+
+/** Called with the context of the screen arriving, and with `null` when that one leaves. */
+export type ContextSetter = (ctx: ShownContext | null, leaving?: ShownContext) => void;
+
+const CONTEXT_KEY = Symbol('lun-screen-context');
+
+/** For the app: receives what each screen shows, for Pina. */
+export const provideScreenContext = (set: ContextSetter) => setContext(CONTEXT_KEY, set);
+
+/**
+ * For a screen, during its init: tells Pina what it shows. Give getters (`get mailId() {…}`) for what
+ * changes: the context is read when Pina is asked. Nothing happens outside an app that listens.
+ */
+export function setScreenContext(ctx: ShownContext): void {
+  const set = getContext<ContextSetter | undefined>(CONTEXT_KEY);
+  if (!set) return;
+  set(ctx);
+  // The next screen may arrive before this one leaves: only this context is cleared.
+  onDestroy(() => set(null, ctx));
+}

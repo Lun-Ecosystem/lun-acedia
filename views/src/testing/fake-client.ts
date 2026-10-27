@@ -209,6 +209,23 @@ export function fakeClient(opts: { mails?: MailSummary[]; journal?: JournalEntry
     health: vi.fn<AcediaClient['health']>(async () => ({ status: 'ok' as const })),
     pause: vi.fn<AcediaClient['pause']>(async () => {}),
     resume: vi.fn<AcediaClient['resume']>(async () => {}),
+    pinaToday: vi.fn<AcediaClient['pinaToday']>(async () => ({
+      day: '2026-11-02',
+      messages: [],
+      cards: [],
+      pending: 0,
+    })),
+    pinaDays: vi.fn<AcediaClient['pinaDays']>(async () => []),
+    pinaDay: vi.fn<AcediaClient['pinaDay']>(notUsed),
+    pinaAsk: vi.fn<AcediaClient['pinaAsk']>(notUsed),
+    pinaDecide: vi.fn<AcediaClient['pinaDecide']>(notUsed),
+    pinaUndo: vi.fn<AcediaClient['pinaUndo']>(notUsed),
+    getPinaSettings: vi.fn<AcediaClient['getPinaSettings']>(async () => ({
+      mode: 'validate' as const,
+      instructions: '',
+      retentionDays: 30,
+      dailyCapUsd: 1,
+    })),
     subscribe: vi.fn<AcediaClient['subscribe']>(() => () => {}),
   } satisfies AcediaClient;
   return { client, mails };

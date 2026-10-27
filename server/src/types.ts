@@ -236,3 +236,64 @@ export interface ModelChoice {
   provider: ProviderId;
   model: string;
 }
+
+/** What the screen shows when CrOliX asks Pina (`POST /api/pina/messages`): « ce mail » is `mailId`. */
+export interface ScreenContext {
+  screen: 'mail' | 'pending' | 'agenda' | 'tasks' | 'journal' | 'settings' | 'compose';
+  mailId?: string;
+  /** `AAAA-MM-JJ`. */
+  day?: string;
+  listId?: string;
+  draftId?: string;
+}
+
+export type PinaCardStatus = 'pending' | 'done' | 'refused' | 'failed' | 'expired';
+
+/** A write Pina proposed (or did, in « faire tout de suite »), as a card of the day's thread. */
+export interface PinaCard {
+  id: number;
+  day: string;
+  /** Id of the user message that started the turn: the cards of one turn are decided together. */
+  turn: number;
+  createdAt: string;
+  callId: string;
+  /** Name of the catalogue action (`task.create`). */
+  action: string;
+  input: unknown;
+  effect: string;
+  status: PinaCardStatus;
+  result: unknown;
+  /** Why a `failed` card failed, as the server said it. */
+  error: string | null;
+  /** Present when « Annuler » can undo a `done` card. */
+  inverse: unknown;
+  decidedAt: string | null;
+  /** CrOliX changed the input (« Modifier ») before accepting. */
+  edited: boolean;
+}
+
+/** One stored message of the thread; `turn` ties Pina's messages to the request they answer. */
+export type PinaMessage =
+  | { role: 'user'; text: string; context?: ScreenContext; turn?: number }
+  | {
+      role: 'assistant';
+      text: string;
+      toolCalls: { id: string; name: string; input: unknown }[];
+      turn?: number;
+    }
+  | { role: 'tool'; callId: string; content: string; isError: boolean; turn?: number };
+
+/** A day of Pina's thread (`GET /api/pina/today`, `/days/:day`); `pending` counts its waiting cards. */
+export interface PinaThread {
+  day: string;
+  messages: { id: number; at: string; message: PinaMessage }[];
+  cards: PinaCard[];
+  pending: number;
+}
+
+export interface PinaSettings {
+  mode: 'validate' | 'immediate';
+  instructions: string;
+  retentionDays: number;
+  dailyCapUsd: number;
+}

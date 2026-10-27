@@ -3,27 +3,10 @@ import { z } from 'zod';
 import { getSetting, putSetting } from '../db.ts';
 import type { ChatMessage } from '../llm/types.ts';
 import { parisDayStart } from '../triage/journal.ts';
+import type { PinaCard, PinaCardStatus, PinaSettings } from '../types.ts';
 
-export type CardStatus = 'pending' | 'done' | 'refused' | 'failed' | 'expired';
-
-export interface Card {
-  id: number;
-  day: string;
-  /** Id of the user message that started the turn. */
-  turn: number;
-  createdAt: string;
-  callId: string;
-  action: string;
-  input: unknown;
-  effect: string;
-  status: CardStatus;
-  result: unknown;
-  error: string | null;
-  inverse: unknown;
-  decidedAt: string | null;
-  /** CrOliX changed the input (« Modifier ») before accepting. */
-  edited: boolean;
-}
+export type CardStatus = PinaCardStatus;
+export type Card = PinaCard;
 
 /** The Paris calendar day (AAAA-MM-JJ) of an instant, from the same day start as the journal. */
 export function dayOf(now: Date): string {
@@ -177,12 +160,7 @@ export function days(db: DatabaseSync): { day: string; messages: number }[] {
     .all() as { day: string; messages: number }[];
 }
 
-export interface PinaSettings {
-  mode: 'validate' | 'immediate';
-  instructions: string;
-  retentionDays: number;
-  dailyCapUsd: number;
-}
+export type { PinaSettings };
 
 const DEFAULTS: PinaSettings = { mode: 'validate', instructions: '', retentionDays: 30, dailyCapUsd: 1 };
 

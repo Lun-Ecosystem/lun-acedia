@@ -6,11 +6,15 @@
     Journal,
     Mailbox,
     Pending,
+    PinaPanel,
+    provideScreenContext,
     Settings,
     StandaloneCard,
     Tasks,
     toast,
     type AcediaClient,
+    type ScreenContext,
+    type ShownContext,
   } from '@lun-ecosystem/lunacedia-views';
   import { readAuthorization } from './authorization.ts';
   import Authorize from './Authorize.svelte';
@@ -73,6 +77,22 @@
   }
 
   const client = $derived(token ? createHttpClient(baseUrl, token, { onUnauthorized: forget }) : null);
+
+  // ---- Pina: what the screen shows rides with each request.
+  let pinaOpen = $state(false);
+  let pinaPending = $state(0);
+  let shown = $state.raw<ShownContext | null>(null);
+  provideScreenContext((ctx, leaving) => {
+    if (ctx || shown === leaving) shown = ctx;
+  });
+  const PINA_SCREEN: Record<Screen, ScreenContext['screen']> = {
+    mail: 'mail',
+    'a-valider': 'pending',
+    agenda: 'agenda',
+    taches: 'tasks',
+    journal: 'journal',
+    reglages: 'settings',
+  };
 
   let status = $state<ShellStatus>(EMPTY_STATUS);
   let account = $state<string | undefined>();
@@ -156,7 +176,27 @@
     counts={status.counts}
     {account}
     ontogglepause={() => togglePause(client)}
+    onpina={() => (pinaOpen = !pinaOpen)}
+    {pinaOpen}
+    {pinaPending}
   >
+    {#snippet pina()}
+      {#key client}
+        <PinaPanel
+          {client}
+          bind:open={pinaOpen}
+          bind:pending={pinaPending}
+          context={shown}
+          screen={PINA_SCREEN[screen]}
+          onopendraft={() => {
+            // shortcut: the composer opens a draft by its id in Task 12; until then, the mail screen.
+            pinaOpen = false;
+            location.hash = HREF.mail;
+          }}
+          onsettings={() => (location.hash = HREF.reglages)}
+        />
+      {/key}
+    {/snippet}
     {#key client}
       {#key screen}
         {#if screen === 'mail'}

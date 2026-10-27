@@ -14,7 +14,7 @@
   import Menu from '../ui/Menu.svelte';
   import NavGroup from '../ui/NavGroup.svelte';
   import NavLink from '../ui/NavLink.svelte';
-  import { shellOf } from '../ui/shell.ts';
+  import { setScreenContext, shellOf } from '../ui/shell.ts';
   import { toast } from '../ui/toasts.svelte.ts';
   import {
     addDays,
@@ -199,6 +199,15 @@
   };
 
   const shell = shellOf();
+  setScreenContext({
+    screen: 'tasks',
+    get listId() {
+      return current || undefined;
+    },
+    get label() {
+      return lists.find((l) => l.id === current)?.title ?? 'Tâches';
+    },
+  });
   $effect(() => {
     if (!shell) return;
     shell({ action: side, rail: nav, create: newTask, createLabel: 'Nouvelle tâche' });

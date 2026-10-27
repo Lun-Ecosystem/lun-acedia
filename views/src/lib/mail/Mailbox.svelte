@@ -10,7 +10,7 @@
   import Field from '../ui/Field.svelte';
   import { Clock, Plus, X } from '../ui/Icon.ts';
   import IconButton from '../ui/IconButton.svelte';
-  import { shellOf } from '../ui/shell.ts';
+  import { setScreenContext, shellOf } from '../ui/shell.ts';
   import { bindShortcuts } from '../ui/shortcuts.ts';
   import Tabs from '../ui/Tabs.svelte';
   import TextInput from '../ui/TextInput.svelte';
@@ -369,6 +369,18 @@
 
   // ---- The shell around, if any, gets the main action and the boxes.
   const shell = shellOf();
+  // What Pina sees: the mail open (« ce mail »), or the composer.
+  setScreenContext({
+    get screen() {
+      return composing ? ('compose' as const) : ('mail' as const);
+    },
+    get mailId() {
+      return openId ?? undefined;
+    },
+    get label() {
+      return detail?.subject;
+    },
+  });
   $effect(() => {
     if (!shell) return;
     shell({
