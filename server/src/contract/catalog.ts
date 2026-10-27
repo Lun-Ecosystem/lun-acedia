@@ -25,7 +25,7 @@ import {
 } from '../gmail/actions.ts';
 import { plainText } from '../gmail/body.ts';
 import { defaultFrom, headerValue, textToHtml } from '../gmail/compose.ts';
-import { createDraft, deleteDraft, updateDraft } from '../gmail/drafts.ts';
+import { createDraft, deleteDraft, getDraft, updateDraft } from '../gmail/drafts.ts';
 import { fetchFull, listMail, readMail, searchMail, summary } from '../gmail/read.ts';
 import type { GoogleClient } from '../google/client.ts';
 import { header, upsertMessage, viewFilter } from '../gmail/store.ts';
@@ -300,6 +300,13 @@ export function registerCatalog(
       ...reply,
     });
   };
+  add(
+    'read',
+    'draft.read',
+    'Lit un brouillon : destinataires, objet et texte.',
+    z.object({ id: Id }),
+    ({ id }) => getDraft(mail(), id),
+  );
   add(
     'write',
     'draft.create',

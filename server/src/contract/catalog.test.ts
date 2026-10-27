@@ -41,6 +41,7 @@ const NEW_NAMES = [
   'rule.update',
   'rule.delete',
   'stats.today',
+  'draft.read',
   'draft.create',
   'draft.update',
   'draft.delete',
@@ -60,6 +61,7 @@ const EFFECTS: Record<string, string> = {
   'task.list': 'read',
   'journal.list': 'read',
   'rule.list': 'read',
+  'draft.read': 'read',
   'draft.delete': 'delete',
   'stats.today': 'read',
 };
@@ -82,7 +84,7 @@ describe('contract actions', () => {
     expect(names.filter((n) => /send/i.test(n))).toEqual([]);
   });
 
-  it('lists the 36 actions, each with an object JSON Schema', async () => {
+  it('lists the 37 actions, each with an object JSON Schema', async () => {
     const { h } = await setup();
     const { actions } = (await h.call('GET', '/lun/v1/actions')).body as {
       actions: { name: string; description: string; input: { type: string } }[];
