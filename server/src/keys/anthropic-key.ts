@@ -4,7 +4,8 @@ import { emitEvent } from '../contract/events.ts';
 import { addDegraded, clearDegraded, getState } from '../contract/state.ts';
 import { decrypt, encrypt } from '../crypto.ts';
 import { getSetting, putSetting } from '../db.ts';
-import { createAnthropicClassifier, isKeyRefusedError } from '../triage/anthropic.ts';
+import { createAnthropicProvider, isKeyRefusedError } from '../llm/anthropic.ts';
+import { createLlmClassifier, DEFAULT_MODEL } from '../triage/llm-classifier.ts';
 import type { Classifier } from '../triage/classifier.ts';
 import { isValidDate, WARNED } from './expiry.ts';
 
@@ -138,7 +139,8 @@ export function anthropicKeyView(
 }
 
 type MakeClassifier = (apiKey: string) => Classifier;
-const makeAnthropic: MakeClassifier = (apiKey) => createAnthropicClassifier({ apiKey });
+const makeAnthropic: MakeClassifier = (apiKey) =>
+  createLlmClassifier({ provider: createAnthropicProvider({ apiKey }), model: DEFAULT_MODEL });
 const built = new WeakMap<MakeClassifier, { key: string; classifier: Classifier }>();
 
 /**

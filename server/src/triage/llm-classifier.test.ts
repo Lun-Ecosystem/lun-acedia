@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { createAnthropicClassifier, type MessagesApi } from './anthropic.ts';
+import { createAnthropicProvider, type AnthropicApi } from '../llm/anthropic.ts';
+import { createLlmClassifier, DEFAULT_MODEL } from './llm-classifier.ts';
 import { ClassifierError, CreditExhaustedError, KeyRefusedError, type ClassifyInput } from './classifier.ts';
 import { costOf } from './prices.ts';
 
@@ -19,11 +20,23 @@ const input: ClassifyInput = {
   examples: [{ from: 'prof@ecole.fr', subject: 'Note', boxId: 'L1', tagIds: [] }],
 };
 
+type MessagesApi = AnthropicApi['messages'];
+
+/** The triage as it runs for Anthropic: the classifier over the Anthropic provider. */
+const createAnthropicClassifier = ({ api }: { api: MessagesApi }) =>
+  createLlmClassifier({
+    provider: createAnthropicProvider({
+      apiKey: 'test',
+      api: { messages: api, models: { list: async () => ({}) } },
+    }),
+    model: DEFAULT_MODEL,
+  });
+
 function fakeApi(reply: unknown | Error) {
   const requests: Record<string, unknown>[] = [];
   const api: MessagesApi = {
     async create(params) {
-      requests.push(params as Record<string, unknown>);
+      requests.push(params as unknown as Record<string, unknown>);
       if (reply instanceof Error) throw reply;
       return reply as Awaited<ReturnType<MessagesApi['create']>>;
     },
@@ -37,7 +50,7 @@ const ok = (json: object) => ({
   usage: { input_tokens: 1200, output_tokens: 40 },
 });
 
-describe('Anthropic classifier', () => {
+describe('LLM classifier over Anthropic', () => {
   it('turns a structured answer into a classification', async () => {
     const { api, requests } = fakeApi(
       ok({

@@ -1,0 +1,86 @@
+/** The providers the user can pick; `custom` is any OpenAI-compatible endpoint. */
+export type ProviderId = 'anthropic' | 'openai' | 'google' | 'mistral' | 'custom';
+
+export interface Usage {
+  inputTokens: number;
+  outputTokens: number;
+}
+
+export interface ToolSpec {
+  name: string;
+  description: string;
+  /** JSON Schema of the input. */
+  input: object;
+}
+
+export interface ToolCall {
+  id: string;
+  name: string;
+  input: unknown;
+}
+
+export type ChatMessage =
+  | { role: 'user'; text: string }
+  | { role: 'assistant'; text: string; toolCalls: ToolCall[] }
+  | { role: 'tool'; callId: string; content: string; isError: boolean };
+
+export interface ChatResult {
+  text: string;
+  toolCalls: ToolCall[];
+  usage: Usage;
+  stop: 'end' | 'tools' | 'length';
+}
+
+export interface LlmProvider {
+  readonly id: ProviderId;
+  /** JSON constrained by `schema`, already parsed. */
+  json(req: {
+    model: string;
+    system: string;
+    user: string;
+    schema: object;
+    maxTokens: number;
+  }): Promise<{ value: unknown; usage: Usage }>;
+  chat(req: {
+    model: string;
+    system: string;
+    messages: ChatMessage[];
+    tools: ToolSpec[];
+    maxTokens: number;
+  }): Promise<ChatResult>;
+  /** Free check of a key: `models.list`. */
+  check(): Promise<'ok' | 'refused' | 'unreachable'>;
+}
+
+/**
+ * What a provider failure means for Acedia: `key` refused, `credit` exhausted, `unavailable` (network,
+ * outage, anything else), `format` (an answer that cannot be used).
+ */
+export class ProviderError extends Error {
+  readonly kind: 'key' | 'credit' | 'unavailable' | 'format';
+  constructor(kind: ProviderError['kind'], message: string) {
+    super(message);
+    this.kind = kind;
+    this.name = 'ProviderError';
+  }
+}
+
+/** Maps an SDK error (both SDKs carry `status`, OpenAI also `code`) to a `ProviderError`. */
+export function toProviderError(err: unknown): ProviderError {
+  if (err instanceof ProviderError) return err;
+  const e = err as { status?: number; code?: string | null; message?: string };
+  const message = e?.message ?? String(err);
+  if (e?.status === 401 || e?.status === 403) return new ProviderError('key', message);
+  if (e?.status === 402 || e?.code === 'insufficient_quota' || /credit balance/i.test(message))
+    return new ProviderError('credit', message);
+  return new ProviderError('unavailable', message);
+}
+
+/** Parses a JSON answer, or fails as `format`. */
+export function parseJson(text: string): unknown {
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw new ProviderError('format', 'Réponse hors du format attendu');
+  }
+}
