@@ -259,9 +259,36 @@ describe('new actions run the same function as their screen route', () => {
     const got = await core.act(c.name, c.input(core.ctx));
     expect(got.body, JSON.stringify(c.input(core.ctx))).toMatchObject({ ok: true });
     expect(expected.status).toBe(200);
-    // journalId is the screen's own journaling; an action asked by the core is not journaled.
-    const route = { ...(expected.body as Record<string, unknown>) };
-    delete route.journalId;
-    expect(got.body.result).toEqual(route);
+    // Journaled the same way: the same journalId in both fresh servers.
+    expect(got.body.result).toEqual(expected.body);
+  });
+});
+
+describe('catalog errors are answers, never a 500', () => {
+  it('invalid input is a 400 with the schema message', async () => {
+    const { act } = await setup();
+    const res = await act('mail.read', {});
+    expect(res.status).toBe(400);
+    expect(res.body.error).toContain('id');
+  });
+
+  it('an unknown mail.list view and an unknown label.setRole id are 400s', async () => {
+    const { act } = await setup();
+    expect((await act('mail.list', { view: 'nope' })).status).toBe(400);
+    const role = await act('label.setRole', { id: 'nope', role: 'box' });
+    expect(role.status).toBe(400);
+    expect(role.body.error).toContain('nope');
+  });
+
+  it('a mail action journals like the screen, and undoing it twice is ok:false', async () => {
+    const { h, act } = await setup();
+    const box = (await h.call('POST', '/api/labels', { name: 'École', role: 'box' })).body.id as string;
+    const filed = await act('mail.file', { id: 'm1', boxId: box });
+    const journalId = filed.body.result.journalId as number;
+    expect(typeof journalId).toBe('number');
+    expect((await act('journal.undo', { id: journalId })).body.ok).toBe(true);
+    const again = await act('journal.undo', { id: journalId });
+    expect(again.status).toBe(200);
+    expect(again.body).toMatchObject({ ok: false, error: 'Action déjà annulée' });
   });
 });

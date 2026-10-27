@@ -11,18 +11,7 @@ import {
 } from '../agenda/tasks.ts';
 import { isDateOrInstant, isDay } from '../agenda/time.ts';
 import { agendaRange } from '../agenda/unified.ts';
-import {
-  archiveMail,
-  markRead,
-  reportSpam,
-  untrashMail,
-  BadRequestError,
-  fileMail,
-  NotFoundError,
-  setTags,
-  trashMail,
-  type ActionDeps,
-} from '../gmail/actions.ts';
+import { applyOp, BadRequestError, NotFoundError, type ActionDeps, type BatchOp } from '../gmail/actions.ts';
 import { plainText } from '../gmail/body.ts';
 import { defaultFrom, headerValue, textToHtml } from '../gmail/compose.ts';
 import { createDraft, deleteDraft, getDraft, updateDraft } from '../gmail/drafts.ts';
@@ -32,7 +21,7 @@ import { header, upsertMessage, viewFilter } from '../gmail/store.ts';
 import type { MailDetail } from '../types.ts';
 import { listJournal, todayStats, undo } from '../triage/journal.ts';
 import { createLabel, listLabels, setRole } from '../triage/labels.ts';
-import { correct, onManualFile, validate, withProposal } from '../triage/pipeline.ts';
+import { afterUserAction, correct, validate, withProposal } from '../triage/pipeline.ts';
 import { createRule, deleteRule, listRules, updateRule } from '../triage/rules.ts';
 import { RoleSchema, RuleSchema } from '../triage/routes.ts';
 import { stripUndefined } from '../util.ts';
@@ -92,6 +81,12 @@ export function registerCatalog(
       effect,
     );
   const ok = { ok: true };
+  /** A mail gesture through the same path as the screen's: learned and journaled, so undoable. */
+  const journaled = async (id: string, op: BatchOp) => {
+    const change = await applyOp(mail(), id, op);
+    const journalId = afterUserAction(mail(), change, op);
+    return journalId === undefined ? change : { ...change, journalId };
+  };
 
   add(
     'read',
@@ -116,32 +111,28 @@ export function registerCatalog(
     'mail.file',
     'Range un mail dans une boîte (il quitte la boîte de réception).',
     z.object({ id: Id, boxId: Id }),
-    async ({ id, boxId }) => {
-      const change = await fileMail(mail(), id, boxId);
-      onManualFile(mail(), id, boxId);
-      return change;
-    },
+    ({ id, boxId }) => journaled(id, { kind: 'file', boxId }),
   );
   add(
     'write',
     'mail.trash',
     'Met un mail à la corbeille (jamais de suppression définitive).',
     z.object({ id: Id }),
-    ({ id }) => trashMail(mail(), id),
+    ({ id }) => journaled(id, { kind: 'trash' }),
   );
   add(
     'write',
     'mail.archive',
     'Archive un mail (il quitte la boîte de réception).',
     z.object({ id: Id }),
-    ({ id }) => archiveMail(mail(), id),
+    ({ id }) => journaled(id, { kind: 'archive' }),
   );
   add(
     'write',
     'mail.tags',
     'Ajoute ou retire des étiquettes à un mail.',
     z.object({ id: Id, add: z.array(Id).default([]), remove: z.array(Id).default([]) }),
-    ({ id, add: tags, remove }) => setTags(mail(), id, tags, remove),
+    ({ id, add: tags, remove }) => journaled(id, { kind: 'tags', add: tags, remove }),
   );
   add('write', 'mail.validate', 'Accepte la proposition de tri d’un mail.', z.object({ id: Id }), ({ id }) =>
     validate(mail(), id),
@@ -241,6 +232,9 @@ export function registerCatalog(
     async ({ view, cursor }) => {
       // A bare box id is what label.list gives; the screen's own view name is `box:<id>`.
       const named = viewFilter(view) ? view : `box:${view}`;
+      // The screen lists an unknown box as empty; the model is told instead.
+      if (named !== view && !listLabels(deps.db).some((l) => l.id === view))
+        throw new BadRequestError(`Vue inconnue : ${view}`);
       const page = await listMail(deps.db, mail().google, named, cursor);
       if (!page) throw new BadRequestError(`Vue inconnue : ${view}`);
       const body: { items: ReturnType<typeof summary>[]; cursor?: string } = {
@@ -251,17 +245,17 @@ export function registerCatalog(
     },
   );
   add('write', 'mail.untrash', 'Sort un mail de la corbeille.', z.object({ id: Id }), ({ id }) =>
-    untrashMail(mail(), id),
+    journaled(id, { kind: 'untrash' }),
   );
   add('write', 'mail.spam', 'Signale un mail comme indésirable.', z.object({ id: Id }), ({ id }) =>
-    reportSpam(mail(), id),
+    journaled(id, { kind: 'spam' }),
   );
   add(
     'write',
     'mail.markRead',
     'Marque un mail comme lu ou non lu.',
     z.object({ id: Id, read: z.boolean() }),
-    ({ id, read }) => markRead(mail(), id, read),
+    ({ id, read }) => journaled(id, { kind: 'read', read }),
   );
 
   // Drafts only: there is no action that sends a mail, and none may ever be added.
