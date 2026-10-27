@@ -21,9 +21,20 @@
     onopendraft: (id: string) => void;
     onrephrase: () => void;
     onsettings: () => void;
+    /** A decision is over: the focus moves on. */
+    onsettled: () => void;
   }
 
-  let { thread, pina, names, readonly = false, onopendraft, onrephrase, onsettings }: Props = $props();
+  let {
+    thread,
+    pina,
+    names,
+    readonly = false,
+    onopendraft,
+    onrephrase,
+    onsettings,
+    onsettled,
+  }: Props = $props();
 
   type Item =
     | { kind: 'moi'; id: number; text: string }
@@ -66,15 +77,15 @@
       {/if}
     </div>
   {:else}
-    {@const waiting = item.cards.filter((c) => c.status === 'pending')}
+    {@const waiting = item.cards.filter((c) => c.status === 'pending' && c.effect !== 'delete')}
     {#each item.cards as card (card.id)}
       {@const common = {
         card,
         text: describe(card, names),
         busy: pina.busy.has(card.id),
         readonly,
-        onaccept: (input?: unknown) => pina.decide(card.id, 'accept', input),
-        onrefuse: () => pina.decide(card.id, 'refuse'),
+        onaccept: (input?: unknown) => pina.decide(card.id, 'accept', input).then(onsettled),
+        onrefuse: () => pina.decide(card.id, 'refuse').then(onsettled),
         onundo: () => pina.undo(card.id),
       }}
       {#if isDraft(card)}
@@ -85,8 +96,12 @@
     {/each}
     {#if !readonly && waiting.length > 1}
       <div class="groupe">
-        <Button variant="doux" size="petit" icon={Check} onclick={() => pina.acceptAll(waiting)}
-          >Tout valider</Button
+        <Button
+          variant="doux"
+          size="petit"
+          icon={Check}
+          loading={pina.acceptingAll}
+          onclick={() => pina.acceptAll(waiting).then(onsettled)}>Tout valider</Button
         >
         <span>{waiting.length} actions proposées ensemble</span>
       </div>

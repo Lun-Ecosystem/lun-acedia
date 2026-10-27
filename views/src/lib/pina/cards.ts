@@ -22,10 +22,16 @@ export interface CardText {
   done: string;
 }
 
-/** Names of what the input refers to: boxes and tags by id, mails by id (their subject). */
+/** What an id names: a mail's subject, an event's or a task's title (and its date), a rule's value. */
+export interface Target {
+  name: string;
+  when?: string | undefined;
+}
+
+/** Names of what the input refers to: boxes and tags by id; mails, events, tasks, rules, drafts by id. */
 export interface Names {
   labels: Map<string, string>;
-  subjects: Map<string, string>;
+  targets: Map<string, Target>;
 }
 
 type Input = Record<string, unknown>;
@@ -73,8 +79,17 @@ export function describe(card: Pick<PinaCard, 'action' | 'input'>, names: Names)
   const input = (card.input ?? {}) as Input;
   const label = (id: unknown) => names.labels.get(str(id)) ?? str(id);
   const mail = (): CardField[] => {
-    const subject = names.subjects.get(str(input.id));
+    const subject = names.targets.get(str(input.id))?.name;
     return subject ? [{ label: 'Mail', value: subject }] : [];
+  };
+  /** A deletion says what goes: its name and date when today's thread knows them, its id always. */
+  const doomed = (what: string, date = 'Date'): CardField[] => {
+    const t = names.targets.get(str(input.id));
+    return [
+      ...(t ? [{ label: what, value: t.name }] : []),
+      ...(t?.when ? [{ label: date, value: whenLabel(t.when) }] : []),
+      { label: 'Identifiant', value: str(input.id) },
+    ];
   };
   const event: [string, string, ('when' | 'day')?][] = [
     ['Titre', 'title'],
@@ -158,7 +173,12 @@ export function describe(card: Pick<PinaCard, 'action' | 'input'>, names: Names)
         done: 'Événement modifié',
       };
     case 'event.delete':
-      return { icon: icons.Trash, title: 'Supprimer un événement', fields: [], done: 'Événement supprimé' };
+      return {
+        icon: icons.Trash,
+        title: 'Supprimer un événement',
+        fields: doomed('Événement'),
+        done: 'Événement supprimé',
+      };
     case 'task.create':
       return {
         icon: icons.List,
@@ -176,7 +196,12 @@ export function describe(card: Pick<PinaCard, 'action' | 'input'>, names: Names)
     case 'task.complete':
       return { icon: icons.Check, title: 'Cocher une tâche', fields: [], done: 'Tâche cochée' };
     case 'task.delete':
-      return { icon: icons.Trash, title: 'Supprimer une tâche', fields: [], done: 'Tâche supprimée' };
+      return {
+        icon: icons.Trash,
+        title: 'Supprimer une tâche',
+        fields: doomed('Tâche', 'Échéance'),
+        done: 'Tâche supprimée',
+      };
     case 'draft.create':
     case 'draft.update':
       return {
@@ -190,7 +215,12 @@ export function describe(card: Pick<PinaCard, 'action' | 'input'>, names: Names)
         done: 'Brouillon prêt, non envoyé',
       };
     case 'draft.delete':
-      return { icon: icons.Trash, title: 'Jeter un brouillon', fields: [], done: 'Brouillon jeté' };
+      return {
+        icon: icons.Trash,
+        title: 'Jeter un brouillon',
+        fields: doomed('Brouillon'),
+        done: 'Brouillon jeté',
+      };
     case 'label.create':
       return {
         icon: icons.Folder,
@@ -219,21 +249,41 @@ export function describe(card: Pick<PinaCard, 'action' | 'input'>, names: Names)
         done: card.action === 'rule.create' ? 'Règle créée' : 'Règle modifiée',
       };
     case 'rule.delete':
-      return { icon: icons.Trash, title: 'Supprimer une règle de tri', fields: [], done: 'Règle supprimée' };
+      return {
+        icon: icons.Trash,
+        title: 'Supprimer une règle de tri',
+        fields: doomed('Règle'),
+        done: 'Règle supprimée',
+      };
     default:
       // shortcut: an action without its own wording shows its name; add a case when the catalogue grows.
       return { icon: icons.Sparkles, title: card.action, fields: [], done: 'Fait' };
   }
 }
 
-/** Mail subjects Pina read today (`mail.read`, `mail.list`…), to name « ce mail » on the cards. */
-export function subjectsOf(thread: PinaThread | null): Map<string, string> {
-  const out = new Map<string, string>();
+/** Instant of a Google event's start (`{ dateTime }` or `{ date }`), or the plain value. */
+const instant = (v: unknown): string | undefined => {
+  if (typeof v === 'string') return v;
+  if (typeof v === 'object' && v !== null) {
+    const o = v as Record<string, unknown>;
+    return str(o.dateTime) || str(o.date) || undefined;
+  }
+  return undefined;
+};
+
+/**
+ * What today's thread names by id: the results Pina read (`mail.read`, `agenda.list`, `task.list`,
+ * `rule.list`…) and those of her done cards. Mails by subject, events and tasks by title, rules by value.
+ */
+export function targetsOf(thread: PinaThread | null): Map<string, Target> {
+  const out = new Map<string, Target>();
   const walk = (v: unknown, depth: number) => {
-    if (depth > 4 || typeof v !== 'object' || v === null) return;
+    if (depth > 5 || typeof v !== 'object' || v === null) return;
     if (Array.isArray(v)) return v.forEach((x) => walk(x, depth + 1));
     const o = v as Record<string, unknown>;
-    if (typeof o.id === 'string' && typeof o.subject === 'string') out.set(o.id, o.subject);
+    const id = str(o.id);
+    const name = str(o.subject) || str(o.title) || str(o.summary) || str(o.value);
+    if (id && name) out.set(id, { name, when: instant(o.start) ?? (str(o.due) || undefined) });
     for (const x of Object.values(o)) walk(x, depth + 1);
   };
   for (const { message: m } of thread?.messages ?? []) {
@@ -241,8 +291,9 @@ export function subjectsOf(thread: PinaThread | null): Map<string, string> {
     try {
       walk(JSON.parse(m.content), 0);
     } catch {
-      // A plain text result names no mail.
+      // A plain text result names nothing.
     }
   }
+  for (const c of thread?.cards ?? []) walk(c.result, 0);
   return out;
 }

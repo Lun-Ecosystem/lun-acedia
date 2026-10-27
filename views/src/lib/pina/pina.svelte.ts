@@ -149,9 +149,21 @@ export class PinaState {
     }
   }
 
-  /** « Tout valider »: the cards of a turn one after the other, as the server runs them. */
+  /** « Tout valider » is running: a second click waits for it. */
+  acceptingAll = $state(false);
+
+  /**
+   * « Tout valider »: the cards of a turn one after the other, as the server runs them. Deletions are
+   * left out: each one is validated on its own.
+   */
   async acceptAll(cards: PinaCard[]) {
-    for (const c of cards) await this.decide(c.id, 'accept');
+    if (this.acceptingAll) return;
+    this.acceptingAll = true;
+    try {
+      for (const c of cards) if (c.effect !== 'delete') await this.decide(c.id, 'accept');
+    } finally {
+      this.acceptingAll = false;
+    }
   }
 
   async undo(id: number) {

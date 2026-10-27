@@ -22,7 +22,7 @@
   } from '../ui/Icon.ts';
   import type { ShownContext } from '../ui/shell.ts';
   import { bindShortcuts } from '../ui/shortcuts.ts';
-  import { dayLabel, subjectsOf, type Names } from './cards.ts';
+  import { dayLabel, targetsOf, type Names } from './cards.ts';
   import History from './History.svelte';
   import Launcher from './Launcher.svelte';
   import { PinaState, type Size } from './pina.svelte.ts';
@@ -71,9 +71,9 @@
   const ctx = $derived(context ?? { screen });
   const shown = $derived(pina.past ?? pina.thread);
   const names = $derived.by((): Names => {
-    const subjects = subjectsOf(shown);
-    if (ctx.mailId && ctx.label) subjects.set(ctx.mailId, ctx.label);
-    return { labels, subjects };
+    const targets = targetsOf(shown);
+    if (ctx.mailId && ctx.label) targets.set(ctx.mailId, { name: ctx.label });
+    return { labels, targets };
   });
 
   $effect(() => {
@@ -96,8 +96,19 @@
     });
   });
 
+  const isPhone = () => window.matchMedia?.('(max-width: 767.98px)').matches ?? false;
+  /** On a phone the sheet is modal: the focus stays inside until it closes. */
+  const modal = $derived(open && isPhone());
+  /** Another window has the keyboard (a Bits dialog, the palette): Ctrl J leaves it alone. */
+  const otherDialog = () =>
+    [...document.querySelectorAll('[role="dialog"], [role="alertdialog"]')].some(
+      (d) => d !== panel && d.getAttribute('aria-modal') === 'true',
+    );
+
   // Ctrl J from anywhere, a field included.
-  $effect(() => bindShortcuts({ 'Ctrl+j': toggle }, window, { fromFields: ['Ctrl+j'] }));
+  $effect(() =>
+    bindShortcuts({ 'Ctrl+j': () => !otherDialog() && void toggle() }, window, { fromFields: ['Ctrl+j'] }),
+  );
 
   // The latest message in view.
   $effect(() => {
@@ -105,16 +116,55 @@
     if (fil) fil.scrollTop = fil.scrollHeight;
   });
 
-  async function toggle() {
+  /** Where the focus was when the window opened (the phone's top-bar button). */
+  let opener: HTMLElement | null = null;
+
+  /** Opens or closes the window: the launcher, Ctrl J, the phone's button and « Ouvrir le brouillon » all come here. */
+  export async function toggle() {
     if (!open) {
+      opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
       open = true;
       return;
     }
-    const inside = panel?.contains(document.activeElement);
+    const active = document.activeElement;
+    const inside = !active || active === document.body || panel?.contains(active);
     open = false;
     pina.past = null;
     await tick();
-    if (inside) launcher?.focus();
+    if (inside) (isPhone() ? opener : launcher)?.focus();
+  }
+
+  function openDraft(id: string) {
+    if (open) void toggle();
+    onopendraft(id);
+  }
+
+  /** After a decision: the next pending card, else Pina's field (unless the focus went elsewhere). */
+  async function settled() {
+    await tick();
+    const active = document.activeElement;
+    if (!panel || (active && active !== document.body && !panel.contains(active))) return;
+    (panel.querySelector<HTMLElement>('[data-attente]') ?? field)?.focus();
+  }
+
+  /** Tab and Shift Tab go round inside the sheet while it is modal. */
+  function trap(event: KeyboardEvent) {
+    if (!modal || event.key !== 'Tab' || !panel) return;
+    const stops = [
+      ...panel.querySelectorAll<HTMLElement>(
+        'button:not([disabled]), textarea, input, a[href], [tabindex="0"]',
+      ),
+    ].filter((e) => e.getClientRects().length > 0);
+    const first = stops[0];
+    const last = stops.at(-1);
+    if (!first || !last) return;
+    if (event.shiftKey && (document.activeElement === first || document.activeElement === panel)) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
+    }
   }
 
   /** The context as the server takes it: without the pill's label nor empty fields. */
@@ -236,9 +286,14 @@
     bind:this={panel}
     class={['panneau', { grande: pina.maximized }]}
     role="dialog"
-    aria-modal="false"
+    aria-modal={modal}
     tabindex="-1"
     aria-label="Pina"
+    onkeydown={trap}
+    {@attach (node) => {
+      // The sheet takes the focus on a phone; on a wider screen the field does.
+      if (isPhone()) node.focus();
+    }}
     style:--largeur={`${pina.size.width}px`}
     style:--hauteur={`${pina.size.height}px`}
     onpointermove={move}
@@ -340,7 +395,8 @@
           {pina}
           {names}
           readonly={!!pina.past}
-          {onopendraft}
+          onopendraft={openDraft}
+          onsettled={settled}
           onrephrase={() => fill('Reformuler le brouillon : ')}
           {onsettings}
         />
@@ -394,16 +450,17 @@
 <style>
   .panneau {
     position: fixed;
-    right: 22px;
-    bottom: 22px;
+    /* 22 px from the edges, down to 12 when the window takes the whole viewport minus 24. */
+    right: min(22px, calc(100vw - 12px - var(--largeur)));
+    bottom: min(22px, calc(100dvh - 12px - var(--hauteur)));
     z-index: 45;
     display: flex;
     flex-direction: column;
     box-sizing: border-box;
     width: var(--largeur);
     height: var(--hauteur);
-    max-width: calc(100vw - 44px);
-    max-height: calc(100dvh - 44px);
+    max-width: calc(100vw - 24px);
+    max-height: calc(100dvh - 24px);
     border: 1px solid var(--bordure-forte);
     border-radius: var(--r-3);
     background: var(--surface-1);
@@ -413,6 +470,7 @@
   }
   .panneau.grande {
     top: 22px;
+    bottom: 22px;
     height: auto;
   }
   .bord {

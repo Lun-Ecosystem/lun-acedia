@@ -181,6 +181,9 @@
   }
   const go = (direction: 1 | -1) => (cursor = step(mode, cursor, direction));
 
+  /** A menu or a window has the keyboard (Pina's included): the screen's shortcuts wait. */
+  const overlay = () => Boolean(document.activeElement?.closest('[role="menu"], [role="dialog"]'));
+
   // Keys are the page's only while no window or bubble is open.
   onMount(() =>
     bindShortcuts(
@@ -194,7 +197,7 @@
           m: () => view('month'),
           a: () => view('agenda'),
           c: () => create(),
-        }).map(([key, run]) => [key, () => !editing && !bubbleOpen && !removing && run()]),
+        }).map(([key, run]) => [key, () => !editing && !bubbleOpen && !removing && !overlay() && run()]),
       ),
     ),
   );

@@ -291,8 +291,9 @@ function seedPina(db: DatabaseSync, now: Date, refs: { journalId: number; perso:
     action: string,
     input: unknown,
     done?: { result: unknown; inverse: unknown },
+    effect = 'write',
   ) => {
-    const id = addCard(db, { day, turn, callId, action, input, effect: 'write', now: at(min) });
+    const id = addCard(db, { day, turn, callId, action, input, effect, now: at(min) });
     if (done) setCardStatus(db, id, 'pending', 'done', { ...done, at: at(min - 1) });
     return id;
   };
@@ -344,6 +345,35 @@ function seedPina(db: DatabaseSync, now: Date, refs: { journalId: number; perso:
     toolCalls: [],
     turn: t2,
   });
+
+  // A deletion always waits for Valider, whatever the mode: the card says what goes.
+  const monday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - ((now.getDay() + 6) % 7));
+  const sport = new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() + 3, 18).toISOString();
+  const tDel = turnOf(15, 'Supprime le sport de jeudi, je n’y vais pas cette semaine.', { screen: 'agenda' });
+  const week = { from: monday.toISOString(), to: new Date(monday.getTime() + 7 * 86_400_000).toISOString() };
+  say(15, {
+    role: 'assistant',
+    text: '',
+    toolCalls: [{ id: 'c1', name: 'agenda_list', input: week }],
+    turn: tDel,
+  });
+  say(15, {
+    role: 'tool',
+    callId: 'c1',
+    content: JSON.stringify({
+      items: [{ kind: 'event', id: 'e7', calendarId: 'primary', title: 'Sport', start: sport }],
+    }),
+    isError: false,
+    turn: tDel,
+  });
+  const gone = { calendarId: 'primary', id: 'e7' };
+  say(14, {
+    role: 'assistant',
+    text: 'Pas de sport jeudi, ça marche. Je te laisse confirmer la suppression.',
+    toolCalls: [{ id: 'c2', name: 'event_delete', input: gone }],
+    turn: tDel,
+  });
+  card(tDel, 14, 'c2', 'event.delete', gone, undefined, 'delete');
 
   const t3 = turnOf(
     2,

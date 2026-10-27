@@ -21,8 +21,14 @@ describe('demo', () => {
       last4: 'ZQAA',
     });
     const pina = await get('/api/pina/today');
-    expect(pina.cards.map((c: { status: string }) => c.status)).toEqual(['done', 'done', 'pending']);
-    expect(pina.pending).toBe(1);
+    expect(pina.cards.map((c: { status: string }) => c.status)).toEqual([
+      'done',
+      'done',
+      'pending',
+      'pending',
+    ]);
+    expect(pina.cards[2]).toMatchObject({ action: 'event.delete', effect: 'delete' });
+    expect(pina.pending).toBe(2);
     expect((await get('/api/journal')).items.some((e: { origin: string }) => e.origin === 'pina')).toBe(true);
     expect((await app.request('/api/mail')).status).toBe(401);
   });

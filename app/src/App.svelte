@@ -80,6 +80,8 @@
 
   // ---- Pina: what the screen shows rides with each request.
   let pinaOpen = $state(false);
+  /** Opening and closing go through the window itself (focus back, history left). */
+  let pinaPanel = $state<{ toggle: () => Promise<void> } | undefined>();
   let pinaPending = $state(0);
   let shown = $state.raw<ShownContext | null>(null);
   provideScreenContext((ctx, leaving) => {
@@ -176,13 +178,14 @@
     counts={status.counts}
     {account}
     ontogglepause={() => togglePause(client)}
-    onpina={() => (pinaOpen = !pinaOpen)}
+    onpina={() => pinaPanel?.toggle()}
     {pinaOpen}
     {pinaPending}
   >
     {#snippet pina()}
       {#key client}
         <PinaPanel
+          bind:this={pinaPanel}
           {client}
           bind:open={pinaOpen}
           bind:pending={pinaPending}
@@ -190,7 +193,6 @@
           screen={PINA_SCREEN[screen]}
           onopendraft={() => {
             // shortcut: the composer opens a draft by its id in Task 12; until then, the mail screen.
-            pinaOpen = false;
             location.hash = HREF.mail;
           }}
           onsettings={() => (location.hash = HREF.reglages)}

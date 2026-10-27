@@ -47,6 +47,8 @@
     undoLabel = 'Annuler',
   }: Props = $props();
 
+  /** A deletion is always validated on its own (never by « Tout valider »), marked in danger tones. */
+  const deletion = $derived(card.effect === 'delete');
   let editing = $state<Record<string, string> | null>(null);
   const editable = $derived(text.fields.filter((f) => f.key));
 
@@ -69,15 +71,17 @@
   <!-- The card takes the focus so that Ctrl Enter and Escape decide it. -->
   <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
   <div
-    class="carte"
+    class={['carte', { suppression: deletion }]}
     role="group"
     tabindex={readonly ? undefined : 0}
-    aria-label={`${text.title}, en attente`}
+    data-attente={readonly ? undefined : ''}
+    aria-label={`${deletion ? 'Suppression : ' : ''}${text.title}, en attente`}
     aria-busy={busy || undefined}
     {@attach readonly ? undefined : shortcuts}
   >
     <div class="t">
       <text.icon size={14} strokeWidth={ICON_STROKE} aria-hidden="true" />{text.title}
+      {#if deletion}<span class="marque-suppr">Suppression</span>{/if}
       <span class="etat-c">{readonly ? 'restée en attente' : 'en attente'}</span>
     </div>
     {#if preview}
@@ -100,7 +104,13 @@
     {/if}
     {#if !readonly}
       <div class="act">
-        <Button variant="doux" size="petit" icon={Check} loading={busy} onclick={accept}>Valider</Button>
+        <Button
+          variant={deletion ? 'danger' : 'doux'}
+          size="petit"
+          icon={Check}
+          loading={busy}
+          onclick={accept}>Valider</Button
+        >
         {#if editing}
           <Button variant="fantome" size="petit" onclick={() => (editing = null)}
             >Garder la proposition</Button
@@ -165,6 +175,26 @@
     border: 1px solid var(--ia-bord);
     border-radius: var(--r-2);
     background: linear-gradient(180deg, var(--ia-doux), transparent);
+  }
+  .suppression {
+    border-color: var(--danger-bord);
+    background: linear-gradient(180deg, var(--danger-doux), transparent);
+  }
+  .suppression .t {
+    color: var(--danger);
+  }
+  .suppression:focus-visible {
+    outline-color: var(--danger);
+  }
+  .marque-suppr {
+    padding: 0 6px;
+    border: 1px solid var(--danger-bord);
+    border-radius: var(--r-1);
+    background: var(--danger-doux);
+    color: var(--danger);
+    font: 500 10.5px/16px var(--sans);
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
   }
   .carte:focus-visible {
     outline: 2px solid var(--ia);

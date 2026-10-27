@@ -145,6 +145,79 @@ describe('Pina', () => {
     expect(client.pinaDecide).toHaveBeenCalledWith(11, 'accept', undefined);
   });
 
+  it('a deletion card is marked as such and says what it deletes', async () => {
+    const t = thread([
+      card(12, { action: 'event.delete', effect: 'delete', input: { calendarId: 'primary', id: 'e5' } }),
+    ]);
+    t.messages.push({
+      id: 3,
+      at: '2026-11-02T08:59:00.000Z',
+      message: {
+        role: 'tool',
+        callId: 'c0',
+        isError: false,
+        content: JSON.stringify({
+          items: [{ id: 'e5', title: 'Déjeuner avec Camille', start: '2026-11-04T12:30:00' }],
+        }),
+      },
+    });
+    await setup(t, { open: true });
+    const deletion = await screen.findByRole('group', { name: /Suppression : Supprimer un événement/ });
+    expect(within(deletion).getByText('Suppression')).toBeInTheDocument();
+    expect(within(deletion).getByText('Déjeuner avec Camille')).toBeInTheDocument();
+    expect(within(deletion).getByText(/12 h 30/)).toBeInTheDocument();
+    expect(within(deletion).getByText('e5')).toBeInTheDocument();
+  });
+
+  it('« Tout valider » leaves the deletion card pending', async () => {
+    const del = card(12, { action: 'task.delete', effect: 'delete', input: { listId: 'l', id: 't9' } });
+    const { client, user } = await setup(thread([card(10), card(11), del]), { open: true });
+    client.pinaDecide.mockResolvedValue({ ...thread([card(10), card(11), del]), card: card(10) });
+    await user.click(await screen.findByRole('button', { name: 'Tout valider' }));
+    await waitFor(() => expect(client.pinaDecide).toHaveBeenCalledTimes(2));
+    expect(client.pinaDecide).not.toHaveBeenCalledWith(12, expect.anything(), undefined);
+    expect(screen.getByText('2 actions proposées ensemble')).toBeInTheDocument();
+  });
+
+  it('a double click on « Tout valider » sends each card once', async () => {
+    const { client, user } = await setup(thread([card(10), card(11)]), { open: true });
+    let release = () => {};
+    client.pinaDecide.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          release = () => resolve({ ...thread([card(10), card(11)]), card: card(10) });
+        }),
+    );
+    const all = await screen.findByRole('button', { name: 'Tout valider' });
+    await user.dblClick(all);
+    release();
+    await waitFor(() => expect(client.pinaDecide).toHaveBeenCalledTimes(2));
+    release();
+    await new Promise((r) => setTimeout(r, 20));
+    expect(client.pinaDecide.mock.calls.map((c) => c[0])).toEqual([10, 11]);
+  });
+
+  it('after a decision the focus moves to the next pending card', async () => {
+    const { client, user } = await setup(thread([card(10), card(11)]), { open: true });
+    client.pinaDecide.mockResolvedValue({
+      ...thread([card(10, { status: 'done' }), card(11)]),
+      card: card(10),
+    });
+    (await screen.findAllByRole('button', { name: 'Valider' }))[0]!.focus();
+    await user.keyboard('{Enter}');
+    await waitFor(() => expect(document.activeElement).toHaveAccessibleName(/Créer une tâche, en attente/));
+  });
+
+  it('Ctrl J does nothing while another dialog is open', async () => {
+    const { user } = await setup();
+    const other = document.createElement('div');
+    other.setAttribute('role', 'dialog');
+    other.setAttribute('aria-modal', 'true');
+    document.body.append(other);
+    await user.keyboard('{Control>}j{/Control}');
+    expect(panel()).toBeNull();
+  });
+
   it('a done card offers Annuler only with an inverse', async () => {
     const { client, user } = await setup(
       thread([

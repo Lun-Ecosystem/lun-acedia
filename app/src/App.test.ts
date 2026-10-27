@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest';
-import { render, screen, within } from '@testing-library/svelte';
+import { render, screen, waitFor, within } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Settings } from '@lun-ecosystem/lunacedia-views';
@@ -67,6 +67,12 @@ function fakeServer({ keyRefused = false, startPaused = false } = {}) {
       case 'POST /lun/v1/pause':
         paused = true;
         return json({ status: 'paused' });
+      case 'GET /api/pina/today':
+        return json({ day: '2026-11-02', messages: [], cards: [], pending: 0 });
+      case 'GET /api/pina/days':
+        return json({ days: [] });
+      case 'GET /api/pina/settings':
+        return json({ mode: 'validate', instructions: '', retentionDays: 30, dailyCapUsd: 1 });
       case 'POST /lun/v1/pair':
         return json({ token: 'tok-2', satellite: {} });
       default:
@@ -103,6 +109,26 @@ afterEach(() => {
 });
 
 describe('App', () => {
+  it('Pina overlays the shell: opening her window never changes the main area', async () => {
+    fakeServer();
+    localStorage.setItem(TOKEN_KEY, 'tok-1');
+    const user = userEvent.setup();
+    const { container } = render(App);
+    const main = await waitFor(() => container.querySelector('main')!);
+    const zone = main.parentElement!;
+    const look = () => [
+      main.className,
+      main.getAttribute('style'),
+      zone.className,
+      zone.getAttribute('style'),
+    ];
+    const before = look();
+    await user.keyboard('{Control>}j{/Control}');
+    const pina = await screen.findByRole('dialog', { name: 'Pina' });
+    expect(main.contains(pina)).toBe(false);
+    expect(look()).toEqual(before);
+  });
+
   it('revoking the current device clears the token and shows pairing, once', async () => {
     const { calls } = fakeServer();
     localStorage.setItem(TOKEN_KEY, 'tok-1');
