@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { eventsSince } from '../contract/events.ts';
 import { makeAgendaHarness } from '../testing/agenda-harness.ts';
 import { undatedTasks } from './unified.ts';
 
@@ -64,6 +65,21 @@ describe('tasks sync', () => {
     expect(h.agenda.task('list1', 't1')?.status).toBe('completed');
     expect(undatedTasks(h.db)).toEqual([]);
     expect((await h.call('GET', '/api/tasks?undated=1')).body.items).toEqual([]);
+  });
+
+  // The rail's « Tâches » counter reads again on `agenda.*` only: a tick must say so, or the done task stays counted.
+  it('each task write from Acedia says the agenda changed', async () => {
+    const h = await makeAgendaHarness();
+    h.agenda.putTask('list1', { id: 't1', title: 'Rendre le rapport', status: 'needsAction' });
+    await h.syncAgenda();
+    const changed = () => eventsSince(h.db).filter((e) => e.type === 'agenda.changed').length;
+    const before = changed();
+    await h.call('POST', '/api/tasks/list1/t1/complete');
+    expect(changed()).toBe(before + 1);
+    const created = await h.call('POST', '/api/tasks/list1', { title: 'Banque' });
+    await h.call('PATCH', `/api/tasks/list1/${created.body.id}`, { title: 'Appeler la banque' });
+    await h.call('DELETE', `/api/tasks/list1/${created.body.id}`);
+    expect(changed()).toBe(before + 4);
   });
 
   it('creates, renames and deletes a task from Acedia', async () => {
