@@ -135,7 +135,8 @@
   }
 
   function openDraft(id: string) {
-    if (open) void toggle();
+    // On a desktop the window stays over the composer (it never resizes it); the phone's sheet would hide it.
+    if (open && isPhone()) void toggle();
     onopendraft(id);
   }
 

@@ -60,6 +60,13 @@ async function open(
 const dialog = () => screen.findByRole('alertdialog');
 
 describe('Settings', () => {
+  it('opens on Pina’s page when asked (the « Réglages » link of her mode line)', async () => {
+    const { client } = fakeClient();
+    render(Settings, { props: { client, start: 'pina' } });
+    expect(await screen.findByRole('heading', { name: 'Pina', level: 2 })).toBeInTheDocument();
+    expect(await screen.findByRole('radiogroup', { name: 'Mode de Pina' })).toBeInTheDocument();
+  });
+
   it('lists the themes in a column and opens the sorting page first', async () => {
     const { themes, go } = await open();
     expect(
@@ -71,6 +78,7 @@ describe('Settings', () => {
       'Appareils et applications',
       'Tri par l’IA',
       'Boîtes et règles',
+      'Pina',
       'Fournisseurs d’IA',
     ]);
     expect(within(themes).getByRole('link', { name: 'Tri par l’IA' })).toHaveAttribute(

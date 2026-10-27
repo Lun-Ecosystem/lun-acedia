@@ -17,6 +17,7 @@ import type {
   ModelOffer,
   PinaCard,
   PinaSettings,
+  PinaSettingsView,
   PinaThread,
   ProposalView,
   ProviderId,
@@ -180,7 +181,9 @@ export interface AcediaClient {
   ): Promise<PinaThread & { card: PinaCard }>;
   /** Undoes a done card by its inverse; 409 without one, or when already undone. */
   pinaUndo(id: number): Promise<{ card: PinaCard; result: unknown }>;
-  getPinaSettings(): Promise<PinaSettings>;
+  getPinaSettings(): Promise<PinaSettingsView>;
+  /** Saves the fields given; the server checks the bounds (400 outside them). */
+  updatePinaSettings(patch: Partial<PinaSettings>): Promise<PinaSettingsView>;
   /** Calls `onEvent` for each satellite event; returns the function that stops listening. */
   subscribe(onEvent: (e: LunEvent) => void): () => void;
 }
@@ -325,6 +328,7 @@ export function httpClient(opts: { baseUrl: string; token: string; fetch?: typeo
       call('POST', `/api/pina/cards/${id}`, input === undefined ? { decision } : { decision, input }),
     pinaUndo: (id) => call('POST', `/api/pina/cards/${id}/undo`, {}),
     getPinaSettings: () => call('GET', '/api/pina/settings'),
+    updatePinaSettings: (patch) => call('PUT', '/api/pina/settings', patch),
     subscribe(onEvent) {
       const stop = new AbortController();
       let lastId: string | undefined;

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from 'svelte';
   import type { AcediaClient } from '../client.ts';
   import { errorText } from '../mail/format.ts';
   import type { ProviderId, ProviderView } from '../types.ts';
@@ -62,12 +63,16 @@
   const current = $derived(providers?.find((p) => p.id === editing));
   const ready = $derived(Boolean(key.trim()) && (editing !== 'custom' || Boolean(baseUrl.trim())));
 
+  // On opening or closing the window only: a refresh of `providers` meanwhile keeps what is typed.
   $effect(() => {
-    if (!editing) {
-      key = '';
-      expires = '';
-      error = undefined;
-    } else baseUrl = current?.baseUrl ?? '';
+    const open = editing;
+    untrack(() => {
+      if (!open) {
+        key = '';
+        expires = '';
+        error = undefined;
+      } else baseUrl = current?.baseUrl ?? '';
+    });
   });
 
   const put = (view: ProviderView) => {
@@ -108,10 +113,20 @@
     }
   }
 
+  /** The provider whose key was just removed: its « Retirer » is gone, the focus goes to its card. */
+  let removed = $state<ProviderId | null>(null);
+
   async function remove() {
     const { id, label } = removing!;
     put(await client.removeProviderKey(id));
+    removed = id;
     toast(`Clé ${label} retirée`);
+  }
+
+  function focusAfterRemoval() {
+    const id = removed;
+    removed = null;
+    return id ? document.querySelector<HTMLElement>(`.fournisseur-${id} button`) : null;
   }
 
   /** `AAAA-MM-JJ` as « 12 mars 2027 », without going through the local time zone. */
@@ -126,7 +141,7 @@
 
 {#if providers}
   {#each providers as p (p.id)}
-    <SettingsCard title={p.label} description={DESCRIPTION[p.id]} class="fournisseur">
+    <SettingsCard title={p.label} description={DESCRIPTION[p.id]} class="fournisseur fournisseur-{p.id}">
       {#snippet aside()}
         {#if p.state === 'absent'}
           <Button variant="principal" size="petit" icon={Plus} onclick={() => (editing = p.id)}
@@ -227,6 +242,7 @@
   message="Ce qui l’utilise s’arrête ; les règles du tri continuent de s’appliquer. Une nouvelle clé peut être ajoutée à tout moment."
   confirmLabel="Retirer la clé"
   onconfirm={remove}
+  returnFocus={focusAfterRemoval}
 />
 
 <style>

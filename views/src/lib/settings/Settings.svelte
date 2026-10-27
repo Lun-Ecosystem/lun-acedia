@@ -38,6 +38,7 @@
   import Devices from './Devices.svelte';
   import GoogleAccount from './GoogleAccount.svelte';
   import ModelPicker from './ModelPicker.svelte';
+  import PinaSettings from './PinaSettings.svelte';
   import Providers from './Providers.svelte';
   import Rules from './Rules.svelte';
   import Threshold from './Threshold.svelte';
@@ -50,17 +51,20 @@
 
   let {
     client,
+    start = 'tri',
     onSelfRevoked,
     onchange,
   }: {
     client: AcediaClient;
+    /** Page shown first (Pina's mode line opens hers). */
+    start?: 'tri' | 'pina' | undefined;
     /** Called once this browser revoked its own access (Appareils et applications). */
     onSelfRevoked?: (() => void) | undefined;
     /** Something the service state depends on changed (the pause, the key). */
     onchange?: (() => void) | undefined;
   } = $props();
 
-  type Theme = 'google' | 'appareils' | 'tri' | 'boites' | 'fournisseurs';
+  type Theme = 'google' | 'appareils' | 'tri' | 'boites' | 'pina' | 'fournisseurs';
   interface Page {
     id: Theme;
     label: string;
@@ -98,6 +102,14 @@
       description: 'Où l’IA peut ranger, et ce qui est rangé avant même de lui demander.',
     },
     {
+      id: 'pina',
+      label: 'Pina',
+      icon: Sparkles,
+      group: 'IA',
+      description:
+        'L’assistante d’Acedia : comment elle agit, son modèle, ce qu’elle peut dépenser et ce qu’elle garde. Elle prépare les mails, l’envoi reste un clic sur Envoyer.',
+    },
+    {
       id: 'fournisseurs',
       label: 'Fournisseurs d’IA',
       icon: Key,
@@ -108,9 +120,11 @@
   ];
   const GROUPS = ['Compte', 'Tri', 'IA'];
 
-  let theme = $state<Theme>('tri');
-  /** On a phone: a theme is open (else the list of themes shows). */
-  let opened = $state(false);
+  // svelte-ignore state_referenced_locally
+  let theme = $state<Theme>(start);
+  /** On a phone: a theme is open (else the list of themes shows); coming for Pina's page, it is. */
+  // svelte-ignore state_referenced_locally
+  let opened = $state(start !== 'tri');
   const page = $derived(PAGES.find((p) => p.id === theme)!);
 
   let labels = $state<LabelView[]>([]);
@@ -186,6 +200,7 @@
     google: google ? (google.connected ? 'Connecté' : 'Non connecté') : '',
     appareils: String(clients.length),
     tri: '',
+    pina: '',
     fournisseurs: providers ? `${providers.filter((p) => p.state !== 'absent').length} en service` : '',
     boites: `${plural(labels.filter((l) => l.role === 'box').length, 'boîte')} · ${plural(rules.length, 'règle')}`,
   });
@@ -315,6 +330,8 @@
             bind:editing
           />
         {/if}
+      {:else if theme === 'pina'}
+        <PinaSettings {client} onproviders={goProviders} />
       {:else if theme === 'tri'}
         {#if models}
           <SettingsCard

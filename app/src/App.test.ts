@@ -10,7 +10,44 @@ import { createHttpClient } from './httpClient.ts';
 const TOKEN_KEY = 'lunacedia.token';
 
 /** A fake Lun'Acedia server: records each call as `METHOD /path`. */
-function fakeServer({ keyRefused = false, startPaused = false } = {}) {
+/** Today's thread of Pina with one reply drafted (`d1`), done. */
+const DRAFT_THREAD = {
+  day: '2026-11-02',
+  messages: [
+    { id: 1, at: '2026-11-02T09:00:00.000Z', message: { role: 'user', text: 'Réponds-lui oui.' } },
+    {
+      id: 2,
+      at: '2026-11-02T09:00:02.000Z',
+      message: {
+        role: 'assistant',
+        text: 'Brouillon prêt.',
+        toolCalls: [{ id: 'c1', name: 'draft_create', input: {} }],
+        turn: 1,
+      },
+    },
+  ],
+  cards: [
+    {
+      id: 12,
+      day: '2026-11-02',
+      turn: 1,
+      createdAt: '2026-11-02T09:00:01.000Z',
+      callId: 'c1',
+      action: 'draft.create',
+      input: { to: 'marie@example.com', subject: 'Re: Dîner samedi ?', text: 'Coucou Marie' },
+      effect: 'write',
+      status: 'done',
+      result: { id: 'd1', to: 'marie@example.com', subject: 'Re: Dîner samedi ?', text: 'Coucou Marie' },
+      error: null,
+      inverse: null,
+      decidedAt: '2026-11-02T09:00:02.000Z',
+      edited: false,
+    },
+  ],
+  pending: 0,
+};
+
+function fakeServer({ keyRefused = false, startPaused = false, draft = false } = {}) {
   const calls: string[] = [];
   let paused = startPaused;
   const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status });
@@ -68,7 +105,18 @@ function fakeServer({ keyRefused = false, startPaused = false } = {}) {
         paused = true;
         return json({ status: 'paused' });
       case 'GET /api/pina/today':
-        return json({ day: '2026-11-02', messages: [], cards: [], pending: 0 });
+        return json(draft ? DRAFT_THREAD : { day: '2026-11-02', messages: [], cards: [], pending: 0 });
+      case 'GET /api/drafts/d1':
+        return json({
+          id: 'd1',
+          to: 'marie@example.com',
+          subject: 'Re: Dîner samedi ?',
+          text: 'Coucou Marie',
+        });
+      case 'GET /api/mail':
+        return json({ items: [] });
+      case 'GET /api/send-as':
+        return json({ addresses: [{ email: 'moi@example.com', primary: true }], default: 'moi@example.com' });
       case 'GET /api/pina/days':
         return json({ days: [] });
       case 'GET /api/pina/settings':
@@ -126,6 +174,37 @@ describe('App', () => {
     await user.keyboard('{Control>}j{/Control}');
     const pina = await screen.findByRole('dialog', { name: 'Pina' });
     expect(main.contains(pina)).toBe(false);
+    expect(look()).toEqual(before);
+  });
+
+  it('« Ouvrir le brouillon » opens the composer on that draft, under Pina’s window, layout unchanged', async () => {
+    fakeServer({ draft: true });
+    localStorage.setItem(TOKEN_KEY, 'tok-1');
+    history.replaceState(null, '', '/#/agenda');
+    const user = userEvent.setup();
+    const { container } = render(App);
+    const main = await waitFor(() => container.querySelector('main')!);
+    const zone = main.parentElement!;
+    const look = () => [
+      main.className,
+      main.getAttribute('style'),
+      zone.className,
+      zone.getAttribute('style'),
+    ];
+    const before = look();
+    await user.keyboard('{Control>}j{/Control}');
+    const pina = await screen.findByRole('dialog', { name: 'Pina' });
+    await user.click(await within(pina).findByRole('button', { name: 'Ouvrir le brouillon' }));
+
+    const composer = await screen.findByRole('form', { name: 'Brouillon' });
+    expect(within(composer).getByText('Brouillon préparé par Pina.')).toBeInTheDocument();
+    await waitFor(() =>
+      expect(within(composer).getByRole('textbox', { name: 'Message' })).toHaveValue('Coucou Marie'),
+    );
+    // On a desktop the window stays open, over the composer, which keeps its place.
+    expect(screen.getByRole('dialog', { name: 'Pina' })).toBeInTheDocument();
+    expect(main.contains(screen.getByRole('dialog', { name: 'Pina' }))).toBe(false);
+    expect(main.contains(composer)).toBe(true);
     expect(look()).toEqual(before);
   });
 

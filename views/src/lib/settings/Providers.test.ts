@@ -43,6 +43,31 @@ describe('Providers', () => {
     expect(document.body.textContent).not.toMatch(/sk-/);
   });
 
+  it('removing a key gives the focus back to its card', async () => {
+    const { client, user, card } = open();
+    client.removeProviderKey.mockResolvedValueOnce({ id: 'anthropic', label: 'Anthropic', state: 'absent' });
+    await user.click(within(card('Anthropic')).getByRole('button', { name: 'Retirer' }));
+    await user.click(await screen.findByRole('button', { name: 'Retirer la clé' }));
+    const add = await within(card('Anthropic')).findByRole('button', { name: 'Ajouter une clé' });
+    await waitFor(() => expect(add).toHaveFocus());
+  });
+
+  it('the address typed stays while the providers change, window open', async () => {
+    const { client } = fakeClient();
+    const user = userEvent.setup();
+    const view = render(Providers, { props: { client, providers: PROVIDERS.map((p) => ({ ...p })) } });
+    await user.click(
+      within(screen.getByRole('region', { name: 'Point d’accès compatible' })).getByRole('button', {
+        name: 'Ajouter une clé',
+      }),
+    );
+    const window = await screen.findByRole('dialog');
+    await user.type(within(window).getByLabelText('Adresse'), 'http://localhost:11434/v1');
+    // A refresh from elsewhere (another key saved, the keys read again).
+    await view.rerender({ providers: PROVIDERS.map((p) => ({ ...p })) });
+    expect(within(window).getByLabelText('Adresse')).toHaveValue('http://localhost:11434/v1');
+  });
+
   it('custom shows a base URL field', async () => {
     const { client, user, card } = open();
     client.saveProviderKey.mockResolvedValueOnce({

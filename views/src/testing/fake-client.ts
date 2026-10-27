@@ -225,6 +225,15 @@ export function fakeClient(opts: { mails?: MailSummary[]; journal?: JournalEntry
       instructions: '',
       retentionDays: 30,
       dailyCapUsd: 1,
+      spentTodayUsd: 0,
+    })),
+    updatePinaSettings: vi.fn<AcediaClient['updatePinaSettings']>(async (patch) => ({
+      mode: 'validate' as const,
+      instructions: '',
+      retentionDays: 30,
+      dailyCapUsd: 1,
+      spentTodayUsd: 0,
+      ...patch,
     })),
     subscribe: vi.fn<AcediaClient['subscribe']>(() => () => {}),
   } satisfies AcediaClient;

@@ -42,11 +42,16 @@
   let opening = $state<string | undefined>();
   /** View the mail screen starts on (a box chosen in the rail from another screen). */
   let mailView = $state<string | undefined>();
+  /** Draft the composer opens (« Ouvrir le brouillon » of Pina); a new object each time. */
+  let draftOpening = $state.raw<{ id: string } | undefined>();
+  /** Settings page shown first (the « Réglages » link of Pina's mode line opens hers). */
+  let settingsStart = $state<'pina' | undefined>();
   $effect(() => {
     const follow = () => {
       screen = screenOf(window.location.hash);
       // Opened once: back on the mail later, the list shows alone.
-      if (screen !== 'mail') opening = mailView = undefined;
+      if (screen !== 'mail') opening = mailView = draftOpening = undefined;
+      if (screen !== 'reglages') settingsStart = undefined;
     };
     window.addEventListener('hashchange', follow);
     return () => window.removeEventListener('hashchange', follow);
@@ -191,11 +196,14 @@
           bind:pending={pinaPending}
           context={shown}
           screen={PINA_SCREEN[screen]}
-          onopendraft={() => {
-            // shortcut: the composer opens a draft by its id in Task 12; until then, the mail screen.
+          onopendraft={(id) => {
+            draftOpening = { id };
             location.hash = HREF.mail;
           }}
-          onsettings={() => (location.hash = HREF.reglages)}
+          onsettings={() => {
+            settingsStart = 'pina';
+            location.hash = HREF.reglages;
+          }}
         />
       {/key}
     {/snippet}
@@ -206,6 +214,7 @@
             {client}
             {opening}
             start={mailView}
+            draft={draftOpening}
             onchange={() => refresh(client)}
             onjournal={() => (location.hash = HREF.journal)}
           />
@@ -238,7 +247,12 @@
             onsettings={() => (location.hash = HREF.reglages)}
           />
         {:else}
-          <Settings {client} onSelfRevoked={revokedSelf} onchange={() => refresh(client)} />
+          <Settings
+            {client}
+            start={settingsStart}
+            onSelfRevoked={revokedSelf}
+            onchange={() => refresh(client)}
+          />
         {/if}
       {/key}
     {/key}

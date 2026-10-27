@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onMount, untrack } from 'svelte';
   import { SvelteSet } from 'svelte/reactivity';
   import type { AcediaClient } from '../client.ts';
   import type { BatchOp, LabelView, MailDetail, MailSummary } from '../types.ts';
@@ -37,10 +37,12 @@
     onchange?: (() => void) | undefined;
     /** Mail opened once the first view is loaded (coming from « À valider »). */
     opening?: string | undefined;
+    /** Draft opened in the composer (« Ouvrir le brouillon » of Pina); a new object opens it again. */
+    draft?: { id: string } | undefined;
     /** Opens the Journal (from the empty inbox). */
     onjournal?: (() => void) | undefined;
   }
-  let { client, start = 'inbox', onchange, opening, onjournal }: Props = $props();
+  let { client, start = 'inbox', onchange, opening, draft, onjournal }: Props = $props();
 
   // svelte-ignore state_referenced_locally
   let view = $state(start);
@@ -52,7 +54,7 @@
   let threshold = $state(100);
   let openId = $state<string | null>(null);
   let detail = $state<MailDetail | null>(null);
-  let composing = $state<{ replyTo?: MailDetail; forward?: MailDetail } | null>(null);
+  let composing = $state<{ replyTo?: MailDetail; forward?: MailDetail; draftId?: string } | null>(null);
   let error = $state<string | null>(null);
   let filter = $state('tout');
   /** Mails the sort filed today, said by the empty inbox; `null` while unknown. */
@@ -160,6 +162,16 @@
     selected.clear();
     void load();
   }
+
+  // A command from outside (Pina), not a value to mirror: each new object opens the composer on it.
+  $effect(() => {
+    if (!draft) return;
+    const id = draft.id;
+    untrack(() => {
+      close();
+      composing = { draftId: id };
+    });
+  });
 
   function compose() {
     close();
@@ -377,6 +389,9 @@
     get mailId() {
       return openId ?? undefined;
     },
+    get draftId() {
+      return composing?.draftId;
+    },
     get label() {
       return detail?.subject;
     },
@@ -518,6 +533,7 @@
         {client}
         replyTo={composing.replyTo}
         forward={composing.forward}
+        draftId={composing.draftId}
         onclose={() => (composing = null)}
         onsent={() => {
           composing = null;

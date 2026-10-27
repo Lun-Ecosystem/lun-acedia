@@ -298,3 +298,8 @@ export interface PinaSettings {
   retentionDays: number;
   dailyCapUsd: number;
 }
+
+/** The settings as `GET/PUT /api/pina/settings` answer them, with Pina's spend since the Paris day started. */
+export interface PinaSettingsView extends PinaSettings {
+  spentTodayUsd: number;
+}

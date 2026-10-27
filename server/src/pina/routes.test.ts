@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { ChatResult, LlmProvider, ToolCall } from '../llm/types.ts';
 import { makeAgendaHarness } from '../testing/agenda-harness.ts';
 import { message } from '../testing/fake-gmail.ts';
+import { recordCost } from '../contract/costs.ts';
 import { dayOf, getCard } from './store.ts';
 
 const usage = { inputTokens: 1000, outputTokens: 100 };
@@ -180,6 +181,17 @@ describe('Pina routes', () => {
       ['PUT', '/api/pina/settings'],
     ] as const)
       expect((await s.h.app.request(path, { method })).status, `${method} ${path}`).toBe(401);
+  });
+
+  it("GET /settings says today's Pina spend", async () => {
+    const s = await setup([]);
+    const item = { provider: 'anthropic', model: 'm', amount: 0.12, calls: 1 };
+    recordCost(s.h.db, item, s.h.clock(), 'pina');
+    recordCost(s.h.db, item, s.h.clock(), 'triage');
+    const res = await s.h.call('GET', '/api/pina/settings');
+    expect(res.body).toMatchObject({ dailyCapUsd: 1, spentTodayUsd: 0.12 });
+    const put = await s.h.call('PUT', '/api/pina/settings', { retentionDays: 10 });
+    expect(put.body).toMatchObject({ retentionDays: 10, spentTodayUsd: 0.12 });
   });
 
   it('PUT /settings bounds are enforced; messages are bounded', async () => {

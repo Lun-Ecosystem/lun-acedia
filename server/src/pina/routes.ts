@@ -1,5 +1,6 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
+import { spentToday } from '../llm/models.ts';
 import { ask, editCard, expireCards, refuseCard, resume, runCard, undoCard, type PinaDeps } from './agent.ts';
 import {
   cardsOf,
@@ -88,14 +89,19 @@ export function pinaRoutes(deps: PinaDeps): Hono {
     return c.json({ card: getCard(deps.db, id), result: out.result });
   });
 
-  r.get('/settings', (c) => c.json(pinaSettings(deps.db)));
+  // Today's spend rides with the settings: the page shows it beside the daily cap.
+  const settings = () => ({
+    ...pinaSettings(deps.db),
+    spentTodayUsd: spentToday(deps.db, 'pina', deps.clock()),
+  });
+  r.get('/settings', (c) => c.json(settings()));
   r.put('/settings', async (c) => {
     try {
       putPinaSettings(deps.db, (await body(c)) as never);
     } catch (err) {
       return c.json({ error: err instanceof Error ? err.message : String(err) }, 400);
     }
-    return c.json(pinaSettings(deps.db));
+    return c.json(settings());
   });
   return r;
 }

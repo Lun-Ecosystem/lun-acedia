@@ -1,14 +1,16 @@
 <script lang="ts">
   import { onMount, untrack } from 'svelte';
   import type { AcediaClient } from '../client.ts';
-  import type { Draft, MailDetail, SendAsAddress } from '../types.ts';
+  import type { Draft, DraftView, MailDetail, SendAsAddress } from '../types.ts';
   import Banner from '../ui/Banner.svelte';
   import Button from '../ui/Button.svelte';
+  import ConfirmDialog from '../ui/ConfirmDialog.svelte';
   import Field from '../ui/Field.svelte';
-  import { Send, X } from '../ui/Icon.ts';
+  import { ICON_STROKE, Send, Sparkles, Trash, X } from '../ui/Icon.ts';
   import IconButton from '../ui/IconButton.svelte';
   import Select from '../ui/Select.svelte';
   import TextInput from '../ui/TextInput.svelte';
+  import { toast } from '../ui/toasts.svelte.ts';
   import { errorText, escapeHtml } from './format.ts';
 
   interface Props {
@@ -16,11 +18,28 @@
     replyTo?: MailDetail | undefined;
     /** Mail forwarded: its text goes under the message; its attachments do not follow. */
     forward?: MailDetail | undefined;
+    /**
+     * A saved draft (Pina's): read by its id, saved, sent and thrown away through `/api/drafts/:id`.
+     * Pina never sends; the « Envoyer » here is the only way it leaves.
+     */
+    draftId?: string | undefined;
     onclose: () => void;
     onsent: () => void;
   }
-  let { client, replyTo, forward, onclose, onsent }: Props = $props();
-  const title = $derived(replyTo ? 'Répondre' : forward ? 'Transférer' : 'Nouveau message');
+  let { client, replyTo, forward, draftId, onclose, onsent }: Props = $props();
+  /** The draft as read, for its thread; `null` until it is (or when the composer is not on a draft). */
+  let draft = $state.raw<DraftView | null>(null);
+  const title = $derived(
+    draftId
+      ? draft?.replyTo
+        ? 'Brouillon de réponse'
+        : 'Brouillon'
+      : replyTo
+        ? 'Répondre'
+        : forward
+          ? 'Transférer'
+          : 'Nouveau message',
+  );
 
   let addresses = $state<SendAsAddress[]>([]);
   let from = $state('');
@@ -40,9 +59,23 @@
   let subject = $state(start.subject);
   let body = $state('');
   let sending = $state(false);
+  let saving = $state(false);
+  let discarding = $state(false);
   let error = $state<string | null>(null);
 
   onMount(() => {
+    if (draftId)
+      client.getDraft(draftId).then(
+        (d) => {
+          draft = d;
+          to = d.to;
+          cc = d.cc ?? '';
+          subject = d.subject;
+          body = d.text;
+        },
+        (err) => (error = errorText(err)),
+      );
+    // shortcut: a draft's own sender is not exposed (DraftView has no `from`), the default alias is used; expose it if aliases matter.
     client
       .sendAs(replyTo?.id)
       .then((r) => {
@@ -61,22 +94,57 @@
 
   const label = (a: SendAsAddress) => (a.name ? `${a.name} <${a.email}>` : a.email);
 
-  async function send(event: SubmitEvent) {
-    event.preventDefault();
-    sending = true;
-    error = null;
+  /** The message as written now. */
+  function message(): Draft {
     const chosen = addresses.find((a) => a.email === from);
-    const draft: Draft = {
+    const out: Draft = {
       from: chosen ? label(chosen) : from,
       to,
       subject,
       html: `<div>${escapeHtml(body).replace(/\n/g, '<br>')}</div>${forward ? forwarded(forward) : ''}`,
       text: body,
     };
-    if (cc) draft.cc = cc;
-    if (replyTo) draft.threadId = replyTo.threadId;
+    if (cc) out.cc = cc;
+    if (replyTo) out.threadId = replyTo.threadId;
+    // A draft's reply stays in its thread: `replyTo.id` is the Message-ID answered.
+    if (draft?.replyTo) {
+      out.threadId = draft.replyTo.threadId;
+      out.inReplyTo = out.references = draft.replyTo.id;
+    }
+    return out;
+  }
+
+  async function save() {
+    if (!draftId) return;
+    saving = true;
+    error = null;
     try {
-      await client.send(draft);
+      draft = await client.updateDraft(draftId, message());
+      toast('Brouillon enregistré');
+    } catch (err) {
+      error = errorText(err);
+    } finally {
+      saving = false;
+    }
+  }
+
+  async function discard() {
+    if (!draftId) return;
+    await client.deleteDraft(draftId);
+    toast('Brouillon jeté');
+    onclose();
+  }
+
+  async function send(event: SubmitEvent) {
+    event.preventDefault();
+    sending = true;
+    error = null;
+    try {
+      if (draftId) {
+        // What was read and changed here is what leaves: saved into the draft, then that draft is sent.
+        await client.updateDraft(draftId, message());
+        await client.sendDraft(draftId);
+      } else await client.send(message());
       onsent();
     } catch (err) {
       error = errorText(err);
@@ -91,6 +159,14 @@
     <h2>{title}</h2>
     <IconButton icon={X} label="Fermer" onclick={onclose} />
   </header>
+  {#if draftId}
+    <p class="bandeau-ia">
+      <Sparkles size={16} strokeWidth={ICON_STROKE} aria-hidden="true" />
+      <span
+        ><b>Brouillon préparé par Pina.</b> Relire avant d’envoyer : rien ne part sans un clic sur Envoyer.</span
+      >
+    </p>
+  {/if}
   <div class="champs">
     <Field label="De">
       <Select bind:value={from} items={addresses.map((a) => ({ value: a.email, label: label(a) }))} />
@@ -108,10 +184,38 @@
   <textarea bind:value={body} rows="12" aria-label="Message"></textarea>
   {#if error}<Banner title={error} />{/if}
   <div class="actions">
+    {#if draftId}
+      <Button
+        variant="fantome"
+        icon={Trash}
+        class="jeter"
+        disabled={!draft}
+        onclick={() => (discarding = true)}>Jeter</Button
+      >
+      <Button variant="secondaire" loading={saving} disabled={!from || !draft} onclick={save}
+        >Enregistrer</Button
+      >
+    {/if}
     <Button variant="fantome" onclick={onclose}>Fermer</Button>
-    <Button type="submit" variant="principal" icon={Send} loading={sending} disabled={!from}>Envoyer</Button>
+    <Button
+      type="submit"
+      variant="principal"
+      icon={Send}
+      loading={sending}
+      disabled={!from || (draftId !== undefined && !draft)}>Envoyer</Button
+    >
   </div>
 </form>
+
+{#if draftId}
+  <ConfirmDialog
+    bind:open={discarding}
+    title="Jeter le brouillon ?"
+    message="Le brouillon est retiré des brouillons Gmail. Rien n’est envoyé."
+    confirmLabel="Jeter"
+    onconfirm={discard}
+  />
+{/if}
 
 <style>
   .composer {
@@ -155,10 +259,33 @@
     outline: 2px solid var(--accent-texte);
     outline-offset: 1px;
   }
+  .bandeau-ia {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin: 0;
+    padding: 10px 14px;
+    border: 1px solid var(--ia-bord);
+    border-radius: var(--r-2);
+    background: var(--ia-doux);
+    color: var(--texte-2);
+    font-size: 13px;
+  }
+  .bandeau-ia :global(svg) {
+    flex: none;
+    color: var(--ia);
+  }
+  .bandeau-ia b {
+    color: var(--texte);
+    font-weight: 500;
+  }
   .actions {
     display: flex;
     justify-content: flex-end;
     gap: 8px;
+  }
+  .actions :global(.jeter) {
+    margin-right: auto;
   }
   @media (max-width: 767.98px) {
     .composer {
