@@ -7,6 +7,7 @@ import {
   type ChatResult,
   type LlmProvider,
   type ProviderId,
+  type ToolCall,
   type Usage,
 } from './types.ts';
 
@@ -45,11 +46,19 @@ function toParam(m: ChatMessage): OpenAI.Chat.ChatCompletionMessageParam {
           tool_calls: m.toolCalls.map((c) => ({
             id: c.id,
             type: 'function' as const,
-            function: { name: c.name, arguments: JSON.stringify(c.input) },
+            function: { name: c.name, arguments: c.invalidArguments ?? JSON.stringify(c.input) },
           })),
         }
       : {}),
   };
+}
+
+function toolCall(id: string, name: string, args: string): ToolCall {
+  try {
+    return { id, name, input: JSON.parse(args || '{}') };
+  } catch {
+    return { id, name, input: {}, invalidArguments: args };
+  }
 }
 
 export function createOpenAiCompatProvider(opts: {
@@ -69,6 +78,9 @@ export function createOpenAiCompatProvider(opts: {
       ...(baseURL ? { baseURL } : {}),
     }) as unknown as OpenAiApi);
 
+  // OpenAI's newer models take only `max_completion_tokens`; the other endpoints know `max_tokens`.
+  const maxTokens = (n: number) => (opts.id === 'openai' ? { max_completion_tokens: n } : { max_tokens: n });
+
   async function call(params: OpenAI.Chat.ChatCompletionCreateParamsNonStreaming) {
     let res: Awaited<ReturnType<OpenAiApi['chat']['completions']['create']>>;
     try {
@@ -87,7 +99,7 @@ export function createOpenAiCompatProvider(opts: {
     async json(req) {
       const { choice, usage } = await call({
         model: req.model,
-        max_completion_tokens: req.maxTokens,
+        ...maxTokens(req.maxTokens),
         messages: [
           { role: 'system', content: req.system },
           { role: 'user', content: req.user },
@@ -110,7 +122,7 @@ export function createOpenAiCompatProvider(opts: {
     async chat(req): Promise<ChatResult> {
       const { choice, usage } = await call({
         model: req.model,
-        max_completion_tokens: req.maxTokens,
+        ...maxTokens(req.maxTokens),
         messages: [{ role: 'system', content: req.system }, ...req.messages.map(toParam)],
         ...(req.tools.length
           ? {
@@ -126,9 +138,7 @@ export function createOpenAiCompatProvider(opts: {
           : {}),
       });
       const toolCalls = (choice.message.tool_calls ?? []).flatMap((c) =>
-        c.type === 'function'
-          ? [{ id: c.id, name: c.function.name, input: parseJson(c.function.arguments || '{}') }]
-          : [],
+        c.type === 'function' ? [toolCall(c.id, c.function.name, c.function.arguments)] : [],
       );
       const stop =
         choice.finish_reason === 'tool_calls' || toolCalls.length

@@ -17,6 +17,11 @@ export interface ToolCall {
   id: string;
   name: string;
   input: unknown;
+  /**
+   * The raw arguments when the model sent arguments that are not JSON (`input` is then `{}`): the call is
+   * kept so that the loop answers it with a tool error instead of losing the whole reply.
+   */
+  invalidArguments?: string;
 }
 
 export type ChatMessage =

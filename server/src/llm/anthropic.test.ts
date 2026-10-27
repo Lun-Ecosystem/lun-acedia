@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest';
 import { createAnthropicProvider, type AnthropicApi } from './anthropic.ts';
-import { ProviderError } from './types.ts';
 
 function fakeApi(reply: unknown) {
   const requests: Record<string, unknown>[] = [];
@@ -158,6 +157,6 @@ describe('both: errors', () => {
     await expect(
       json({ content: [{ type: 'text', text: 'pas du json' }], stop_reason: 'end_turn', usage }),
     ).rejects.toMatchObject({ kind: 'format' });
-    await expect(json(new Error('socket hang up'))).rejects.toBeInstanceOf(ProviderError);
+    await expect(json(new Error('socket hang up'))).rejects.toMatchObject({ kind: 'unavailable' });
   });
 });

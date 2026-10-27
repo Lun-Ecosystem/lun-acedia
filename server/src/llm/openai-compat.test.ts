@@ -106,7 +106,7 @@ describe('OpenAI-compatible provider', () => {
     expect(result).toEqual({ value: { a: 1 }, usage: { inputTokens: 10, outputTokens: 5 } });
     expect(requests[0]).toMatchObject({
       model: 'gemini-x',
-      max_completion_tokens: 512,
+      max_tokens: 512,
       messages: [
         { role: 'system', content: 'S' },
         { role: 'user', content: 'U' },
@@ -130,6 +130,52 @@ describe('OpenAI-compatible provider', () => {
     expect(await formatOf('openai')).toEqual({ name: 'answer', schema: {}, strict: true });
     for (const id of ['google', 'mistral', 'custom'] as const)
       expect(await formatOf(id)).toEqual({ name: 'answer', schema: {} });
+  });
+
+  it('openai-compat: keeps a call whose arguments are not JSON, marked invalid', async () => {
+    const { client } = fakeClient(
+      answer(
+        {
+          tool_calls: [
+            { id: 'c1', type: 'function', function: { name: 'list_events', arguments: '{"day":' } },
+          ],
+        },
+        'tool_calls',
+      ),
+    );
+    const result = await createOpenAiCompatProvider({ id: 'openai', apiKey: 'k', client }).chat({
+      model: 'm',
+      system: 'S',
+      messages: [{ role: 'user', text: 'Q' }],
+      tools: [],
+      maxTokens: 10,
+    });
+    expect(result.stop).toBe('tools');
+    expect(result.toolCalls).toEqual([
+      { id: 'c1', name: 'list_events', input: {}, invalidArguments: '{"day":' },
+    ]);
+  });
+
+  it('openai-compat: max_completion_tokens for OpenAI only, max_tokens elsewhere', async () => {
+    const sent = async (id: 'openai' | 'google' | 'mistral' | 'custom') => {
+      const { client, requests } = fakeClient(answer({ content: '{}' }));
+      const p = createOpenAiCompatProvider({ id, apiKey: 'k', baseURL: 'http://x', client });
+      await p.json({ model: 'm', system: 'S', user: 'U', schema: {}, maxTokens: 7 });
+      await p.chat({ model: 'm', system: 'S', messages: [], tools: [], maxTokens: 9 });
+      return requests.map((r) => ({
+        max_tokens: r.max_tokens,
+        max_completion_tokens: r.max_completion_tokens,
+      }));
+    };
+    expect(await sent('openai')).toEqual([
+      { max_tokens: undefined, max_completion_tokens: 7 },
+      { max_tokens: undefined, max_completion_tokens: 9 },
+    ]);
+    for (const id of ['google', 'mistral', 'custom'] as const)
+      expect(await sent(id)).toEqual([
+        { max_tokens: 7, max_completion_tokens: undefined },
+        { max_tokens: 9, max_completion_tokens: undefined },
+      ]);
   });
 
   it('openai-compat: a custom provider needs a base URL', () => {
