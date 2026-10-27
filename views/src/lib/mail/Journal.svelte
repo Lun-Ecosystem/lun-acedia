@@ -326,7 +326,7 @@
   .journal {
     flex: 1;
     min-width: 0;
-    padding: 22px 28px 40px;
+    padding: 22px 28px calc(40px + var(--pina-coin));
     overflow-y: auto;
   }
   .colonne {

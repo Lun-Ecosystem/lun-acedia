@@ -696,6 +696,7 @@
   }
   textarea {
     flex: 1;
+    box-sizing: border-box;
     min-height: 28px;
     max-height: 140px;
     padding: 4px 0;

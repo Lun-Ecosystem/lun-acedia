@@ -646,6 +646,7 @@
     flex: 1;
     min-height: 0;
     overflow-y: auto;
+    padding-bottom: var(--pina-coin);
   }
 
   /* Phone: the list alone, filters in chips that scroll; the reading is a screen of its own. */

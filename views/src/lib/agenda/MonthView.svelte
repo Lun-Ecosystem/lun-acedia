@@ -72,6 +72,8 @@
     height: 100%;
     min-height: 0;
     overflow-y: auto;
+    padding-bottom: var(--pina-coin);
+    box-sizing: border-box;
   }
   .jsem {
     margin: 0;

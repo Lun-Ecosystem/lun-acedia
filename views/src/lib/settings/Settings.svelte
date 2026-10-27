@@ -433,7 +433,7 @@
   .contenu {
     min-height: 0;
     overflow-y: auto;
-    padding: 24px 32px 40px;
+    padding: 24px 32px calc(40px + var(--pina-coin));
   }
   .colonne {
     display: flex;

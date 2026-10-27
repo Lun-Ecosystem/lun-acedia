@@ -417,6 +417,7 @@
     flex: 1;
     min-width: 0;
     overflow-y: auto;
+    padding-bottom: var(--pina-coin);
   }
   .contenu {
     display: flex;

@@ -630,7 +630,7 @@
     gap: 18px;
     min-height: 0;
     overflow-y: auto;
-    padding: 18px 24px 24px;
+    padding: 18px 24px calc(24px + var(--pina-coin));
   }
 
   /* ---- Heading */

@@ -33,12 +33,12 @@
   .lanceur {
     position: fixed;
     right: 22px;
-    bottom: 22px;
+    bottom: var(--pina-lanceur-bas);
     z-index: 40;
     display: flex;
     align-items: center;
     gap: 9px;
-    height: 44px;
+    height: var(--pina-lanceur-h);
     padding: 0 16px 0 14px;
     border: 1px solid var(--ia-bord);
     border-radius: 22px;
