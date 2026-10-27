@@ -178,6 +178,17 @@ describe('Agenda', () => {
     });
   });
 
+  it('opens the reminder menu above the editor and adds the chosen reminder (#39)', async () => {
+    const { user } = await open();
+    await user.click(screen.getByRole('button', { name: 'Créer' }));
+    const editor = await screen.findByRole('dialog', { name: 'Nouvel événement' });
+    await user.click(within(editor).getByRole('button', { name: 'Rappel' }));
+    const menu = await screen.findByRole('menu', { hidden: true });
+    // jsdom loads no component CSS, so the z-index (55 over the dialog's 51) is checked in Chrome.
+    await user.click(within(menu).getAllByRole('menuitem', { hidden: true })[0]!);
+    expect(within(editor).getByRole('button', { name: /Retirer le rappel/ })).toBeInTheDocument();
+  });
+
   it('switches the window to a task and saves it in a list', async () => {
     const { client, user } = await open();
     client.saveTask.mockImplementation(async (t) => ({ kind: 'task', id: 'n', done: false, ...t }) as never);

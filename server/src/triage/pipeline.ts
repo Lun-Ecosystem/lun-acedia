@@ -115,7 +115,7 @@ function creditExhausted(deps: ActionDeps): void {
   );
 }
 
-/** One `info` event per model: it is counted at 0 rather than blocking the triage. */
+/** One `log` event per model: it is counted at 0 rather than blocking the triage. */
 function warnUnknownPrice(deps: TriageDeps, key: string, model: string): void {
   const warned = getSetting<string[]>(deps.db, 'llm.unknownPriceWarned', []);
   if (warned.includes(key)) return;

@@ -225,6 +225,8 @@
     color: var(--texte);
     font-family: var(--sans);
     outline: none;
+    /* Above the dialogs (51): a menu opened from inside one must not hide behind it. */
+    z-index: 55;
   }
   .filtre {
     display: flex;
