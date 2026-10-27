@@ -122,6 +122,8 @@ export interface Draft {
 /** A Gmail draft as the composer and Pina see it; `replyTo.id` is the Message-ID of the mail answered. */
 export interface DraftView {
   id: string;
+  /** The sender's address (an alias of the account), from the draft's From header. */
+  from?: string;
   to: string;
   cc?: string;
   subject: string;

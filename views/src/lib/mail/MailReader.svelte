@@ -271,7 +271,8 @@
     flex: none;
     align-items: center;
     gap: 10px;
-    max-width: 720px;
+    /* Stops short of the bottom-right corner, which belongs to Pina's launcher (O6). */
+    max-width: min(720px, calc(100% - 150px));
     height: 44px;
     margin-top: 16px;
     padding: 0 14px;

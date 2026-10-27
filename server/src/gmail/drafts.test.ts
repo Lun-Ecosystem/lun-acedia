@@ -21,6 +21,7 @@ describe('drafts', () => {
     expect(JSON.parse(post!.body!).message.threadId).toBe('t-1');
     expect(view).toEqual({
       id: 'd1',
+      from: 'test@example.com',
       to: 'prof@ecole.fr',
       subject: 'Re: Rendu décalé',
       text: 'Merci',
@@ -35,6 +36,12 @@ describe('drafts', () => {
     const text = `Salut Camille,\n\nMercredi, c’est parfait.\n\n${'Suite. '.repeat(700)}\n\nNatsume`;
     const { id } = await createDraft(h.deps, { ...draft, text, html: '<p>x</p>' });
     expect((await getDraft(h.deps, id)).text).toBe(text.trim().replace(/ \n/g, '\n'));
+  });
+
+  it('a draft says its sender, the alias it was written from', async () => {
+    const h = await makeGmailHarness();
+    const { id } = await createDraft(h.deps, { ...draft, from: "Lun'Ecosystem <contact@lun.example>" });
+    expect((await getDraft(h.deps, id)).from).toBe('contact@lun.example');
   });
 
   it('updates, reads and deletes a draft', async () => {

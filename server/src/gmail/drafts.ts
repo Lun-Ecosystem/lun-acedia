@@ -3,6 +3,7 @@ import type { DraftView } from '../types.ts';
 import { NotFoundError, type ActionDeps } from './actions.ts';
 import { plainText, type GmailPart } from './body.ts';
 import { rawMessage, type Draft } from './compose.ts';
+import { parseAddress } from './store.ts';
 import { GMAIL_API } from './sync.ts';
 
 interface GmailDraft {
@@ -33,6 +34,8 @@ function view(d: GmailDraft): DraftView {
     // Whole, with its paragraphs: the composer saves back what it reads.
     text: payload ? plainText(payload, Infinity, true) : '',
   };
+  // The alias it was written from (often the one that received the mail): the composer keeps it.
+  if (h('From')) out.from = parseAddress(h('From')).addr;
   if (h('Cc')) out.cc = h('Cc');
   if (h('In-Reply-To')) out.replyTo = { id: h('In-Reply-To'), threadId: d.message.threadId };
   return out;

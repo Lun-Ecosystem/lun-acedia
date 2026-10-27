@@ -72,18 +72,27 @@
           cc = d.cc ?? '';
           subject = d.subject;
           body = d.text;
+          pickFrom();
         },
         (err) => (error = errorText(err)),
       );
-    // shortcut: a draft's own sender is not exposed (DraftView has no `from`), the default alias is used; expose it if aliases matter.
     client
       .sendAs(replyTo?.id)
       .then((r) => {
         addresses = r.addresses;
-        from = r.default;
+        fallback = r.default;
+        pickFrom();
       })
       .catch((err) => (error = errorText(err)));
   });
+
+  /** The server's default sender, used unless the draft names one of the aliases. */
+  let fallback = '';
+  /** A draft keeps the alias it was written from (whichever answer comes last decides). */
+  function pickFrom() {
+    const own = draft?.from?.toLowerCase();
+    from = addresses.find((a) => a.email.toLowerCase() === own)?.email ?? fallback;
+  }
 
   /** The forwarded mail under the message, without the viewing guards the server added for the reader. */
   const forwarded = (m: MailDetail) =>
@@ -183,20 +192,8 @@
   </div>
   <textarea bind:value={body} rows="12" aria-label="Message"></textarea>
   {#if error}<Banner title={error} />{/if}
-  <div class="actions">
-    {#if draftId}
-      <Button
-        variant="fantome"
-        icon={Trash}
-        class="jeter"
-        disabled={!draft}
-        onclick={() => (discarding = true)}>Jeter</Button
-      >
-      <Button variant="secondaire" loading={saving} disabled={!from || !draft} onclick={save}
-        >Enregistrer</Button
-      >
-    {/if}
-    <Button variant="fantome" class="fermer-bas" onclick={onclose}>Fermer</Button>
+  <!-- On the left, Envoyer first (Gmail's order): the bottom-right corner belongs to Pina's window. -->
+  <div class="actions gauche">
     <Button
       type="submit"
       variant="principal"
@@ -204,6 +201,15 @@
       loading={sending}
       disabled={!from || (draftId !== undefined && !draft)}>Envoyer</Button
     >
+    {#if draftId}
+      <Button variant="secondaire" loading={saving} disabled={!from || !draft} onclick={save}
+        >Enregistrer</Button
+      >
+      <Button variant="fantome" icon={Trash} disabled={!draft} onclick={() => (discarding = true)}
+        >Jeter</Button
+      >
+    {/if}
+    <Button variant="fantome" class="fermer-bas" onclick={onclose}>Fermer</Button>
   </div>
 </form>
 
@@ -281,11 +287,8 @@
   }
   .actions {
     display: flex;
-    justify-content: flex-end;
+    justify-content: flex-start;
     gap: 8px;
-  }
-  .actions :global(.jeter) {
-    margin-right: auto;
   }
   @media (max-width: 767.98px) {
     .composer {

@@ -57,6 +57,40 @@ describe('Composer', () => {
     expect(client.send).not.toHaveBeenCalled();
   });
 
+  it('a draft written from an alias is saved and sent from that alias', async () => {
+    const fake = fakeClient();
+    fake.client.sendAs.mockResolvedValue({
+      addresses: [
+        { email: 'moi@example.com', name: 'Moi', primary: true },
+        { email: 'ecole@example.com', name: 'École', primary: false },
+      ],
+      default: 'moi@example.com',
+    });
+    fake.client.getDraft.mockResolvedValue({ ...DRAFT, from: 'ecole@example.com' });
+    fake.client.updateDraft.mockImplementation(async (id) => ({ ...DRAFT, id }));
+    fake.client.sendDraft.mockResolvedValue({ id: 'sent1', threadId: 't1' });
+    const onsent = vi.fn();
+    render(Composer, { props: { client: fake.client, draftId: 'd1', onsent, onclose: vi.fn() } });
+    const user = userEvent.setup();
+    await waitFor(() => expect(screen.getByRole('textbox', { name: 'Message' })).toHaveValue(DRAFT.text));
+    await user.click(screen.getByRole('button', { name: 'Envoyer' }));
+    await waitFor(() => expect(onsent).toHaveBeenCalled());
+    expect(fake.client.updateDraft).toHaveBeenCalledWith(
+      'd1',
+      expect.objectContaining({ from: 'École <ecole@example.com>' }),
+    );
+  });
+
+  it('the actions sit on the left, « Envoyer » first: the bottom-right corner belongs to Pina', async () => {
+    const fake = fakeClient();
+    const { container } = render(Composer, {
+      props: { client: fake.client, onsent: vi.fn(), onclose: vi.fn() },
+    });
+    const bar = await waitFor(() => container.querySelector('.actions')!);
+    expect(bar).toHaveClass('gauche');
+    expect(bar.firstElementChild).toBe(screen.getByRole('button', { name: 'Envoyer' }));
+  });
+
   it('a draft saves with « Enregistrer » and is thrown away only after confirming', async () => {
     const { client, user, onclose } = setup();
     await waitFor(() => expect(screen.getByRole('textbox', { name: 'Message' })).toHaveValue(DRAFT.text));
