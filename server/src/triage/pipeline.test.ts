@@ -143,8 +143,8 @@ describe('triageNew', () => {
 
   it('a matching rule files without calling the AI', async () => {
     const s = await setup(() => new Error('the classifier must not be called'));
-    createRule(s.h.db, { field: 'fromDomain', op: 'equals', value: 'ecole.fr', boxId: s.ecole });
-    await s.triage(await s.deliver({ id: 'm1', from: 'Prof <prof@ecole.fr>' }));
+    createRule(s.h.db, { field: 'fromDomain', op: 'equals', value: 'ecole.example.org', boxId: s.ecole });
+    await s.triage(await s.deliver({ id: 'm1', from: 'Prof <prof@ecole.example.org>' }));
     expect(s.fake.inputs).toHaveLength(0);
     expect(getStoredMessage(s.h.db, 'm1')?.labels).toContain(s.ecole);
     expect((s.h.db.prepare('SELECT origin FROM journal').get() as { origin: string }).origin).toBe('rule');
@@ -155,12 +155,14 @@ describe('triageNew', () => {
     createRule(s.h.db, {
       field: 'fromDomain',
       op: 'equals',
-      value: 'ecole.fr',
+      value: 'ecole.example.org',
       boxId: s.ecole,
       tagIds: [s.urgent],
     });
-    createRule(s.h.db, { field: 'fromDomain', op: 'equals', value: 'perso.fr', boxId: s.perso });
-    await s.triage(await s.deliver({ id: 'm1', from: 'p@ecole.fr' }, { id: 'm2', from: 'p@perso.fr' }));
+    createRule(s.h.db, { field: 'fromDomain', op: 'equals', value: 'perso.example.org', boxId: s.perso });
+    await s.triage(
+      await s.deliver({ id: 'm1', from: 'p@ecole.example.org' }, { id: 'm2', from: 'p@perso.example.org' }),
+    );
     const triaged = eventsSince(s.h.db).filter((e) => e.type === 'mail.triaged');
     expect(triaged.map((e) => e.importance).sort()).toEqual(['info', 'urgent']);
   });
@@ -213,8 +215,13 @@ describe('triageNew', () => {
 
   it('credit exhausted: degraded, mail left alone, rules still apply', async () => {
     const s = await setup(() => new CreditExhaustedError());
-    createRule(s.h.db, { field: 'fromDomain', op: 'equals', value: 'ecole.fr', boxId: s.ecole });
-    await s.triage(await s.deliver({ id: 'm1', from: 'x@ailleurs.fr' }, { id: 'm2', from: 'p@ecole.fr' }));
+    createRule(s.h.db, { field: 'fromDomain', op: 'equals', value: 'ecole.example.org', boxId: s.ecole });
+    await s.triage(
+      await s.deliver(
+        { id: 'm1', from: 'x@ailleurs.example.org' },
+        { id: 'm2', from: 'p@ecole.example.org' },
+      ),
+    );
     expect(getState(s.h.db).degraded).toContain('credit');
     expect(getProposal(s.h.db, 'm1')).toBeUndefined();
     expect(getStoredMessage(s.h.db, 'm1')?.labels).toContain('INBOX');
@@ -237,15 +244,15 @@ describe('triageNew', () => {
 
   it('a refused key pauses AI triage, rules go on, one key.invalid', async () => {
     const s = await setup(() => new KeyRefusedError());
-    createRule(s.h.db, { field: 'fromDomain', op: 'equals', value: 'ecole.fr', boxId: s.ecole });
+    createRule(s.h.db, { field: 'fromDomain', op: 'equals', value: 'ecole.example.org', boxId: s.ecole });
     await s.triage(
       await s.deliver(
-        { id: 'm1', from: 'x@ailleurs.fr' },
-        { id: 'm2', from: 'p@ecole.fr' },
-        { id: 'm3', from: 'y@ailleurs.fr' },
+        { id: 'm1', from: 'x@ailleurs.example.org' },
+        { id: 'm2', from: 'p@ecole.example.org' },
+        { id: 'm3', from: 'y@ailleurs.example.org' },
       ),
     );
-    await s.triage(await s.deliver({ id: 'm4', from: 'z@ailleurs.fr' }));
+    await s.triage(await s.deliver({ id: 'm4', from: 'z@ailleurs.example.org' }));
     expect(getState(s.h.db).degraded).toEqual(['anthropic-key']);
     expect(getProposal(s.h.db, 'm1')).toBeUndefined();
     expect(getStoredMessage(s.h.db, 'm1')?.labels).toContain('INBOX');

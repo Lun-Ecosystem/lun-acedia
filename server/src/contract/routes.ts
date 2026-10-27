@@ -7,7 +7,7 @@ import { DegradedError, InvalidInputError } from './actions.ts';
 import { pair, recordPairingFailure, requireToken } from './auth.ts';
 import { authorizationPage, exchangeAuthorizationCode, readAuthorizationRequest } from './authorize.ts';
 import { costsSince } from './costs.ts';
-import { ask, decideCard, type PinaDeps } from '../pina/agent.ts';
+import { ask, decideCard, expireCards, type PinaDeps } from '../pina/agent.ts';
 import { cardText } from '../pina/lines.ts';
 import { Context, Decision } from '../pina/routes.ts';
 import { cardsOf, dayOf, getCard, messagesOf, type Card } from '../pina/store.ts';
@@ -163,6 +163,7 @@ export function contractRoutes(deps: AppDeps, pina: PinaDeps): Hono {
     const status = c.req.query('status') ?? 'pending';
     if (!STATUSES.includes(status as PinaCardStatus))
       return c.json({ error: `Statut inconnu : ${status}` }, 400);
+    expireCards(db, dayOf(clock()));
     const rows = db.prepare('SELECT id FROM pina_cards WHERE status = ? ORDER BY id DESC').all(status);
     const cards = rows.map((x) => toContractCard(db, getCard(db, (x as { id: number }).id)!));
     return c.json({ cards });
@@ -185,7 +186,13 @@ export function contractRoutes(deps: AppDeps, pina: PinaDeps): Hono {
   };
 
   r.post('/cards/:id/accept', async (c) => {
-    const parsed = Accept.safeParse(await c.req.json().catch(() => ({})));
+    let raw: unknown;
+    try {
+      raw = await readJson(c.req.raw);
+    } catch {
+      return c.json({ error: 'Corps JSON invalide' }, 400);
+    }
+    const parsed = Accept.safeParse(raw);
     if (!parsed.success) return c.json({ error: parsed.error.message }, 400);
     const out = await decide(c.req.param('id'), 'accept', parsed.data.input);
     if (!out.ok) return c.json({ error: out.error }, out.status);

@@ -53,7 +53,7 @@ describe('day.digest', () => {
     journal('2026-11-01T11:00:00.000Z', 'in');
     journal('2026-11-03T11:00:00.000Z', 'in');
     card('done', new Date('2026-11-01T12:00:00.000Z'));
-    card('pending', new Date('2026-11-01T13:00:00.000Z'));
+    card('pending', h.clock());
     h.db
       .prepare(
         "INSERT INTO proposals (message_id, box_id, tag_ids, importance, confidence, source, status, created_at) VALUES ('in', NULL, '[]', 'normal', 80, 'ia', 'pending', '2026-11-01T09:00:00.000Z')",
@@ -69,6 +69,12 @@ describe('day.digest', () => {
       ref: { type: 'mail', id: 'in', title: 'Dedans' },
     });
     expect(body.pending).toBe(2);
+  });
+
+  it('does not count the pending cards of an earlier day', async () => {
+    const { act, card } = await setup();
+    card('pending', new Date('2026-11-01T13:00:00.000Z'));
+    expect((await act(DAY)).body.result.pending).toBe(0);
   });
 
   it('leaves out journal entries that were undone', async () => {

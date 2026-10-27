@@ -53,7 +53,7 @@ describe('/lun/v1/cards', () => {
   it('filters by status, newest first', async () => {
     const s = await setup();
     const a = s.card();
-    const b = s.card({ day: '2000-01-01' });
+    const b = s.card();
     const c = s.card();
     await s.post(`/cards/${a}/refuse`, {});
     const pending = (await (await s.get('/cards')).json()).cards;
@@ -61,6 +61,34 @@ describe('/lun/v1/cards', () => {
     const refused = (await (await s.get('/cards?status=refused')).json()).cards;
     expect(refused.map((c: { id: string }) => c.id)).toEqual([String(a)]);
     expect((await s.get('/cards?status=nope')).status).toBe(400);
+  });
+
+  it('leaves out the pending cards of an earlier day', async () => {
+    const s = await setup();
+    const old = s.card({ day: '2000-01-01' });
+    const today = s.card();
+    const pending = (await (await s.get('/cards?status=pending')).json()).cards;
+    expect(pending.map((x: { id: string }) => x.id)).toEqual([String(today)]);
+    expect(getCard(s.h.db, old)!.status).toBe('expired');
+  });
+
+  it('rejects a malformed accept body and keeps the card pending; an empty body accepts', async () => {
+    const s = await setup();
+    const a = s.card();
+    const bad = await s.h.app.request(`/lun/v1/cards/${a}/accept`, {
+      method: 'POST',
+      headers: { ...s.h.auth(await s.h.pairClient()), 'content-type': 'application/json' },
+      body: '{"input":{"title":',
+    });
+    expect(bad.status).toBe(400);
+    expect(getCard(s.h.db, a)!.status).toBe('pending');
+    expect(s.writes()).toBe(0);
+    const empty = await s.h.app.request(`/lun/v1/cards/${a}/accept`, {
+      method: 'POST',
+      headers: s.h.auth(await s.h.pairClient()),
+    });
+    expect(empty.status).toBe(200);
+    expect(getCard(s.h.db, a)!.status).toBe('done');
   });
 
   it('accept runs the action, refuse refuses', async () => {

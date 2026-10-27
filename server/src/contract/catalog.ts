@@ -25,7 +25,8 @@ import { afterUserAction, correct, validate, withProposal } from '../triage/pipe
 import { createRule, deleteRule, listRules, updateRule } from '../triage/rules.ts';
 import { RoleSchema, RuleSchema } from '../triage/routes.ts';
 import { cardText } from '../pina/lines.ts';
-import { getCard } from '../pina/store.ts';
+import { expireCards } from '../pina/agent.ts';
+import { dayOf, getCard } from '../pina/store.ts';
 import { stripUndefined } from '../util.ts';
 import { InvalidInputError, type ActionRegistry, type Effect } from './actions.ts';
 
@@ -461,6 +462,7 @@ export function registerCatalog(
         .filter((c) => c !== undefined)
         .map((c) => ({ type: `card.${c.action}`, title: cardText(deps.db, c).title, at: c.decidedAt! }));
       const done = [...journal, ...cards].sort((a, b) => b.at.localeCompare(a.at)).slice(0, LIMIT);
+      expireCards(deps.db, dayOf(deps.clock()));
       const count = (sql: string) => (deps.db.prepare(sql).get() as { n: number }).n;
       const pending =
         count("SELECT COUNT(*) AS n FROM proposals WHERE status = 'pending'") +
