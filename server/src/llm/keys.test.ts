@@ -110,7 +110,7 @@ describe('keys per provider', () => {
         title: 'Clé OpenAI refusée : le tri par l’IA est en pause, les règles continuent',
         data: { provider: 'openai' },
       },
-      { type: 'key.restored', importance: 'info', title: 'Clé OpenAI de nouveau en service' },
+      { type: 'key.restored', importance: 'log', title: 'Clé OpenAI de nouveau en service' },
     ]);
     // Another provider keeps its own state.
     expect(getSetting(db, 'anthropic.keyState', 'ok')).toBe('ok');

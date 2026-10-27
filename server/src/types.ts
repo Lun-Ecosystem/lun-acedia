@@ -81,7 +81,7 @@ export interface MailPage {
   cursor?: string;
 }
 
-export type Importance = 'info' | 'normal' | 'urgent';
+export type Importance = 'urgent' | 'normal' | 'low' | 'info' | 'log';
 
 export interface LunEvent {
   id: string;

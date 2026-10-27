@@ -74,7 +74,7 @@ describe('calendar sync', () => {
     await h.syncAgenda();
     const changed = eventsSince(h.db).filter((e) => e.type === 'agenda.changed');
     expect(changed).toHaveLength(1);
-    expect(changed[0]!.importance).toBe('info');
+    expect(changed[0]!.importance).toBe('log');
   });
 
   it('creates and moves an event from Acedia, the cache following at once', async () => {

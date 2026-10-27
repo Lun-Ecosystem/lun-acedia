@@ -27,7 +27,7 @@ describe('reminders', () => {
     for (const at of ['08:05', '08:06', '08:07']) runReminders(h.db, new Date(`2026-11-02T${at}:00.000Z`));
     const sent = reminderEvents(h.db);
     expect(sent).toHaveLength(1);
-    expect(sent[0]).toMatchObject({ importance: 'normal', title: 'Oral dans 10 min' });
+    expect(sent[0]).toMatchObject({ importance: 'urgent', title: 'Oral dans 10 min' });
   });
 
   it('reminds of a task due today at 09:00 local time', async () => {

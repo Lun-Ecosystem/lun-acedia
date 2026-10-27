@@ -66,7 +66,7 @@ export function checkExpiry(
     db,
     {
       type: 'key.expiring',
-      importance: 'normal',
+      importance: step === 3 ? 'normal' : 'low',
       title: title(label, expires, days),
       data: { daysLeft: step, expires },
     },

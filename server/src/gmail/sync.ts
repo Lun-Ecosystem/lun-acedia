@@ -223,7 +223,7 @@ export async function syncGmail(deps: SyncDeps): Promise<SyncResult> {
   if (result.added.length || result.changed.length || result.removed.length) {
     emitEvent(
       deps.db,
-      { type: 'mail.changed', importance: 'info', title: 'Boîte mise à jour', data: result },
+      { type: 'mail.changed', importance: 'log', title: 'Boîte mise à jour', data: result },
       deps.now(),
     );
   }

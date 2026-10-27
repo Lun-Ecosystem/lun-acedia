@@ -92,7 +92,7 @@ describe('Google client', () => {
     expect(getState(db).degraded).toEqual(['google-reauth']);
     const events = eventsSince(db).filter((e) => e.type === 'google.reauth');
     expect(events).toHaveLength(1);
-    expect(events[0]!.importance).toBe('urgent');
+    expect(events[0]!.importance).toBe('normal');
   });
 
   it('clears the degraded state once tokens are saved again', async () => {
