@@ -30,7 +30,8 @@ function view(d: GmailDraft): DraftView {
     id: d.id,
     to: h('To'),
     subject: h('Subject'),
-    text: payload ? plainText(payload) : '',
+    // Whole, with its paragraphs: the composer saves back what it reads.
+    text: payload ? plainText(payload, Infinity, true) : '',
   };
   if (h('Cc')) out.cc = h('Cc');
   if (h('In-Reply-To')) out.replyTo = { id: h('In-Reply-To'), threadId: d.message.threadId };

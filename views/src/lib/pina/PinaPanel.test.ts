@@ -1,6 +1,6 @@
 import { render, screen, waitFor, within } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { fakeClient } from '../../testing/fake-client.ts';
 import { ApiError } from '../client.ts';
 import type { PinaCard, PinaThread } from '../types.ts';
@@ -244,6 +244,34 @@ describe('Pina', () => {
     const { user } = await setup(thread([draft]), { open: true, onopendraft: (id: string) => (opened = id) });
     await user.click(await screen.findByRole('button', { name: 'Ouvrir le brouillon' }));
     expect(opened).toBe('d1');
+  });
+
+  it('on a desktop the window stays over the draft; on a phone the sheet closes for the draft and the settings', async () => {
+    const draft = card(12, {
+      action: 'draft.create',
+      status: 'done',
+      input: { to: 'marie@example.com', subject: 'Re: Dîner samedi ?', text: 'Coucou' },
+      result: { id: 'd1', to: 'marie@example.com', subject: 'Re: Dîner samedi ?', text: 'Coucou' },
+    });
+    const opened: string[] = [];
+    const { user } = await setup(thread([draft]), {
+      open: true,
+      onopendraft: (id: string) => opened.push(id),
+      onsettings: () => opened.push('reglages'),
+    });
+    await user.click(await screen.findByRole('button', { name: 'Ouvrir le brouillon' }));
+    expect(opened).toEqual(['d1']);
+    expect(panel()).toBeInTheDocument();
+
+    // jsdom has no matchMedia: a phone width is stubbed.
+    vi.stubGlobal('matchMedia', () => ({ matches: true }));
+    try {
+      await user.click(screen.getByRole('button', { name: 'Réglages' }));
+      expect(opened).toEqual(['d1', 'reglages']);
+      await waitFor(() => expect(panel()).not.toBeInTheDocument());
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it('↑ in the field recalls the last request, and a request carries the screen context', async () => {

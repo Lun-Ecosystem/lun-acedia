@@ -10,6 +10,7 @@ import { syncAgenda } from '../agenda/unified.ts';
 import { createApp } from '../app.ts';
 import { ActionRegistry } from '../contract/actions.ts';
 import { issuePairingCode } from '../contract/auth.ts';
+import { recordCost } from '../contract/costs.ts';
 import { openDb } from '../db.ts';
 import { syncGmail } from '../gmail/sync.ts';
 import { createGoogleClient, saveTokens } from '../google/client.ts';
@@ -278,7 +279,7 @@ function seedAgenda(agenda: FakeAgenda, now: Date) {
  * Today's thread of Pina, written as her loop would have (the demo has no model): a mail she filed
  * (done, with Annuler), a reply drafted, and a task waiting for Valider.
  */
-function seedPina(db: DatabaseSync, now: Date, refs: { journalId: number; perso: string }) {
+function seedPina(db: DatabaseSync, now: Date, refs: { journalId: number; perso: string; draftId: string }) {
   const day = dayOf(now);
   const at = (min: number) => new Date(now.getTime() - min * 60_000);
   const say = (min: number, message: ChatMessage & { turn?: number; context?: unknown }) =>
@@ -335,10 +336,16 @@ function seedPina(db: DatabaseSync, now: Date, refs: { journalId: number; perso:
     turn: t2,
   });
   card(t2, 30, 'c1', 'draft.create', draft, {
-    result: { id: 'demo-draft-1', to: draft.to, subject: draft.subject, text: draft.text },
-    inverse: { action: 'draft.delete', input: { id: 'demo-draft-1' } },
+    result: { id: refs.draftId, to: draft.to, subject: draft.subject, text: draft.text },
+    inverse: { action: 'draft.delete', input: { id: refs.draftId } },
   });
-  say(29, { role: 'tool', callId: 'c1', content: '{"id":"demo-draft-1"}', isError: false, turn: t2 });
+  say(29, {
+    role: 'tool',
+    callId: 'c1',
+    content: JSON.stringify({ id: refs.draftId }),
+    isError: false,
+    turn: t2,
+  });
   say(29, {
     role: 'assistant',
     text: 'Ton brouillon est prêt ! Relis-le avant de l’envoyer, c’est toi qui cliques.',
@@ -500,7 +507,24 @@ export async function createDemo(
     await call('POST', '/api/mail/batch', { ids: ['m12'], op: { kind: 'file', boxId: ids['Perso'] } })
   )[0].journalId as number;
   markPina(db, filed);
-  seedPina(db, clock(), { journalId: filed, perso: ids['Perso']! });
+  // The reply Pina drafted exists in Gmail's drafts: « Ouvrir le brouillon » reads it.
+  const camille = await call('GET', '/api/mail/m06');
+  const drafted = await call('POST', '/api/drafts', {
+    from: 'test@example.com',
+    to: 'Camille Durand <camille@example.com>',
+    subject: 'Re: Déjeuner mercredi ?',
+    text: 'Salut Camille,\n\nMercredi 12 h 30 au Café des Arts, c’est parfait. À mercredi !\n\nNatsume',
+    html: '<div>Salut Camille,<br><br>Mercredi 12 h 30 au Café des Arts, c’est parfait. À mercredi !<br><br>Natsume</div>',
+    threadId: camille.threadId,
+  });
+  seedPina(db, clock(), { journalId: filed, perso: ids['Perso']!, draftId: drafted.id as string });
+  // What those turns cost today: Réglages › Pina shows it against the daily cap.
+  recordCost(
+    db,
+    { provider: 'anthropic', model: 'claude-haiku-5-5', amount: 0.18, calls: 6 },
+    clock(),
+    'pina',
+  );
 
   seedAgenda(agenda, clock());
   await syncAgenda(deps);

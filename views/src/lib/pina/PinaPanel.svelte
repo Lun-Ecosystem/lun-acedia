@@ -134,11 +134,13 @@
     if (inside) (isPhone() ? opener : launcher)?.focus();
   }
 
-  function openDraft(id: string) {
-    // On a desktop the window stays over the composer (it never resizes it); the phone's sheet would hide it.
+  // On a desktop the window stays over the screen reached (it never resizes it); the phone's sheet would hide it.
+  function leaveFor(go: () => void) {
     if (open && isPhone()) void toggle();
-    onopendraft(id);
+    go();
   }
+  const openDraft = (id: string) => leaveFor(() => onopendraft(id));
+  const openSettings = () => leaveFor(onsettings);
 
   /** After a decision: the next pending card, else Pina's field (unless the focus went elsewhere). */
   async function settled() {
@@ -367,7 +369,7 @@
           ? 'Actions faites tout de suite, avec Annuler'
           : 'Validation avant chaque action'}</b
       >
-      <button type="button" class="lien" onclick={onsettings}>Réglages</button>
+      <button type="button" class="lien" onclick={openSettings}>Réglages</button>
     </div>
 
     {#if pina.past}
@@ -399,7 +401,7 @@
           onopendraft={openDraft}
           onsettled={settled}
           onrephrase={() => fill('Reformuler le brouillon : ')}
-          {onsettings}
+          onsettings={openSettings}
         />
       {/if}
       {#if pina.asking && !pina.past}

@@ -29,6 +29,14 @@ describe('drafts', () => {
     expect(h.gmail.sent).toHaveLength(0);
   });
 
+  // The composer saves back what it read: a draft read with its paragraphs merged would be sent so.
+  it('a draft reads back whole, its paragraphs and length kept', async () => {
+    const h = await makeGmailHarness();
+    const text = `Salut Camille,\n\nMercredi, c’est parfait.\n\n${'Suite. '.repeat(700)}\n\nNatsume`;
+    const { id } = await createDraft(h.deps, { ...draft, text, html: '<p>x</p>' });
+    expect((await getDraft(h.deps, id)).text).toBe(text.trim().replace(/ \n/g, '\n'));
+  });
+
   it('updates, reads and deletes a draft', async () => {
     const h = await makeGmailHarness();
     const { id } = await createDraft(h.deps, draft);

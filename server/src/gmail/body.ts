@@ -183,14 +183,20 @@ function htmlToText(html: string): string {
     .replace(/&([a-z]+);/gi, (all, name: string) => ENTITIES[name] ?? all);
 }
 
-/** The readable text of a mail (text part, else the HTML stripped), for the AI: at most `max` characters. */
-export function plainText(payload: GmailPart, max = 4000): string {
+/**
+ * The readable text of a mail (text part, else the HTML stripped), for the AI: at most `max` characters.
+ * `paragraphs` keeps one blank line between paragraphs (a draft read back to be edited and saved).
+ */
+export function plainText(payload: GmailPart, max = 4000, paragraphs = false): string {
   const textPart = findBody(payload, 'text/plain');
   const htmlPart = textPart ? undefined : findBody(payload, 'text/html');
   const raw = textPart ? decodeText(textPart) : htmlPart ? htmlToText(decodeText(htmlPart)) : '';
-  return raw
-    .replace(/[^\S\n]+/g, ' ')
-    .replace(/\s*\n\s*/g, '\n')
+  const spaced = raw.replace(/[^\S\n]+/g, ' ');
+  return (
+    paragraphs
+      ? spaced.replace(/ ?\n ?/g, '\n').replace(/\n{3,}/g, '\n\n')
+      : spaced.replace(/\s*\n\s*/g, '\n')
+  )
     .trim()
     .slice(0, max);
 }

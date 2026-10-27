@@ -196,7 +196,7 @@
         >Enregistrer</Button
       >
     {/if}
-    <Button variant="fantome" onclick={onclose}>Fermer</Button>
+    <Button variant="fantome" class="fermer-bas" onclick={onclose}>Fermer</Button>
     <Button
       type="submit"
       variant="principal"
@@ -296,6 +296,10 @@
     }
     .champs {
       grid-template-columns: 1fr;
+    }
+    /* A draft's actions fill the width: the header's close button is enough on a phone. */
+    .composer:has(.bandeau-ia) .actions :global(.fermer-bas) {
+      display: none;
     }
   }
 </style>
