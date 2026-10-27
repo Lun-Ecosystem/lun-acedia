@@ -45,6 +45,7 @@ const NEW_NAMES = [
   'draft.create',
   'draft.update',
   'draft.delete',
+  'day.digest',
 ];
 
 const EFFECTS: Record<string, string> = {
@@ -64,6 +65,7 @@ const EFFECTS: Record<string, string> = {
   'draft.read': 'read',
   'draft.delete': 'delete',
   'stats.today': 'read',
+  'day.digest': 'read',
 };
 
 async function setup() {
@@ -84,7 +86,7 @@ describe('contract actions', () => {
     expect(names.filter((n) => /send/i.test(n))).toEqual([]);
   });
 
-  it('lists the 37 actions, each with an object JSON Schema', async () => {
+  it('lists the 38 actions, each with an object JSON Schema', async () => {
     const { h } = await setup();
     const { actions } = (await h.call('GET', '/lun/v1/actions')).body as {
       actions: { name: string; description: string; input: { type: string } }[];

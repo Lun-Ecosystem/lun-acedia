@@ -30,6 +30,10 @@ faux agenda, faux tri, aucun compte Google, aucun réseau. La commande affiche l
 Pina agit par le catalogue d’actions : les écritures deviennent des cartes à valider, les suppressions le
 restent toujours, et elle n’envoie jamais de mail (brouillon seulement). Voir [docs/pina.md](docs/pina.md).
 
+Contrat v1.1 : le core lui délègue des demandes (`POST /lun/v1/agent`) et relaie ses cartes
+(`GET /lun/v1/cards`, `POST /lun/v1/cards/:id/accept`, `POST /lun/v1/cards/:id/refuse`) ; l'action
+`day.digest` résume la journée.
+
 ## Relier un appareil
 
 ```bash
@@ -48,7 +52,7 @@ Monorepo à workspaces npm ; l'outillage (format, lint, typage, tests) est à la
 
 | Dossier | Contenu |
 |---|---|
-| `server/` | le serveur : synchro Google, tri, agenda, API du front, contrat `/lun/v1` |
+| `server/` | le serveur : synchro Google, tri, agenda, API du front, contrat `/lun/v1` (v1.1) |
 | `views/` | le paquet de vues Svelte `@lun-ecosystem/lunacedia-views`, publié pour Lun'Anima |
 | `app/` | le front autonome (PWA installable), qui n'utilise que le paquet de vues |
 

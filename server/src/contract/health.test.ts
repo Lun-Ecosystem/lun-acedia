@@ -7,7 +7,7 @@ describe('GET /lun/v1/health', () => {
     const h = makeHarness();
     const token = await h.pairClient();
     const res = await h.app.request('/lun/v1/health', { headers: h.auth(token) });
-    expect(await res.json()).toEqual({ status: 'ok', version: '0.0.0-test' });
+    expect(await res.json()).toEqual({ status: 'ok', version: '0.0.0-test', agent: true });
   });
 
   it('reports paused', async () => {
@@ -29,6 +29,7 @@ describe('GET /lun/v1/health', () => {
       reason: 'credit',
       paused: true,
       version: '0.0.0-test',
+      agent: true,
     });
   });
 
@@ -39,7 +40,12 @@ describe('GET /lun/v1/health', () => {
     addDegraded(h.db, 'google-reauth');
     clearDegraded(h.db, 'credit');
     const res = await h.app.request('/lun/v1/health', { headers: h.auth(token) });
-    expect(await res.json()).toEqual({ status: 'degraded', reason: 'google-reauth', version: '0.0.0-test' });
+    expect(await res.json()).toEqual({
+      status: 'degraded',
+      reason: 'google-reauth',
+      version: '0.0.0-test',
+      agent: true,
+    });
     clearDegraded(h.db, 'google-reauth');
     const after = await h.app.request('/lun/v1/health', { headers: h.auth(token) });
     expect((await after.json()).status).toBe('ok');

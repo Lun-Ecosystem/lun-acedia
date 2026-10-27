@@ -182,7 +182,7 @@ function toGoogle(input: Partial<TaskInput>): Record<string, unknown> {
 const changed = (deps: SyncDeps) =>
   emitEvent(
     deps.db,
-    { type: 'agenda.changed', importance: 'info', title: 'Agenda mis à jour', data: { changes: 1 } },
+    { type: 'agenda.changed', importance: 'log', title: 'Agenda mis à jour', data: { changes: 1 } },
     deps.now(),
   );
 

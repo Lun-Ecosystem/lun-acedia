@@ -35,7 +35,7 @@ export async function syncAgenda(deps: SyncDeps): Promise<number> {
   if (changes > 0) {
     emitEvent(
       deps.db,
-      { type: 'agenda.changed', importance: 'info', title: 'Agenda mis à jour', data: { changes } },
+      { type: 'agenda.changed', importance: 'log', title: 'Agenda mis à jour', data: { changes } },
       deps.now(),
     );
   }

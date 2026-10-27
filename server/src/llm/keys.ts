@@ -248,7 +248,7 @@ export function keyWorks(db: DatabaseSync, id: ProviderId, now: Date): void {
     db,
     {
       type: 'key.restored',
-      importance: 'info',
+      importance: 'log',
       title: `Clé ${LABELS[id]} de nouveau en service`,
       data: { provider: id },
     },

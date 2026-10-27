@@ -102,7 +102,7 @@ export function createGoogleClient(opts: ClientOptions): GoogleClient {
       addDegraded(db, REAUTH);
       emitEvent(
         db,
-        { type: 'google.reauth', importance: 'urgent', title: 'Autorisation Google à renouveler' },
+        { type: 'google.reauth', importance: 'normal', title: 'Autorisation Google à renouveler' },
         now(),
       );
     }

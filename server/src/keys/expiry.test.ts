@@ -23,7 +23,7 @@ describe('checkExpiry', () => {
     check('2026-11-05T09:00:00.000Z', '2026-11-16');
     expect(expiring(db)).toEqual([{ daysLeft: 14, expires: '2026-11-16' }]);
     const event = eventsSince(db).find((e) => e.type === 'key.expiring')!;
-    expect(event.importance).toBe('normal');
+    expect(event.importance).toBe('low');
     expect(event.title).toContain('Clé Anthropic');
     // 3 days ahead: one J-3, then nothing more (a restart reads the same flags from the database).
     check('2026-11-13T08:00:00.000Z', '2026-11-16');
@@ -34,6 +34,11 @@ describe('checkExpiry', () => {
       { daysLeft: 14, expires: '2026-11-16' },
       { daysLeft: 3, expires: '2026-11-16' },
     ]);
+
+    const last = eventsSince(db)
+      .filter((e) => e.type === 'key.expiring')
+      .at(-1)!;
+    expect(last.importance).toBe('normal');
 
     // A new date resets the flags; declared 2 days ahead, only J-3 fires.
     check('2026-11-20T08:00:00.000Z', '2026-11-22');

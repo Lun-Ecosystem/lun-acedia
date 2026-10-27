@@ -136,18 +136,54 @@ describe('triageNew', () => {
     const warnings = eventsSince(s.h.db, '0').filter((e) => e.type === 'llm.unknown-price');
     expect(warnings).toHaveLength(1);
     expect(warnings[0]).toMatchObject({
-      importance: 'info',
+      importance: 'log',
       title: 'Prix inconnu pour mystery-1 : coût compté à 0',
     });
   });
 
   it('a matching rule files without calling the AI', async () => {
     const s = await setup(() => new Error('the classifier must not be called'));
-    createRule(s.h.db, { field: 'fromDomain', op: 'equals', value: 'ecole.fr', boxId: s.ecole });
-    await s.triage(await s.deliver({ id: 'm1', from: 'Prof <prof@ecole.fr>' }));
+    createRule(s.h.db, { field: 'fromDomain', op: 'equals', value: 'ecole.example.org', boxId: s.ecole });
+    await s.triage(await s.deliver({ id: 'm1', from: 'Prof <prof@ecole.example.org>' }));
     expect(s.fake.inputs).toHaveLength(0);
     expect(getStoredMessage(s.h.db, 'm1')?.labels).toContain(s.ecole);
     expect((s.h.db.prepare('SELECT origin FROM journal').get() as { origin: string }).origin).toBe('rule');
+  });
+
+  it('a rule that sets the urgent tag emits urgent, another rule emits info', async () => {
+    const s = await setup(() => new Error('the classifier must not be called'));
+    createRule(s.h.db, {
+      field: 'fromDomain',
+      op: 'equals',
+      value: 'ecole.example.org',
+      boxId: s.ecole,
+      tagIds: [s.urgent],
+    });
+    createRule(s.h.db, { field: 'fromDomain', op: 'equals', value: 'perso.example.org', boxId: s.perso });
+    await s.triage(
+      await s.deliver({ id: 'm1', from: 'p@ecole.example.org' }, { id: 'm2', from: 'p@perso.example.org' }),
+    );
+    const triaged = eventsSince(s.h.db).filter((e) => e.type === 'mail.triaged');
+    expect(triaged.map((e) => e.importance).sort()).toEqual(['info', 'urgent']);
+  });
+
+  it('an AI-urgent mail never emits urgent; AI-filed is info, pending is low', async () => {
+    let box = '';
+    const s = await setup((input) => ({
+      boxId: box,
+      importance: input.mail.subject.includes('vite') ? 'urgent' : 'normal',
+      confidence: 90,
+    }));
+    box = s.ecole;
+    putSetting(s.h.db, 'threshold', 80);
+    await s.triage(await s.deliver({ id: 'a', subject: 'vite' }, { id: 'b', subject: 'calme' }));
+    putSetting(s.h.db, 'threshold', 100);
+    await s.triage(await s.deliver({ id: 'c', subject: 'calme 2' }));
+    const by = (title: string) => eventsSince(s.h.db).find((e) => e.title === title)!;
+    expect(by('vite')).toMatchObject({ type: 'mail.triaged', importance: 'normal' });
+    expect(by('calme')).toMatchObject({ type: 'mail.triaged', importance: 'info' });
+    expect(by('calme 2')).toMatchObject({ type: 'mail.pending', importance: 'low' });
+    expect(getProposal(s.h.db, 'a')?.importance).toBe('urgent');
   });
 
   it('treats a mail once, even when asked twice at the same time', async () => {
@@ -179,15 +215,20 @@ describe('triageNew', () => {
 
   it('credit exhausted: degraded, mail left alone, rules still apply', async () => {
     const s = await setup(() => new CreditExhaustedError());
-    createRule(s.h.db, { field: 'fromDomain', op: 'equals', value: 'ecole.fr', boxId: s.ecole });
-    await s.triage(await s.deliver({ id: 'm1', from: 'x@ailleurs.fr' }, { id: 'm2', from: 'p@ecole.fr' }));
+    createRule(s.h.db, { field: 'fromDomain', op: 'equals', value: 'ecole.example.org', boxId: s.ecole });
+    await s.triage(
+      await s.deliver(
+        { id: 'm1', from: 'x@ailleurs.example.org' },
+        { id: 'm2', from: 'p@ecole.example.org' },
+      ),
+    );
     expect(getState(s.h.db).degraded).toContain('credit');
     expect(getProposal(s.h.db, 'm1')).toBeUndefined();
     expect(getStoredMessage(s.h.db, 'm1')?.labels).toContain('INBOX');
     expect(getStoredMessage(s.h.db, 'm2')?.labels).toContain(s.ecole);
     const credit = eventsSince(s.h.db).filter((e) => e.type === 'credit.exhausted');
     expect(credit).toHaveLength(1);
-    expect(credit[0]!.importance).toBe('urgent');
+    expect(credit[0]!.importance).toBe('normal');
   });
 
   it('lifts the credit state at the first successful call', async () => {
@@ -203,15 +244,15 @@ describe('triageNew', () => {
 
   it('a refused key pauses AI triage, rules go on, one key.invalid', async () => {
     const s = await setup(() => new KeyRefusedError());
-    createRule(s.h.db, { field: 'fromDomain', op: 'equals', value: 'ecole.fr', boxId: s.ecole });
+    createRule(s.h.db, { field: 'fromDomain', op: 'equals', value: 'ecole.example.org', boxId: s.ecole });
     await s.triage(
       await s.deliver(
-        { id: 'm1', from: 'x@ailleurs.fr' },
-        { id: 'm2', from: 'p@ecole.fr' },
-        { id: 'm3', from: 'y@ailleurs.fr' },
+        { id: 'm1', from: 'x@ailleurs.example.org' },
+        { id: 'm2', from: 'p@ecole.example.org' },
+        { id: 'm3', from: 'y@ailleurs.example.org' },
       ),
     );
-    await s.triage(await s.deliver({ id: 'm4', from: 'z@ailleurs.fr' }));
+    await s.triage(await s.deliver({ id: 'm4', from: 'z@ailleurs.example.org' }));
     expect(getState(s.h.db).degraded).toEqual(['anthropic-key']);
     expect(getProposal(s.h.db, 'm1')).toBeUndefined();
     expect(getStoredMessage(s.h.db, 'm1')?.labels).toContain('INBOX');
@@ -250,7 +291,7 @@ describe('triageNew', () => {
     expect(getProposal(s.h.db, 'm1')?.status).toBe('pending');
     const keyEvents = eventsSince(s.h.db).filter((e) => e.type.startsWith('key.'));
     expect(keyEvents.map((e) => e.type)).toEqual(['key.invalid', 'key.restored']);
-    expect(keyEvents[1]).toMatchObject({ importance: 'info', title: 'Clé Anthropic de nouveau en service' });
+    expect(keyEvents[1]).toMatchObject({ importance: 'log', title: 'Clé Anthropic de nouveau en service' });
     await s.triage(await s.deliver({ id: 'm3' }));
     expect(eventsSince(s.h.db).filter((e) => e.type === 'key.restored')).toHaveLength(1);
   });
@@ -404,7 +445,7 @@ describe('triageNew', () => {
     await s.triage(await s.deliver({ id: 'pub', subject: 'Une pub' }, { id: 'tax', subject: 'Impôts' }));
     const pending = eventsSince(s.h.db).filter((e) => e.type === 'mail.pending');
     expect(pending).toHaveLength(before + 1);
-    expect(pending.at(-1)).toMatchObject({ importance: 'urgent', title: 'Impôts' });
+    expect(pending.at(-1)).toMatchObject({ importance: 'normal', title: 'Impôts' });
     expect(getProposal(s.h.db, 'tax')?.tagIds).toEqual([s.urgent]);
   });
 

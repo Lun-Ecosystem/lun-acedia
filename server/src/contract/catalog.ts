@@ -24,6 +24,9 @@ import { createLabel, listLabels, setRole } from '../triage/labels.ts';
 import { afterUserAction, correct, validate, withProposal } from '../triage/pipeline.ts';
 import { createRule, deleteRule, listRules, updateRule } from '../triage/rules.ts';
 import { RoleSchema, RuleSchema } from '../triage/routes.ts';
+import { cardText } from '../pina/lines.ts';
+import { expireCards } from '../pina/agent.ts';
+import { dayOf, getCard } from '../pina/store.ts';
 import { stripUndefined } from '../util.ts';
 import { InvalidInputError, type ActionRegistry, type Effect } from './actions.ts';
 
@@ -403,5 +406,68 @@ export function registerCatalog(
 
   add('read', 'stats.today', 'Ce que le tri a fait aujourd’hui.', z.object({}), async () =>
     todayStats(deps.db, deps.clock()),
+  );
+
+  add(
+    'read',
+    'day.digest',
+    'Bilan d’une période [since, until[ : mails reçus, ce qui a été fait, et ce qui attend.',
+    z.object({
+      since: z.iso.datetime({ offset: true }).describe('Début inclus, ISO 8601 UTC'),
+      until: z.iso.datetime({ offset: true }).describe('Fin exclue, ISO 8601 UTC'),
+    }),
+    async (input) => {
+      const t = { since: Date.parse(input.since), until: Date.parse(input.until) };
+      if (t.since >= t.until) throw new InvalidInputError('since doit précéder until');
+      const [since, until] = [new Date(t.since).toISOString(), new Date(t.until).toISOString()];
+      // shortcut: 200 items per list, newest first; a busier period loses its oldest, narrow the period.
+      const LIMIT = 200;
+      const received = (
+        deps.db
+          .prepare(
+            'SELECT id, subject, internal_date FROM messages WHERE internal_date >= ? AND internal_date < ? ORDER BY internal_date DESC LIMIT ?',
+          )
+          .all(t.since, t.until, LIMIT) as { id: string; subject: string; internal_date: number }[]
+      ).map((m) => {
+        const at = new Date(m.internal_date).toISOString();
+        return { type: 'mail', title: m.subject, at, ref: { type: 'mail', id: m.id, title: m.subject } };
+      });
+      const journal = (
+        deps.db
+          .prepare(
+            `SELECT j.at, j.message_id, j.action, m.subject FROM journal j LEFT JOIN messages m ON m.id = j.message_id
+             WHERE j.at >= ? AND j.at < ? AND j.undone_at IS NULL ORDER BY j.at DESC LIMIT ?`,
+          )
+          .all(since, until, LIMIT) as {
+          at: string;
+          message_id: string;
+          action: string;
+          subject: string | null;
+        }[]
+      ).map((j) => {
+        const title = j.subject ?? j.message_id;
+        return {
+          type: `journal.${j.action}`,
+          title,
+          at: j.at,
+          ref: { type: 'mail', id: j.message_id, title },
+        };
+      });
+      const cards = deps.db
+        .prepare(
+          "SELECT * FROM pina_cards WHERE status = 'done' AND decided_at >= ? AND decided_at < ? ORDER BY decided_at DESC LIMIT ?",
+        )
+        .all(since, until, LIMIT)
+        .map((r) => getCard(deps.db, r.id as number))
+        .filter((c) => c !== undefined)
+        .map((c) => ({ type: `card.${c.action}`, title: cardText(deps.db, c).title, at: c.decidedAt! }));
+      const done = [...journal, ...cards].sort((a, b) => b.at.localeCompare(a.at)).slice(0, LIMIT);
+      expireCards(deps.db, dayOf(deps.clock()));
+      const count = (sql: string) => (deps.db.prepare(sql).get() as { n: number }).n;
+      const pending =
+        count("SELECT COUNT(*) AS n FROM proposals WHERE status = 'pending'") +
+        count("SELECT COUNT(*) AS n FROM pina_cards WHERE status = 'pending'");
+      return { since, until, received, done, pending };
+    },
   );
 }

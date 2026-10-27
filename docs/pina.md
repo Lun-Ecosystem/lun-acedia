@@ -27,6 +27,25 @@ Elle agit uniquement par le catalogue d’actions d’Acedia, le même que celui
 - **Plafond quotidien** de dépense : au-delà, elle attend le lendemain ou que le plafond soit relevé.
 - Une action refusée n’est pas refaite sans nouvelle demande.
 
+## Pina, poste du core
+
+Le core confie des demandes à Pina par le contrat satellite (v1.1) ; elle y répond comme à l’écran, avec les
+mêmes garde-fous.
+
+- `POST /lun/v1/agent {request, context?}` rend `{summary, cards, refs, cost}`. Un tour délégué tourne toujours en
+  mode **Valider** (chaque écriture devient une carte), quel que soit le mode de Pina, et ce mode est gardé quand
+  le tour reprend. Il partage le fil du jour de Pina. Acedia en pause : 200 avec un résumé de pause, sans appel au
+  modèle. Un `context` hostile (clé inconnue, valeur trop longue, écran inconnu) : 400.
+- Cartes relayées : `GET /lun/v1/cards?status=pending`, `POST /lun/v1/cards/:id/accept {input?}` et
+  `POST /lun/v1/cards/:id/refuse`. Une carte qui n’est plus en attente : 409 ; une carte d’un jour passé : 409
+  « Carte expirée ». Le titre et les lignes sont écrits par le serveur. Une suppression est toujours une carte, et
+  Pina n’envoie jamais de mail.
+- `Health.agent` vaut `true`.
+- Action `day.digest {since, until}` (instants ISO, intervalle `[since, until[`) : rend
+  `{since, until, received, done, pending}`, 200 éléments au plus par liste, les actions défaites exclues.
+- Les événements suivent les niveaux du standard de notifications de lun-docs (urgent, normal, low, info, log) ;
+  le modèle ne fixe jamais `urgent`.
+
 ## Ce que Pina ne fait pas encore
 
 - **Transférer un mail.** Le transfert se fait depuis l’écran du mail (Transférer) : ses brouillons n’ont pas

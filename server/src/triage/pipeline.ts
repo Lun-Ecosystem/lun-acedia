@@ -108,21 +108,21 @@ function creditExhausted(deps: ActionDeps): void {
     deps.db,
     {
       type: 'credit.exhausted',
-      importance: 'urgent',
+      importance: 'normal',
       title: 'Crédit IA épuisé : le tri par l’IA est en pause, les règles continuent',
     },
     deps.now(),
   );
 }
 
-/** One `info` event per model: it is counted at 0 rather than blocking the triage. */
+/** One `log` event per model: it is counted at 0 rather than blocking the triage. */
 function warnUnknownPrice(deps: TriageDeps, key: string, model: string): void {
   const warned = getSetting<string[]>(deps.db, 'llm.unknownPriceWarned', []);
   if (warned.includes(key)) return;
   putSetting(deps.db, 'llm.unknownPriceWarned', [...warned, key]);
   emitEvent(
     deps.db,
-    { type: 'llm.unknown-price', importance: 'info', title: `Prix inconnu pour ${model} : coût compté à 0` },
+    { type: 'llm.unknown-price', importance: 'log', title: `Prix inconnu pour ${model} : coût compté à 0` },
     deps.now(),
   );
 }
@@ -201,9 +201,16 @@ async function triageOne(deps: TriageDeps, id: string, useAi: boolean): Promise<
       source: 'rule',
       status: 'auto',
     });
+    // The rule's own urgent tag is the only way a mail gets `urgent`; the AI never does.
+    const ruleUrgent = listTags(deps.db).some((t) => rule.tagIds.includes(t.id) && isUrgentName(t.name));
     emitEvent(
       deps.db,
-      { type: 'mail.triaged', importance: 'info', title: mail.subject, data: { id, boxId: rule.boxId } },
+      {
+        type: 'mail.triaged',
+        importance: ruleUrgent ? 'urgent' : 'info',
+        title: mail.subject,
+        data: { id, boxId: rule.boxId },
+      },
       deps.now(),
     );
     return 'done';
@@ -253,7 +260,7 @@ async function triageOne(deps: TriageDeps, id: string, useAi: boolean): Promise<
       deps.db,
       {
         type: auto ? 'mail.triaged' : 'mail.pending',
-        importance: c.importance,
+        importance: c.importance === 'urgent' ? 'normal' : auto ? 'info' : 'low',
         title: mail.subject,
         data: { id, boxId: c.boxId, confidence: c.confidence },
       },

@@ -139,7 +139,7 @@ describe('syncGmail', () => {
     await s.sync();
     const changed = eventsSince(s.db).filter((e) => e.type === 'mail.changed');
     expect(changed).toHaveLength(before + 1);
-    expect(changed.at(-1)!.importance).toBe('info');
+    expect(changed.at(-1)!.importance).toBe('log');
   });
 
   it('skips a mail deleted between the history and its fetch', async () => {

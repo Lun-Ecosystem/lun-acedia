@@ -75,7 +75,7 @@ function phrase(r: Reminder): string {
   return `${r.title} dans ${r.minutes} min`;
 }
 
-/** Emits each due reminder once (`agenda.reminder`, `normal`); returns how many were emitted. */
+/** Emits each due reminder once (`agenda.reminder`, `urgent`); returns how many were emitted. */
 export function runReminders(db: DatabaseSync, now: Date): number {
   const due = dueReminders(db, now);
   for (const r of due) {
@@ -83,7 +83,7 @@ export function runReminders(db: DatabaseSync, now: Date): number {
     const data: Record<string, unknown> = { kind: r.kind, id: r.itemId, at: r.at };
     data[r.kind === 'event' ? 'calendarId' : 'listId'] = r.containerId;
     if (r.minutes !== undefined) data.minutes = r.minutes;
-    emitEvent(db, { type: 'agenda.reminder', importance: 'normal', title: phrase(r), data }, now);
+    emitEvent(db, { type: 'agenda.reminder', importance: 'urgent', title: phrase(r), data }, now);
   }
   return due.length;
 }

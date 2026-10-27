@@ -56,7 +56,22 @@ export function createApp(deps: AppDeps): Hono {
     ? createGoogleClient({ db: deps.db, now: deps.clock, ...deps.google })
     : undefined;
   registerCatalog(deps.actions, { db: deps.db, google, clock: deps.clock });
-  app.route('/lun/v1', contractRoutes(deps));
+  const pinaProvider: PinaDeps['provider'] =
+    deps.pinaProvider ??
+    (() => {
+      const env = deps.llmEnv ?? {};
+      const choice = choiceFor(deps.db, deps.secretKey, env, 'pina');
+      const provider = choice && providerFor(deps.db, deps.secretKey, env, choice.provider, makeProvider);
+      return choice && provider ? { provider, model: choice.model } : undefined;
+    });
+  const pinaDeps: PinaDeps = {
+    db: deps.db,
+    actions: deps.actions,
+    clock: deps.clock,
+    provider: pinaProvider,
+    triageProvider: () => choiceFor(deps.db, deps.secretKey, deps.llmEnv ?? {}, 'triage')?.provider,
+  };
+  app.route('/lun/v1', contractRoutes(deps, pinaDeps));
   // Every /api route, whichever module mounts it, is for paired devices only.
   app.use('/api/*', requireToken(deps.db), requireDevice(deps.db));
 
@@ -97,24 +112,7 @@ export function createApp(deps: AppDeps): Hono {
   });
   app.route('/api', api);
   app.route('/api/llm', llmRoutes(deps));
-  const pinaProvider: PinaDeps['provider'] =
-    deps.pinaProvider ??
-    (() => {
-      const env = deps.llmEnv ?? {};
-      const choice = choiceFor(deps.db, deps.secretKey, env, 'pina');
-      const provider = choice && providerFor(deps.db, deps.secretKey, env, choice.provider, makeProvider);
-      return choice && provider ? { provider, model: choice.model } : undefined;
-    });
-  app.route(
-    '/api/pina',
-    pinaRoutes({
-      db: deps.db,
-      actions: deps.actions,
-      clock: deps.clock,
-      provider: pinaProvider,
-      triageProvider: () => choiceFor(deps.db, deps.secretKey, deps.llmEnv ?? {}, 'triage')?.provider,
-    }),
-  );
+  app.route('/api/pina', pinaRoutes(pinaDeps));
 
   const auth = googleRoutes(deps);
   app.route('/oauth', auth.callback);
