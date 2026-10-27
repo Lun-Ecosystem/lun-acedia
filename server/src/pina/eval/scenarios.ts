@@ -124,7 +124,8 @@ export const SCENARIOS: Scenario[] = [
     name: 'Qu’est-ce qui attend ?',
     text: 'Qu’est-ce qui m’attend aujourd’hui ?',
     context: inbox,
-    expect: { action: 'stats.today' },
+    // The day ahead means the agenda (and tasks), not the triage counters.
+    expect: { action: 'agenda.list' },
   },
   {
     name: 'Agenda de la semaine',
