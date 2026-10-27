@@ -10,7 +10,7 @@ import { decideCard, type PinaDeps } from '../pina/agent.ts';
 import { cardText } from '../pina/lines.ts';
 import { Decision } from '../pina/routes.ts';
 import { getCard, type Card } from '../pina/store.ts';
-import type { ContractCard } from '../types.ts';
+import type { ContractCard, PinaCardStatus } from '../types.ts';
 import { eventsSince, subscribe, type LunEvent } from './events.ts';
 import { getState, setPaused, statusOf } from './state.ts';
 
@@ -23,7 +23,9 @@ async function readJson(req: Request): Promise<unknown> {
 }
 
 /** The satellite contract v1 (`standards/contrat-satellite.md` in lun-docs). */
-const STATUSES = ['pending', 'done', 'refused', 'failed', 'expired'];
+const STATUSES: PinaCardStatus[] = ['pending', 'done', 'refused', 'failed', 'expired'];
+// Only « Modifier »'s input, with the size bound the app's route has.
+const Accept = Decision.pick({ input: true });
 
 function toContractCard(db: AppDeps['db'], card: Card): ContractCard {
   const text = cardText(db, card);
@@ -150,16 +152,39 @@ export function contractRoutes(deps: AppDeps, pina: PinaDeps): Hono {
 
   r.get('/cards', (c) => {
     const status = c.req.query('status') ?? 'pending';
-    if (!STATUSES.includes(status)) return c.json({ error: `Statut inconnu : ${status}` }, 400);
+    if (!STATUSES.includes(status as PinaCardStatus))
+      return c.json({ error: `Statut inconnu : ${status}` }, 400);
     const rows = db.prepare('SELECT id FROM pina_cards WHERE status = ? ORDER BY id DESC').all(status);
     const cards = rows.map((x) => toContractCard(db, getCard(db, (x as { id: number }).id)!));
     return c.json({ cards });
   });
 
-  r.post('/cards/:id', async (c) => {
-    const parsed = Decision.safeParse(await c.req.json().catch(() => undefined));
+  // The card is decided once `decideCard` answers: a failure of the loop that resumes (the model's
+  // turn) is logged, never turned into an error for a card that is already settled.
+  const decide = async (id: string, decision: 'accept' | 'refuse', input?: unknown) => {
+    try {
+      return await decideCard(pina, Number(id), decision, input);
+    } catch (err) {
+      log(
+        `Pina : reprise après la carte ${id} en échec : ${err instanceof Error ? err.message : String(err)}`,
+      );
+      const card = getCard(db, Number(id));
+      return card
+        ? { ok: true as const, card }
+        : { ok: false as const, status: 404 as const, error: 'Carte inconnue' };
+    }
+  };
+
+  r.post('/cards/:id/accept', async (c) => {
+    const parsed = Accept.safeParse(await c.req.json().catch(() => ({})));
     if (!parsed.success) return c.json({ error: parsed.error.message }, 400);
-    const out = await decideCard(pina, Number(c.req.param('id')), parsed.data.decision, parsed.data.input);
+    const out = await decide(c.req.param('id'), 'accept', parsed.data.input);
+    if (!out.ok) return c.json({ error: out.error }, out.status);
+    return c.json({ card: toContractCard(db, out.card) });
+  });
+
+  r.post('/cards/:id/refuse', async (c) => {
+    const out = await decide(c.req.param('id'), 'refuse');
     if (!out.ok) return c.json({ error: out.error }, out.status);
     return c.json({ card: toContractCard(db, out.card) });
   });

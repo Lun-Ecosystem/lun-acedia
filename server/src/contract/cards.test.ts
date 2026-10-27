@@ -27,7 +27,7 @@ async function setup() {
       ...over,
     });
   const writes = () => h.calls.filter((c) => c.method !== 'GET').length;
-  return { h, get, post, card, writes };
+  return { h, get, post, card, writes, logs: h.logs };
 }
 
 describe('/lun/v1/cards', () => {
@@ -54,9 +54,10 @@ describe('/lun/v1/cards', () => {
     const s = await setup();
     const a = s.card();
     const b = s.card({ day: '2000-01-01' });
-    await s.post(`/cards/${a}`, { decision: 'refuse' });
+    const c = s.card();
+    await s.post(`/cards/${a}/refuse`, {});
     const pending = (await (await s.get('/cards')).json()).cards;
-    expect(pending.map((c: { id: string }) => c.id)).toEqual([String(b)]);
+    expect(pending.map((x: { id: string }) => x.id)).toEqual([String(c), String(b)]);
     const refused = (await (await s.get('/cards?status=refused')).json()).cards;
     expect(refused.map((c: { id: string }) => c.id)).toEqual([String(a)]);
     expect((await s.get('/cards?status=nope')).status).toBe(400);
@@ -65,12 +66,12 @@ describe('/lun/v1/cards', () => {
   it('accept runs the action, refuse refuses', async () => {
     const s = await setup();
     const a = s.card();
-    const accepted = await s.post(`/cards/${a}`, { decision: 'accept' });
+    const accepted = await s.post(`/cards/${a}/accept`, {});
     expect(accepted.status).toBe(200);
     expect((await accepted.json()).card).toMatchObject({ id: String(a), status: 'done' });
     expect(s.writes()).toBe(1);
     const b = s.card();
-    const refused = await s.post(`/cards/${b}`, { decision: 'refuse' });
+    const refused = await s.post(`/cards/${b}/refuse`, {});
     expect((await refused.json()).card.status).toBe('refused');
     expect(s.writes()).toBe(1);
   });
@@ -78,10 +79,7 @@ describe('/lun/v1/cards', () => {
   it('two accepts at once run the action once', async () => {
     const s = await setup();
     const id = s.card();
-    const both = await Promise.all([
-      s.post(`/cards/${id}`, { decision: 'accept' }),
-      s.post(`/cards/${id}`, { decision: 'accept' }),
-    ]);
+    const both = await Promise.all([s.post(`/cards/${id}/accept`, {}), s.post(`/cards/${id}/accept`, {})]);
     expect(both.map((r) => r.status).sort()).toEqual([200, 409]);
     expect(s.writes()).toBe(1);
   });
@@ -89,17 +87,17 @@ describe('/lun/v1/cards', () => {
   it('refuses yesterday’s card and unknown ids', async () => {
     const s = await setup();
     const old = s.card({ day: '2000-01-01' });
-    const res = await s.post(`/cards/${old}`, { decision: 'accept' });
+    const res = await s.post(`/cards/${old}/accept`, {});
     expect(res.status).toBe(409);
     expect((await res.json()).error).toBe('Carte expirée');
     expect(s.writes()).toBe(0);
-    expect((await s.post('/cards/9999', { decision: 'accept' })).status).toBe(404);
+    expect((await s.post('/cards/9999/accept', {})).status).toBe(404);
   });
 
   it('refuses an input on a deletion', async () => {
     const s = await setup();
     const id = s.card({ action: 'event.delete', input: { id: 'e1' }, effect: 'delete' });
-    const res = await s.post(`/cards/${id}`, { decision: 'accept', input: { id: 'e2' } });
+    const res = await s.post(`/cards/${id}/accept`, { input: { id: 'e2' } });
     expect(res.status).toBe(400);
     expect(getCard(s.h.db, id)!.status).toBe('pending');
   });
@@ -107,5 +105,32 @@ describe('/lun/v1/cards', () => {
   it('health says the satellite has an agent', async () => {
     const s = await setup();
     expect((await (await s.get('/health')).json()).agent).toBe(true);
+  });
+
+  it('accept { input } edits a write card before running it', async () => {
+    const s = await setup();
+    const id = s.card();
+    const res = await s.post(`/cards/${id}/accept`, { input: { ...EVENT, title: 'Ophtalmo' } });
+    expect(res.status).toBe(200);
+    expect((await res.json()).card.status).toBe('done');
+    expect(getCard(s.h.db, id)).toMatchObject({ edited: true, input: { title: 'Ophtalmo' } });
+  });
+
+  it('a failing resume does not turn a decided card into an error', async () => {
+    const s = await setup();
+    s.h.pina.choice = {
+      provider: {
+        id: 'anthropic',
+        json: () => Promise.reject(new Error('unused')),
+        check: () => Promise.resolve('ok'),
+        chat: () => Promise.reject(new Error('boom')),
+      },
+      model: 'claude-haiku-5-5',
+    };
+    const id = s.card();
+    const res = await s.post(`/cards/${id}/accept`, {});
+    expect(res.status).toBe(200);
+    expect((await res.json()).card.status).toBe('done');
+    expect(s.logs.join()).toContain('boom');
   });
 });
