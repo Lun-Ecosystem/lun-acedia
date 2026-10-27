@@ -18,7 +18,7 @@ const ContextId = z
   .string()
   .regex(/^[\w-]{1,200}$/)
   .optional();
-const Context = z.object({
+export const Context = z.object({
   screen: z.enum(['mail', 'pending', 'agenda', 'tasks', 'journal', 'settings', 'compose']),
   mailId: ContextId,
   day: ContextId,

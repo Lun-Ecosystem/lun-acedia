@@ -282,15 +282,25 @@ function serial(day: string, run: () => Promise<void>): Promise<void> {
   return next;
 }
 
-/** One CrOliX request: the turn runs until an answer, a card to decide, or a bound. */
-export function ask(deps: PinaDeps, text: string, context: ScreenContext): Promise<void> {
+/**
+ * One CrOliX request: the turn runs until an answer, a card to decide, or a bound. `mode: 'validate'`
+ * (a delegation from the core) forces cards over Pina's own setting. Gives the turn's id.
+ */
+export async function ask(
+  deps: PinaDeps,
+  text: string,
+  context: ScreenContext,
+  opts: { mode?: 'validate' } = {},
+): Promise<number> {
   const day = dayOf(deps.clock());
-  return serial(day, async () => {
-    // The context rides with the request, so that a resumed turn sees the same screen.
-    const request = { role: 'user' as const, text, context };
-    const turn = appendMessage(deps.db, day, request, deps.clock());
-    await loop(deps, day, turn, context);
+  let turn = 0;
+  await serial(day, async () => {
+    // The context and the mode ride with the request, so that a resumed turn sees the same ones.
+    const request = { role: 'user' as const, text, context, ...(opts.mode ? { mode: opts.mode } : {}) };
+    turn = appendMessage(deps.db, day, request, deps.clock());
+    await loop(deps, day, turn, context, opts.mode);
   });
+  return turn;
 }
 
 /** After a decision: once no card of the turn is pending, their outcomes go to the model and it goes on. */
@@ -310,12 +320,18 @@ export async function resume(deps: PinaDeps, cardId: number): Promise<void> {
     if (!open.length) return;
     for (const c of open) appendMessage(deps.db, card.day, cardResult(c), deps.clock());
     const request = thread.find((m) => m.id === card.turn)?.message as
-      { context?: ScreenContext } | undefined;
-    await loop(deps, card.day, card.turn, request?.context ?? { screen: 'mail' });
+      { context?: ScreenContext; mode?: 'validate' } | undefined;
+    await loop(deps, card.day, card.turn, request?.context ?? { screen: 'mail' }, request?.mode);
   });
 }
 
-async function loop(deps: PinaDeps, day: string, turn: number, context: ScreenContext): Promise<void> {
+async function loop(
+  deps: PinaDeps,
+  day: string,
+  turn: number,
+  context: ScreenContext,
+  forced?: 'validate',
+): Promise<void> {
   const { db } = deps;
   const store = (m: Stored) => {
     const stored: Stored = { ...m, turn };
@@ -395,7 +411,7 @@ async function loop(deps: PinaDeps, day: string, turn: number, context: ScreenCo
       effect: action.effect,
       now: deps.clock(),
     });
-    if (action.effect === 'delete' || settings.mode === 'validate') return 'card';
+    if (action.effect === 'delete' || (forced ?? settings.mode) === 'validate') return 'card';
     const card = await runCard(deps, id);
     if (card?.status === 'done') return { ok: true, result: card.result };
     return { ok: false, error: card?.error ?? 'Action non faite' };

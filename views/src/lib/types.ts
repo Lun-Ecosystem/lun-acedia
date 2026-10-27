@@ -292,7 +292,7 @@ export interface PinaCard {
 
 /** One stored message of the thread; `turn` ties Pina's messages to the request they answer. */
 export type PinaMessage =
-  | { role: 'user'; text: string; context?: ScreenContext; turn?: number }
+  | { role: 'user'; text: string; context?: ScreenContext; mode?: 'validate'; turn?: number }
   | {
       role: 'assistant';
       text: string;
