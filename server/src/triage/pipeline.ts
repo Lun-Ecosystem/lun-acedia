@@ -19,7 +19,7 @@ import { plainText } from '../gmail/body.ts';
 import { getStoredMessage, header, type StoredMessage } from '../gmail/store.ts';
 import { fetchFull } from '../gmail/read.ts';
 import { costOf, priceOf } from '../llm/models.ts';
-import { keyRefused, keyWorks } from '../keys/anthropic-key.ts';
+import { keyRefused, keyWorks } from '../llm/keys.ts';
 import {
   ClassifierError,
   CreditExhaustedError,
@@ -131,6 +131,7 @@ async function classify(
   deps: TriageDeps & { classifier: Classifier },
   mail: StoredMessage,
 ): Promise<Classification | 'ai-off' | 'gone' | 'unusable'> {
+  const provider = deps.classifier.provider ?? 'anthropic';
   const payload = (await fetchFull(deps.google, mail.id))?.payload;
   if (!payload) return 'gone';
   try {
@@ -147,8 +148,7 @@ async function classify(
       examples: pickExamples(deps.db, mail),
     });
     if (getState(deps.db).degraded.includes('credit')) clearDegraded(deps.db, 'credit');
-    keyWorks(deps.db, deps.now());
-    const provider = deps.classifier.provider ?? 'anthropic';
+    keyWorks(deps.db, provider, deps.now());
     const model = deps.classifier.model;
     const price = priceOf(deps.db, provider, model);
     if (!price) warnUnknownPrice(deps, `${provider}/${model}`, model);
@@ -165,7 +165,7 @@ async function classify(
       return 'ai-off';
     }
     if (err instanceof KeyRefusedError) {
-      keyRefused(deps.db, deps.now());
+      keyRefused(deps.db, provider, deps.now());
       return 'ai-off';
     }
     if (err instanceof ClassifierError) return 'unusable';

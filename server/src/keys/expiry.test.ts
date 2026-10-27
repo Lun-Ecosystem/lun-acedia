@@ -12,7 +12,7 @@ describe('checkExpiry', () => {
   it('expiry: J-14 then J-3 once each, only J-3 when set 2 days ahead, reset by a new date, nothing re-emitted after restart', () => {
     const db = openDb(':memory:');
     const check = (iso: string, expires: string | undefined) =>
-      checkExpiry(db, new Date(iso), expires, 'Clé Anthropic');
+      checkExpiry(db, new Date(iso), expires, 'Clé Anthropic', 'anthropic');
 
     // 15 days ahead: nothing yet.
     check('2026-11-01T10:00:00.000Z', '2026-11-16');
@@ -44,16 +44,16 @@ describe('checkExpiry', () => {
   it('counts calendar days in Paris time', () => {
     const db = openDb(':memory:');
     // 23:30 UTC on 2 November is already 3 November in Paris: 14 days before 17 November.
-    checkExpiry(db, new Date('2026-11-02T23:30:00.000Z'), '2026-11-17', 'Clé Anthropic');
+    checkExpiry(db, new Date('2026-11-02T23:30:00.000Z'), '2026-11-17', 'Clé Anthropic', 'anthropic');
     expect(expiring(db)).toEqual([{ daysLeft: 14, expires: '2026-11-17' }]);
   });
 
   it('does nothing without a date, with an invalid one, or after the date', () => {
     const db = openDb(':memory:');
     const now = new Date('2026-11-02T08:00:00.000Z');
-    checkExpiry(db, now, undefined, 'Clé Anthropic');
-    checkExpiry(db, now, '2026-13-45', 'Clé Anthropic');
-    checkExpiry(db, now, '2026-11-01', 'Clé Anthropic');
+    checkExpiry(db, now, undefined, 'Clé Anthropic', 'anthropic');
+    checkExpiry(db, now, '2026-13-45', 'Clé Anthropic', 'anthropic');
+    checkExpiry(db, now, '2026-11-01', 'Clé Anthropic', 'anthropic');
     expect(expiring(db)).toEqual([]);
   });
 });

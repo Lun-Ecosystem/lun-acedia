@@ -260,7 +260,7 @@ describe('app token scope', () => {
     expect(h.db.prepare('SELECT COUNT(*) AS n FROM clients WHERE revoked_at IS NULL').get()).toEqual({
       n: 2,
     });
-    expect(h.anthropicCheck.calls).toEqual([]);
+    expect(h.keyCheck.calls).toEqual([]);
   });
 
   it('still lets a device token use /api and an app token use /lun/v1', async () => {

@@ -14,7 +14,7 @@ import { syncGmail } from '../gmail/sync.ts';
 import { createGoogleClient, saveTokens } from '../google/client.ts';
 import type { Classification, Classifier } from '../triage/classifier.ts';
 import { triageNew } from '../triage/pipeline.ts';
-import { keyRefused, saveAnthropicKey } from '../keys/anthropic-key.ts';
+import { keyRefused, saveKey } from '../llm/keys.ts';
 import { createRule } from '../triage/rules.ts';
 import { FakeAgenda } from '../testing/fake-agenda.ts';
 import { fakeFetch } from '../testing/fake-fetch.ts';
@@ -290,7 +290,7 @@ export async function createDemo(
     google: { config, secretKey, fetch: fake.fetch },
     secretKey,
     staticDir: opts.staticDir,
-    checkAnthropicKey: async () => 'unreachable',
+    checkKey: async () => 'unreachable',
   });
   saveTokens(db, secretKey, {
     accessToken: 'demo',
@@ -314,7 +314,7 @@ export async function createDemo(
   await pair('Safari sur iPhone');
   const token = await pair('Démo (écrans)');
   // An invented key, shown by its last 4 characters only; refused on demand (`DEMO_KEY=refused`).
-  saveAnthropicKey(db, secretKey, 'sk-ant-demo-invented-ZQAA', '2027-03-12');
+  saveKey(db, secretKey, 'anthropic', 'sk-ant-demo-invented-ZQAA', '2027-03-12');
   const call = async (method: string, path: string, body?: unknown) => {
     const res = await app.request(path, {
       method,
@@ -376,6 +376,6 @@ export async function createDemo(
   seedAgenda(agenda, clock());
   await syncAgenda(deps);
   // Last: the scripted triage above marks the key as working.
-  if (opts.keyRefused) keyRefused(db, clock());
+  if (opts.keyRefused) keyRefused(db, 'anthropic', clock());
   return { app, token };
 }
