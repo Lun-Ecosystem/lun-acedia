@@ -412,12 +412,11 @@ export function registerCatalog(
     'day.digest',
     'Bilan d’une période [since, until[ : mails reçus, ce qui a été fait, et ce qui attend.',
     z.object({
-      since: z.string().describe('Début inclus, ISO 8601 UTC'),
-      until: z.string().describe('Fin exclue, ISO 8601 UTC'),
+      since: z.iso.datetime({ offset: true }).describe('Début inclus, ISO 8601 UTC'),
+      until: z.iso.datetime({ offset: true }).describe('Fin exclue, ISO 8601 UTC'),
     }),
     async (input) => {
       const t = { since: Date.parse(input.since), until: Date.parse(input.until) };
-      if (Number.isNaN(t.since) || Number.isNaN(t.until)) throw new InvalidInputError('Dates illisibles');
       if (t.since >= t.until) throw new InvalidInputError('since doit précéder until');
       const [since, until] = [new Date(t.since).toISOString(), new Date(t.until).toISOString()];
       // shortcut: 200 items per list, newest first; a busier period loses its oldest, narrow the period.
@@ -436,7 +435,7 @@ export function registerCatalog(
         deps.db
           .prepare(
             `SELECT j.at, j.message_id, j.action, m.subject FROM journal j LEFT JOIN messages m ON m.id = j.message_id
-             WHERE j.at >= ? AND j.at < ? ORDER BY j.at DESC LIMIT ?`,
+             WHERE j.at >= ? AND j.at < ? AND j.undone_at IS NULL ORDER BY j.at DESC LIMIT ?`,
           )
           .all(since, until, LIMIT) as {
           at: string;

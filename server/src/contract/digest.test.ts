@@ -71,10 +71,19 @@ describe('day.digest', () => {
     expect(body.pending).toBe(2);
   });
 
+  it('leaves out journal entries that were undone', async () => {
+    const { h, act, journal } = await setup();
+    journal('2026-11-01T11:00:00.000Z', 'in');
+    h.db.prepare("UPDATE journal SET undone_at = '2026-11-01T11:05:00.000Z'").run();
+    expect((await act(DAY)).body.result.done).toEqual([]);
+  });
+
   it.each([
     [{ since: DAY.until, until: DAY.since }],
     [{ since: DAY.since, until: DAY.since }],
     [{ since: 'pas une date', until: DAY.until }],
+    [{ since: '1 Jan 2026', until: DAY.until }],
+    [{ since: '2026', until: DAY.until }],
   ])('refuses an empty or unreadable period (400)', async (input) => {
     const { act } = await setup();
     expect((await act(input)).status).toBe(400);
