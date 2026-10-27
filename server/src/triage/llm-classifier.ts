@@ -71,6 +71,7 @@ export function createLlmClassifier(opts: { provider: LlmProvider; model: string
   const { provider, model } = opts;
   return {
     model,
+    provider: provider.id,
     async classify(input) {
       let res: Awaited<ReturnType<LlmProvider['json']>>;
       try {

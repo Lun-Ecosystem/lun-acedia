@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { createAnthropicProvider, type AnthropicApi } from '../llm/anthropic.ts';
 import { createLlmClassifier, DEFAULT_MODEL } from './llm-classifier.ts';
 import { ClassifierError, CreditExhaustedError, KeyRefusedError, type ClassifyInput } from './classifier.ts';
-import { costOf } from './prices.ts';
+import { costOf } from '../llm/models.ts';
 
 const input: ClassifyInput = {
   mail: {
@@ -167,9 +167,8 @@ describe('LLM classifier over Anthropic', () => {
 
 describe('costOf', () => {
   it('prices Haiku 5.5 per million tokens', () => {
-    expect(costOf('claude-haiku-5-5', { inputTokens: 1_000_000, outputTokens: 1_000_000 })).toBeCloseTo(
-      0.6,
-      6,
-    );
+    expect(
+      costOf({ input: 0.1, output: 0.5 }, { inputTokens: 1_000_000, outputTokens: 1_000_000 }),
+    ).toBeCloseTo(0.6, 6);
   });
 });

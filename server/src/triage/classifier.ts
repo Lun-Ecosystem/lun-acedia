@@ -1,3 +1,4 @@
+import type { ProviderId } from '../llm/types.ts';
 import type { Example } from './examples.ts';
 
 export interface ClassifyInput {
@@ -30,6 +31,8 @@ export interface Classification {
 export interface Classifier {
   /** The model behind it, for the cost table. */
   readonly model: string;
+  /** The provider behind it; `anthropic` when absent. */
+  readonly provider?: ProviderId;
   classify(input: ClassifyInput): Promise<Classification>;
 }
 
