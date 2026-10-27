@@ -161,6 +161,40 @@ export async function undoCard(deps: Pick<PinaDeps, 'db' | 'actions'>, cardId: n
   return out;
 }
 
+/**
+ * CrOliX decides a card, from the app or through the contract: expiry, « Modifier », the run, then
+ * the model's loop goes on with the outcome. A deletion takes no input: it is accepted as proposed.
+ */
+export async function decideCard(
+  deps: PinaDeps,
+  id: number,
+  decision: 'accept' | 'refuse',
+  input?: unknown,
+): Promise<{ ok: true; card: Card } | { ok: false; status: 400 | 404 | 409; error: string }> {
+  const card = getCard(deps.db, id);
+  if (!card) return { ok: false, status: 404, error: 'Carte inconnue' };
+  const today = dayOf(deps.clock());
+  // Yesterday's card is expired even if the daily tidy has not run: nothing runs for it.
+  if (card.day !== today) {
+    if (card.status !== 'pending' && card.status !== 'expired')
+      return { ok: false, status: 409, error: 'Carte déjà décidée' };
+    expireCards(deps.db, today);
+    return { ok: false, status: 409, error: 'Carte expirée' };
+  }
+  if (decision === 'accept' && input !== undefined) {
+    if (card.effect === 'delete')
+      return { ok: false, status: 400, error: 'Une suppression ne se modifie pas' };
+    const edited = editCard(deps, id, input);
+    if (!edited.ok) return edited;
+  }
+  const decided =
+    decision === 'accept' ? await runCard(deps, id) : refuseCard(deps, id) ? getCard(deps.db, id) : undefined;
+  if (!decided) return { ok: false, status: 409, error: 'Carte déjà décidée' };
+  // After the decision, never inside the queue: the loop goes on with its outcome.
+  await resume(deps, id);
+  return { ok: true, card: getCard(deps.db, id)! };
+}
+
 /** The daily tidy: earlier days' pending cards expire, except one being run right now. */
 export function expireCards(db: DatabaseSync, today: string): void {
   expireOld(db, today, [...running]);

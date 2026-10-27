@@ -251,6 +251,21 @@ export interface ScreenContext {
 
 export type PinaCardStatus = 'pending' | 'done' | 'refused' | 'failed' | 'expired';
 
+/** A card as the core lists it (`/lun/v1/cards`): the human lines are already written. */
+export interface ContractCard {
+  /** The card's numeric id, as text. */
+  id: string;
+  action: string;
+  effect: 'write' | 'delete';
+  title: string;
+  lines: string[];
+  status: PinaCardStatus;
+  /** When Pina proposed it (ISO). */
+  at: string;
+  /** Why a `failed` card failed. */
+  error?: string;
+}
+
 /** A write Pina proposed (or did, in « faire tout de suite »), as a card of the day's thread. */
 export interface PinaCard {
   id: number;

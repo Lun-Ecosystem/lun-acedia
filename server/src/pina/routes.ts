@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 import { spentToday } from '../llm/models.ts';
-import { ask, editCard, expireCards, refuseCard, resume, runCard, undoCard, type PinaDeps } from './agent.ts';
+import { ask, decideCard, undoCard, type PinaDeps } from './agent.ts';
 import {
   cardsOf,
   dayOf,
@@ -27,7 +27,7 @@ const Context = z.object({
 });
 const Message = z.object({ text: z.string().min(1).max(4000), context: Context });
 const MAX_INPUT = 20_000;
-const Decision = z.object({
+export const Decision = z.object({
   decision: z.enum(['accept', 'refuse']),
   input: z
     .unknown()
@@ -66,31 +66,9 @@ export function pinaRoutes(deps: PinaDeps): Hono {
     const id = Number(c.req.param('id'));
     const parsed = Decision.safeParse(await body(c));
     if (!parsed.success) return c.json({ error: parsed.error.message }, 400);
-    const card = getCard(deps.db, id);
-    if (!card) return c.json({ error: 'Carte inconnue' }, 404);
-    const { decision, input } = parsed.data;
-    const today = dayOf(deps.clock());
-    // Yesterday's card is expired even if the daily tidy has not run: nothing runs for it.
-    if (card.day !== today) {
-      if (card.status !== 'pending' && card.status !== 'expired')
-        return c.json({ error: 'Carte déjà décidée' }, 409);
-      expireCards(deps.db, today);
-      return c.json({ error: 'Carte expirée' }, 409);
-    }
-    if (decision === 'accept' && input !== undefined) {
-      const edited = editCard(deps, id, input);
-      if (!edited.ok) return c.json({ error: edited.error }, edited.status);
-    }
-    const decided =
-      decision === 'accept'
-        ? await runCard(deps, id)
-        : refuseCard(deps, id)
-          ? getCard(deps.db, id)
-          : undefined;
-    if (!decided) return c.json({ error: 'Carte déjà décidée' }, 409);
-    // After the decision, never inside the queue: the loop goes on with its outcome.
-    await resume(deps, id);
-    return c.json({ card: getCard(deps.db, id), ...thread(card.day) });
+    const out = await decideCard(deps, id, parsed.data.decision, parsed.data.input);
+    if (!out.ok) return c.json({ error: out.error }, out.status);
+    return c.json({ card: out.card, ...thread(out.card.day) });
   });
 
   r.post('/cards/:id/undo', async (c) => {
