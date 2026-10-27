@@ -3,7 +3,7 @@
 Recette à la main dans Chrome, sur sa propre instance, avec un compte Google de test uniquement. Un modèle
 doit être choisi pour Pina (Réglages › Fournisseurs d’IA, puis Réglages › Pina).
 
-1. **Carte, Valider, Annuler.** Ouvrir un mail, ouvrir Pina (Ctrl J), demander « Crée une tâche depuis ce
+1. **Carte, Valider, Annuler.** En mode « Valider avant chaque action », ouvrir un mail, ouvrir Pina (Ctrl J), demander « Crée une tâche depuis ce
    mail ». Une carte apparaît, la tâche n’existe pas encore dans Google Tasks. Cliquer Valider : la tâche
    existe. Cliquer Annuler : elle disparaît.
 2. **Suppression toujours validée.** En mode « Faire tout de suite », demander « Supprime l’événement X ».

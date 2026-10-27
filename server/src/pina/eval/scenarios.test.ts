@@ -6,7 +6,8 @@ describe('Pina evaluation scenarios', () => {
     expect(SCENARIOS.length).toBeGreaterThanOrEqual(20);
     expect(new Set(SCENARIOS.map((s) => s.name)).size).toBe(SCENARIOS.length);
     for (const s of SCENARIOS) {
-      expect(s.text.length, s.name).toBeGreaterThan(0);
+      const text = typeof s.text === 'function' ? s.text(new Date(2026, 9, 28)) : s.text;
+      expect(text.length, s.name).toBeGreaterThan(0);
       expect(Object.keys(s.expect).length, s.name).toBeGreaterThan(0);
       if (s.expect.noAction) expect(s.expect.action ?? s.expect.card, s.name).toBeUndefined();
       if (s.expect.action) expect(s.expect.action, s.name).toMatch(/^[a-z]+\.[a-z]+$/);

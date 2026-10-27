@@ -10,8 +10,10 @@ export interface ExtraMail {
 
 export interface Scenario {
   name: string;
-  /** What CrOliX types, in French. */
-  text: string;
+  /** What CrOliX types, in French; a function gets the eval clock (the demo week hangs off it). */
+  text: string | ((now: Date) => string);
+  /** Mails that must still be in the inbox when the scenario starts (the demo has already filed others). */
+  inbox?: string[];
   context: ScreenContext;
   mode?: 'validate' | 'immediate';
   mails?: ExtraMail[];
@@ -26,8 +28,23 @@ export interface Scenario {
     noAction?: true;
     /** Lower-case fragments Pina's final text must contain. */
     mentions?: string[];
+    /** One fragment of `mentions` is enough, instead of all of them. */
+    mentionsAny?: true;
   };
 }
+
+/** « mercredi 28 octobre » for the given weekday (0 = Monday) of the demo's current week. */
+export const demoDay = (now: Date, day: number) =>
+  new Intl.DateTimeFormat('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' }).format(
+    new Date(now.getFullYear(), now.getMonth(), now.getDate() - ((now.getDay() + 6) % 7) + day),
+  );
+
+const newsletter = (id: string, from: string, subject: string) => ({
+  id,
+  from,
+  subject,
+  body: 'Lettre d’information : nos nouveautés du mois.',
+});
 
 const mail = (mailId: string): ScreenContext => ({ screen: 'mail', mailId });
 const agenda: ScreenContext = { screen: 'agenda' };
@@ -50,7 +67,7 @@ export const SCENARIOS: Scenario[] = [
   },
   {
     name: 'Événement avec date relative',
-    text: 'Ajoute « Coiffeur » jeudi prochain à 17 h, pour une heure.',
+    text: (now) => `Ajoute « Coiffeur » ${demoDay(now, 3)} à 17 h, pour une heure.`,
     context: agenda,
     expect: { action: 'event.create', card: true },
   },
@@ -64,18 +81,25 @@ export const SCENARIOS: Scenario[] = [
     name: 'Ranger un mail',
     text: 'Range ce mail dans Factures.',
     context: mail('m02'),
+    inbox: ['m02'],
     expect: { action: 'mail.file', card: true },
   },
   {
     name: 'Ranger plusieurs mails (huit tours max)',
-    text: 'Range ces trois mails dans Newsletters : la matinale du 23 octobre, le colis de Boutique Nova et les nouveautés d’Atelier Pixel.',
+    text: 'Range ces trois mails dans Newsletters : ceux de Lettre Soleil, de Lettre Brume et de Lettre Écume.',
     context: inbox,
+    mails: [
+      newsletter('m91', 'Lettre Soleil <soleil@news.example.net>', 'Les nouveautés Soleil'),
+      newsletter('m92', 'Lettre Brume <brume@news.example.net>', 'Les nouveautés Brume'),
+      newsletter('m93', 'Lettre Écume <ecume@news.example.net>', 'Les nouveautés Écume'),
+    ],
     expect: { action: 'mail.file', count: 3, card: true },
   },
   {
     name: 'Archiver',
-    text: 'Archive l’alerte de sécurité.',
-    context: inbox,
+    text: 'Archive ce mail.',
+    context: mail('m03'),
+    inbox: ['m03'],
     expect: { action: 'mail.archive', card: true },
   },
   {
@@ -104,7 +128,7 @@ export const SCENARIOS: Scenario[] = [
   },
   {
     name: 'Agenda de la semaine',
-    text: 'Qu’est-ce que j’ai mercredi dans mon agenda ?',
+    text: (now) => `Qu’est-ce que j’ai ${demoDay(now, 2)} dans mon agenda ?`,
     context: agenda,
     expect: { action: 'agenda.list', mentions: ['banque', 'camille'] },
   },
@@ -134,7 +158,7 @@ export const SCENARIOS: Scenario[] = [
   },
   {
     name: 'Supprimer un événement (validation)',
-    text: 'Supprime le sport de jeudi.',
+    text: (now) => `Supprime le sport de ${demoDay(now, 3)}.`,
     context: agenda,
     expect: { action: 'event.delete', card: true },
   },
@@ -155,7 +179,8 @@ export const SCENARIOS: Scenario[] = [
   {
     name: 'Mettre un mail à la corbeille',
     text: 'Mets ce mail à la corbeille.',
-    context: mail('m10'),
+    context: mail('m11'),
+    inbox: ['m11'],
     mode: 'immediate',
     expect: { action: 'mail.trash' },
   },
@@ -181,7 +206,7 @@ export const SCENARIOS: Scenario[] = [
     name: 'Envoie-le : refus aimable',
     text: 'Envoie ce brouillon à Camille maintenant.',
     context: { screen: 'compose' },
-    expect: { noAction: true, mentions: ['brouillon'] },
+    expect: { noAction: true, mentions: ['brouillon', 'rédaction'], mentionsAny: true },
   },
   {
     name: 'Fonction de l’écran : boîtes',

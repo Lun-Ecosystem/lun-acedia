@@ -16,7 +16,7 @@ Elle agit uniquement par le catalogue d’actions d’Acedia, le même que celui
 
 ## Garde-fous
 
-- **Cartes à valider.** En mode « Valider d’abord », toute écriture devient une carte : rien n’est fait
+- **Cartes à valider.** En mode « Valider avant chaque action », toute écriture devient une carte : rien n’est fait
   tant qu’on n’a pas cliqué Valider. Une action faite se défait avec Annuler.
 - **Les suppressions sont toujours validées**, même en mode « Faire tout de suite ».
 - **Jamais d’envoi.** Aucune action n’envoie un mail. Pour répondre, Pina crée un brouillon ; seul le clic sur
@@ -29,7 +29,7 @@ Elle agit uniquement par le catalogue d’actions d’Acedia, le même que celui
 
 ## Réglages
 
-Dans Réglages › Pina : le mode (Valider d’abord, ou Faire tout de suite), les consignes (ses instructions
+Dans Réglages › Pina : le mode (Valider avant chaque action, ou Faire tout de suite), les consignes (ses instructions
 supplémentaires), la conservation (nombre de jours de fil gardés), le plafond de dépense par jour et le
 modèle. Les actions faites par Pina portent la mention « par Pina » dans le journal.
 
@@ -46,9 +46,10 @@ modèle du tri s’il sait appeler des outils ; on peut en choisir un autre pour
 | Raccourci | Effet |
 |---|---|
 | Ctrl J | ouvre ou ferme Pina |
-| Ctrl ↵ | envoie la demande |
-| Échap | ferme le panneau |
-| ↑ | rappelle la dernière demande |
+| Entrée | envoie la demande |
+| Ctrl ↵ | valide la carte qui a le focus |
+| Échap | refuse la carte qui a le focus |
+| ↑ | rappelle la dernière demande (saisie vide) |
 
 ## Évaluer le cadre métier
 

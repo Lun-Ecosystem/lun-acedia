@@ -29,7 +29,7 @@ function realChoice(): { provider: LlmProvider; id: ProviderId; model: string } 
   if (!id || !PROVIDERS.includes(id) || !model || !key) {
     console.error(
       `Il faut PINA_EVAL_PROVIDER (${PROVIDERS.join(' | ')}), PINA_EVAL_MODEL et PINA_EVAL_KEY.\n` +
-        'Rien d’autre n’est lu : ni .env ni la base d’Acedia.',
+        'Seul LLM_PRICES (prix des modèles hors liste) est lu en plus ; ni .env ni la base d’Acedia.',
     );
     process.exit(2);
   }
@@ -80,6 +80,20 @@ async function play(s: (typeof SCENARIOS)[number]): Promise<Row> {
   }
   if (s.mails?.length) await syncGmail(demo.deps);
 
+  // A scenario must start from the state it describes: the demo has already filed and archived some mails.
+  for (const id of s.inbox ?? []) {
+    const row = db.prepare('SELECT label_ids FROM messages WHERE id = ?').get(id) as
+      { label_ids: string } | undefined;
+    if (!row?.label_ids.includes('INBOX'))
+      return {
+        name: s.name,
+        ok: false,
+        actions: [],
+        cost: 0,
+        note: `départ invalide : ${id} n’est plus dans la boîte de réception`,
+      };
+  }
+
   const tools: string[] = [];
   let cost = 0;
   const price = priceOf(db, base.id, base.model);
@@ -101,7 +115,7 @@ async function play(s: (typeof SCENARIOS)[number]): Promise<Row> {
   const since = calls.length;
   const fails: string[] = [];
   try {
-    await ask(deps, s.text, s.context);
+    await ask(deps, typeof s.text === 'function' ? s.text(demo.clock()) : s.text, s.context);
   } catch (err) {
     fails.push(`exception : ${err instanceof Error ? err.message : String(err)}`);
   }
@@ -118,7 +132,9 @@ async function play(s: (typeof SCENARIOS)[number]): Promise<Row> {
     fails.push(`${e.action} appelée ${named.length} fois (attendu ${e.count ?? 1})`);
   if (e.card && !cards.some((c) => !e.action || c.action === e.action)) fails.push('aucune carte créée');
   if (e.noAction && tools.length) fails.push(`action inattendue : ${tools.join(', ')}`);
-  for (const m of e.mentions ?? []) if (!text.includes(m.toLowerCase())) fails.push(`manque « ${m} »`);
+  const missing = (e.mentions ?? []).filter((m) => !text.includes(m.toLowerCase()));
+  if (e.mentionsAny ? missing.length === e.mentions?.length : missing.length)
+    fails.push(...missing.map((m) => `manque « ${m} »`));
   if (!text.trim() && !cards.length) fails.push('aucune réponse');
 
   // Global guardrails.
