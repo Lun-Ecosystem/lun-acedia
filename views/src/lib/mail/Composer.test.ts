@@ -106,6 +106,34 @@ describe('Composer', () => {
     expect(onclose).toHaveBeenCalled();
   });
 
+  it('Enter in « Objet » or « À » sends nothing; only the click on « Envoyer » does', async () => {
+    const { client, user, onsent } = setup();
+    const subject = screen.getByRole('textbox', { name: 'Objet' });
+    await waitFor(() => expect(subject).toHaveValue(DRAFT.subject));
+    await user.type(subject, '{Enter}');
+    await user.type(screen.getByRole('textbox', { name: 'À' }), '{Enter}');
+    expect(client.sendDraft).not.toHaveBeenCalled();
+    expect(client.send).not.toHaveBeenCalled();
+    await user.click(screen.getByRole('button', { name: 'Envoyer' }));
+    await waitFor(() => expect(onsent).toHaveBeenCalled());
+    expect(client.sendDraft).toHaveBeenCalledWith('d1');
+  });
+
+  it('a new message: Enter in a field sends nothing, the click does', async () => {
+    const fake = fakeClient();
+    const onsent = vi.fn();
+    render(Composer, { props: { client: fake.client, onsent, onclose: vi.fn() } });
+    const user = userEvent.setup();
+    const to = await screen.findByRole('textbox', { name: 'À' });
+    await user.type(to, 'marie@example.com{Enter}');
+    await user.type(screen.getByRole('textbox', { name: 'Objet' }), 'Salut{Enter}');
+    expect(fake.client.send).not.toHaveBeenCalled();
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Envoyer' })).toBeEnabled());
+    await user.click(screen.getByRole('button', { name: 'Envoyer' }));
+    await waitFor(() => expect(onsent).toHaveBeenCalled());
+    expect(fake.client.send).toHaveBeenCalledWith(expect.objectContaining({ to: 'marie@example.com' }));
+  });
+
   it('a new message shows no banner and sends as before', async () => {
     const fake = fakeClient();
     render(Composer, { props: { client: fake.client, onsent: vi.fn(), onclose: vi.fn() } });

@@ -116,6 +116,19 @@ describe('drafts', () => {
     expect(mime).toContain('<contact@lun.example>');
   });
 
+  it('draft.update without replyTo keeps the alias the draft was written from', async () => {
+    const h = await makeGmailHarness();
+    const { id } = await createDraft(h.deps, { ...draft, from: "Lun'Ecosystem <contact@lun.example>" });
+    const res = await h.call('POST', '/lun/v1/actions/draft.update', {
+      id,
+      to: 'a@b.fr',
+      subject: 's',
+      text: 't',
+    });
+    expect(res.status).toBe(200);
+    expect((await getDraft(h.deps, id)).from).toBe('contact@lun.example');
+  });
+
   it('draft.create with an unknown replyTo is not found, not a 500', async () => {
     const h = await makeGmailHarness();
     const res = await h.call('POST', '/lun/v1/actions/draft.create', {

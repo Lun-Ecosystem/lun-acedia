@@ -144,8 +144,7 @@
     onclose();
   }
 
-  async function send(event: SubmitEvent) {
-    event.preventDefault();
+  async function send() {
     sending = true;
     error = null;
     try {
@@ -163,7 +162,8 @@
   }
 </script>
 
-<form class="composer" aria-label={title} onsubmit={send}>
+<!-- No implicit submit: Enter in a field must never send; only a click on « Envoyer » does. -->
+<form class="composer" aria-label={title} onsubmit={(e) => e.preventDefault()}>
   <header>
     <h2>{title}</h2>
     <IconButton icon={X} label="Fermer" onclick={onclose} />
@@ -195,11 +195,11 @@
   <!-- On the left, Envoyer first (Gmail's order): the bottom-right corner belongs to Pina's window. -->
   <div class="actions gauche">
     <Button
-      type="submit"
       variant="principal"
       icon={Send}
       loading={sending}
-      disabled={!from || (draftId !== undefined && !draft)}>Envoyer</Button
+      disabled={!from || !to.trim() || (draftId !== undefined && !draft)}
+      onclick={send}>Envoyer</Button
     >
     {#if draftId}
       <Button variant="secondaire" loading={saving} disabled={!from || !draft} onclick={save}

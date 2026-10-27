@@ -269,8 +269,10 @@ export function registerCatalog(
     ),
   };
   type DraftInput = z.infer<z.ZodObject<typeof DraftFields>>;
-  const toDraft = async (i: DraftInput) => {
+  // `id` on update: without a replyTo, the draft keeps the sender it was written from.
+  const toDraft = async (i: DraftInput, id?: string) => {
     const deps = mail();
+    const kept = id && !i.replyTo ? (await getDraft(deps, id)).from : undefined;
     let reply: { inReplyTo?: string; references?: string; threadId: string } | undefined;
     if (i.replyTo) {
       const original = await fetchFull(deps.google, i.replyTo);
@@ -285,7 +287,7 @@ export function registerCatalog(
       });
     }
     return stripUndefined({
-      from: (await defaultFrom(deps, i.replyTo)).default,
+      from: kept ?? (await defaultFrom(deps, i.replyTo)).default,
       to: i.to,
       cc: i.cc,
       subject: i.subject,
@@ -313,7 +315,7 @@ export function registerCatalog(
     'draft.update',
     'Remplace le contenu d’un brouillon.',
     z.object({ id: Id, ...DraftFields }),
-    async ({ id, ...i }) => updateDraft(mail(), id, await toDraft(i)),
+    async ({ id, ...i }) => updateDraft(mail(), id, await toDraft(i, id)),
   );
   add('delete', 'draft.delete', 'Supprime un brouillon.', z.object({ id: Id }), ({ id }) =>
     deleteDraft(mail(), id),
