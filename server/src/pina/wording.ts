@@ -1,4 +1,5 @@
-import type { ChatMessage } from '../llm/types.ts';
+/** The part of a chat message the thread's results are read from (kept local: the views copy this file). */
+type ThreadMessage = { role: string; content?: string; isError?: boolean };
 
 /*
  * What a card says of its action, in plain French, from the action name and its input: a title, the
@@ -296,7 +297,7 @@ const instant = (v: unknown): string | undefined => {
  * What today's thread names by id: the results Pina read (`mail.read`, `agenda.list`, `task.list`,
  * `rule.list`…) and, as `results`, those of her done cards. Mails by subject, events and tasks by title, rules by value.
  */
-export function targetsOf(messages: ChatMessage[], results: unknown[] = []): Map<string, Target> {
+export function targetsOf(messages: ThreadMessage[], results: unknown[] = []): Map<string, Target> {
   const out = new Map<string, Target>();
   const walk = (v: unknown, depth: number) => {
     if (depth > 5 || typeof v !== 'object' || v === null) return;
@@ -312,7 +313,7 @@ export function targetsOf(messages: ChatMessage[], results: unknown[] = []): Map
   for (const m of messages) {
     if (m.role !== 'tool' || m.isError) continue;
     try {
-      walk(JSON.parse(m.content), 0);
+      walk(JSON.parse(m.content ?? ''), 0);
     } catch {
       // A plain text result names nothing.
     }

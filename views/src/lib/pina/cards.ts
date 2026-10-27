@@ -1,24 +1,13 @@
 import * as icons from '../ui/Icon.ts';
 import type { IconComponent } from '../ui/Icon.ts';
 import type { PinaThread } from '../types.ts';
-import {
-  describe as wording,
-  targetsOf as targets,
-  type CardText as Text,
-} from '../../../../server/src/pina/wording.ts';
+import { describe as wording, targetsOf as targets, type CardText as Text } from './wording.ts';
 
 /*
  * The wording of a card lives on the server (`server/src/pina/wording.ts`, shared with the lines the core
  * reads); the front only adds the icon of the action.
  */
-export {
-  dayLabel,
-  timeLabel,
-  whenLabel,
-  type CardField,
-  type Names,
-  type Target,
-} from '../../../../server/src/pina/wording.ts';
+export { dayLabel, timeLabel, whenLabel, type CardField, type Names, type Target } from './wording.ts';
 
 export interface CardText extends Text {
   icon: IconComponent;
