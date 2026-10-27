@@ -75,6 +75,8 @@ describe('Tasks', () => {
     await user.click(await menuEntry('Demain'));
     await user.click(screen.getByRole('button', { name: 'Liste : Mes tâches' }));
     await user.click(await menuEntry('Lun’'));
+    // The closing menu leaves the page inert for a moment: wait for it before typing.
+    await waitFor(() => expect(document.body.style.pointerEvents).not.toBe('none'));
     await user.type(screen.getByRole('textbox', { name: 'Nouvelle tâche' }), 'Rappeler le garage{Enter}');
     await waitFor(() => expect(client.saveTask).toHaveBeenCalled());
     expect(client.saveTask.mock.calls[0]![0]).toEqual({
