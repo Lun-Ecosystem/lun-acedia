@@ -50,6 +50,7 @@ describe('Anthropic provider', () => {
       toolCalls: [{ id: 'tu1', name: 'list_events', input: { day: '2026-11-02' } }],
       usage: { inputTokens: 10, outputTokens: 5 },
       stop: 'tools',
+      replay: expect.any(Array),
     });
     expect(requests[0]!.tools).toEqual([
       { name: 'list_events', description: 'Liste', input_schema: { type: 'object' } },
@@ -62,6 +63,29 @@ describe('Anthropic provider', () => {
         content: [{ type: 'tool_result', tool_use_id: 'tu0', content: '[]', is_error: false }],
       },
     ]);
+  });
+
+  it('anthropic: an assistant message with replay is sent back verbatim (thinking block kept)', async () => {
+    const content = [
+      { type: 'thinking', thinking: '', signature: 'sig' },
+      { type: 'tool_use', id: 'tu1', name: 'list_events', input: {} },
+    ];
+    const first = fakeApi({ content, stop_reason: 'tool_use', usage });
+    const provider = createAnthropicProvider({ apiKey: 'k', api: first.api });
+    const req = { model: 'm', system: 'S', tools: [], maxTokens: 100 };
+    const result = await provider.chat({ ...req, messages: [{ role: 'user', text: 'Q' }] });
+    expect(result.replay).toEqual(content);
+    expect(first.requests[0]).not.toHaveProperty('thinking');
+
+    await provider.chat({
+      ...req,
+      messages: [
+        { role: 'user', text: 'Q' },
+        { role: 'assistant', text: result.text, toolCalls: result.toolCalls, replay: result.replay },
+        { role: 'tool', callId: 'tu1', content: '[]', isError: false },
+      ],
+    });
+    expect((first.requests[1]!.messages as unknown[])[1]).toEqual({ role: 'assistant', content });
   });
 
   it('anthropic: json() sends output_config json_schema and parses the text block', async () => {

@@ -94,7 +94,12 @@ export function createOpenAiCompatProvider(opts: {
         ],
         response_format: {
           type: 'json_schema',
-          json_schema: { name: 'answer', schema: req.schema as Record<string, unknown>, strict: true },
+          json_schema: {
+            name: 'answer',
+            schema: req.schema as Record<string, unknown>,
+            // Other OpenAI-compatible endpoints may reject strict mode.
+            ...(opts.id === 'openai' ? { strict: true } : {}),
+          },
         },
       });
       if (choice.finish_reason !== 'stop')

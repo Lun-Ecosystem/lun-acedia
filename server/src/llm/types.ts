@@ -21,7 +21,13 @@ export interface ToolCall {
 
 export type ChatMessage =
   | { role: 'user'; text: string }
-  | { role: 'assistant'; text: string; toolCalls: ToolCall[] }
+  | {
+      role: 'assistant';
+      text: string;
+      toolCalls: ToolCall[];
+      /** `ChatResult.replay`, sent back verbatim by the provider that produced it. */
+      replay?: unknown;
+    }
   | { role: 'tool'; callId: string; content: string; isError: boolean };
 
 export interface ChatResult {
@@ -29,6 +35,8 @@ export interface ChatResult {
   toolCalls: ToolCall[];
   usage: Usage;
   stop: 'end' | 'tools' | 'length';
+  /** Provider-specific content (Anthropic: the raw blocks, thinking included) to replay on the next round. */
+  replay?: unknown;
 }
 
 export interface LlmProvider {

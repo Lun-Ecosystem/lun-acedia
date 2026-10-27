@@ -111,8 +111,25 @@ describe('OpenAI-compatible provider', () => {
         { role: 'system', content: 'S' },
         { role: 'user', content: 'U' },
       ],
-      response_format: { type: 'json_schema', json_schema: { name: 'answer', schema, strict: true } },
+      response_format: { type: 'json_schema', json_schema: { name: 'answer', schema } },
     });
+  });
+
+  it('openai-compat: json() asks for strict mode only from OpenAI', async () => {
+    const formatOf = async (id: 'openai' | 'google' | 'mistral' | 'custom') => {
+      const { client, requests } = fakeClient(answer({ content: '{}' }));
+      await createOpenAiCompatProvider({ id, apiKey: 'k', baseURL: 'http://x', client }).json({
+        model: 'm',
+        system: 'S',
+        user: 'U',
+        schema: {},
+        maxTokens: 1,
+      });
+      return (requests[0]!.response_format as { json_schema: object }).json_schema;
+    };
+    expect(await formatOf('openai')).toEqual({ name: 'answer', schema: {}, strict: true });
+    for (const id of ['google', 'mistral', 'custom'] as const)
+      expect(await formatOf(id)).toEqual({ name: 'answer', schema: {} });
   });
 
   it('openai-compat: a custom provider needs a base URL', () => {

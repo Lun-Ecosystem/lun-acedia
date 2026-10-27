@@ -37,6 +37,8 @@ function toParam(m: ChatMessage): Anthropic.MessageParam {
       role: 'user',
       content: [{ type: 'tool_result', tool_use_id: m.callId, content: m.content, is_error: m.isError }],
     };
+  // The raw blocks keep the thinking blocks the next tool round needs.
+  if (m.replay) return { role: 'assistant', content: m.replay as Anthropic.ContentBlockParam[] };
   return {
     role: 'assistant',
     content: [
@@ -95,7 +97,7 @@ export function createAnthropicProvider(opts: { apiKey: string; api?: AnthropicA
       );
       const stop =
         res.stop_reason === 'tool_use' ? 'tools' : res.stop_reason === 'max_tokens' ? 'length' : 'end';
-      return { text, toolCalls, usage: usageOf(res.usage), stop };
+      return { text, toolCalls, usage: usageOf(res.usage), stop, replay: res.content };
     },
 
     async check() {
