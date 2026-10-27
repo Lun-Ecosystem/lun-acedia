@@ -451,8 +451,9 @@
     .consignes {
       padding: 14px;
     }
+    /* The row's control does not stretch: a fixed width, or the meter would vanish. */
     .jauge {
-      width: min(220px, 100%);
+      width: 132px;
     }
     .nombre {
       align-items: flex-start;
