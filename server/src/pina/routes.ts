@@ -14,10 +14,10 @@ import {
 
 const Context = z.object({
   screen: z.enum(['mail', 'pending', 'agenda', 'tasks', 'journal', 'settings', 'compose']),
-  mailId: z.string().optional(),
-  day: z.string().optional(),
-  listId: z.string().optional(),
-  draftId: z.string().optional(),
+  mailId: z.string().max(200).optional(),
+  day: z.string().max(200).optional(),
+  listId: z.string().max(200).optional(),
+  draftId: z.string().max(200).optional(),
 });
 const Message = z.object({ text: z.string().min(1).max(4000), context: Context });
 const Decision = z.object({ decision: z.enum(['accept', 'refuse']), input: z.unknown().optional() });
@@ -59,6 +59,8 @@ export function pinaRoutes(deps: PinaDeps): Hono {
     const today = dayOf(deps.clock());
     // Yesterday's card is expired even if the daily tidy has not run: nothing runs for it.
     if (card.day !== today) {
+      if (card.status !== 'pending' && card.status !== 'expired')
+        return c.json({ error: 'Carte déjà décidée' }, 409);
       expireCards(deps.db, today);
       return c.json({ error: 'Carte expirée' }, 409);
     }

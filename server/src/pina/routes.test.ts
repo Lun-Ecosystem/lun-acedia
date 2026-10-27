@@ -134,11 +134,45 @@ describe('Pina routes', () => {
     expect(s.writes()).toBe(writes + 1);
   });
 
+  it('a decided card of a previous day → 409 déjà décidée', async () => {
+    const s = await setup([event(), answer('Ok.')]);
+    const id = await s.withCard();
+    await s.h.call('POST', `/api/pina/cards/${id}`, { decision: 'accept' });
+    s.h.advance(26 * 3_600_000);
+    const res = await s.h.call('POST', `/api/pina/cards/${id}`, { decision: 'accept' });
+    expect(res).toMatchObject({ status: 409, body: { error: 'Carte déjà décidée' } });
+    expect(s.writes()).toBe(1);
+  });
+
+  it('the resumed request carries the modified input', async () => {
+    const s = await setup([event(), answer('Ok.')]);
+    const id = await s.withCard();
+    await s.h.call('POST', `/api/pina/cards/${id}`, {
+      decision: 'accept',
+      input: { ...EVENT, title: 'Dentiste (décalé)' },
+    });
+    const resumed = JSON.stringify(s.requests[1]);
+    expect(resumed).toContain('modifiéParCrOliX');
+    expect(resumed).toContain('Dentiste (décalé)');
+  });
+
+  it('an undo refused because the journal line is already undone is final', async () => {
+    const s = await setup([calls(tool('mail.archive', { id: 'm1' })), answer('Archivé.')]);
+    const id = await s.withCard();
+    await s.h.call('POST', `/api/pina/cards/${id}`, { decision: 'accept' });
+    const line = (await s.h.call('GET', '/api/journal')).body.items[0];
+    await s.h.call('POST', `/api/journal/${line.id}/undo`);
+    const res = await s.h.call('POST', `/api/pina/cards/${id}/undo`);
+    expect(res).toMatchObject({ status: 409, body: { error: 'Action déjà annulée' } });
+    expect(getCard(s.h.db, id)?.inverse).toBeNull();
+  });
+
   it('routes require a device token', async () => {
     const s = await setup([]);
     for (const [method, path] of [
       ['GET', '/api/pina/today'],
       ['GET', '/api/pina/days'],
+      ['GET', '/api/pina/days/2026-11-02'],
       ['POST', '/api/pina/messages'],
       ['POST', '/api/pina/cards/1'],
       ['POST', '/api/pina/cards/1/undo'],
@@ -160,5 +194,13 @@ describe('Pina routes', () => {
     expect((await text('x'.repeat(4001))).status).toBe(400);
     const bad = await s.h.call('POST', '/api/pina/messages', { text: 'a', context: { screen: 'x' } });
     expect(bad.status).toBe(400);
+    const long = await s.h.call('POST', '/api/pina/messages', {
+      text: 'a',
+      context: { screen: 'mail', mailId: 'x'.repeat(201) },
+    });
+    expect(long.status).toBe(400);
+    expect((await s.h.call('PUT', '/api/pina/settings', { instructions: 'x'.repeat(4001) })).status).toBe(
+      400,
+    );
   });
 });

@@ -58,6 +58,7 @@ const FAILED: Record<ProviderError['kind'], string> = {
 };
 const REFUSED =
   'CrOliX a refusé cette action : elle n’a pas été faite. Ne la refais pas sans qu’il le demande.';
+const ALREADY_UNDONE = 'Action déjà annulée';
 const EXPIRED = 'Cette action a expiré sans être validée : elle n’a pas été faite.';
 const WAITING = 'En attente de la validation de CrOliX : pas encore faite.';
 const LATE = 'Décisions de CrOliX sur tes actions en attente, prises depuis :';
@@ -142,7 +143,7 @@ export function editCard(
   const parsed = deps.actions.get(card.action)?.schema.safeParse(input);
   if (!parsed?.success)
     return { ok: false, error: parsed ? parsed.error.message : 'Action inconnue', status: 400 };
-  return setCardInput(deps.db, cardId, input)
+  return setCardInput(deps.db, cardId, parsed.data)
     ? { ok: true }
     : { ok: false, error: 'Carte déjà décidée', status: 409 };
 }
@@ -152,7 +153,8 @@ export async function undoCard(deps: Pick<PinaDeps, 'db' | 'actions'>, cardId: n
   const inverse = takeInverse(deps.db, cardId);
   if (!inverse) return undefined;
   const out = await runAction(deps.actions, inverse.action, inverse.input);
-  if (!out.ok) putInverseBack(deps.db, cardId, inverse);
+  // A journal line already undone stays final: the inverse is not given back.
+  if (!out.ok && out.error !== ALREADY_UNDONE) putInverseBack(deps.db, cardId, inverse);
   return out;
 }
 
@@ -170,7 +172,11 @@ const toolResult = (turn: number, callId: string, out: Outcome): Stored =>
     : { role: 'tool', callId, content: out.error, isError: true, turn };
 
 function cardResult(c: Card): Stored {
-  if (c.status === 'done') return toolResult(c.turn, c.callId, { ok: true, result: c.result });
+  if (c.status === 'done') {
+    // The model must describe what really ran, not what it had asked.
+    const result = c.edited ? { result: c.result, modifiéParCrOliX: true, entréeFinale: c.input } : c.result;
+    return toolResult(c.turn, c.callId, { ok: true, result });
+  }
   if (c.status === 'refused')
     return { role: 'tool', callId: c.callId, content: REFUSED, isError: false, turn: c.turn };
   const error = c.status === 'failed' ? (c.error ?? 'Échec') : EXPIRED;

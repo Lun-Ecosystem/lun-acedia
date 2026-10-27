@@ -165,6 +165,7 @@ const MIGRATIONS: string[] = [
    );
    CREATE INDEX pina_cards_by_day ON pina_cards (day);
    CREATE INDEX pina_cards_by_turn ON pina_cards (turn);`,
+  `ALTER TABLE pina_cards ADD COLUMN edited INTEGER NOT NULL DEFAULT 0;`,
 ];
 
 export function openDb(path: string): DatabaseSync {

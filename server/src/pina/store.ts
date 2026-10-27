@@ -21,6 +21,8 @@ export interface Card {
   error: string | null;
   inverse: unknown;
   decidedAt: string | null;
+  /** CrOliX changed the input (« Modifier ») before accepting. */
+  edited: boolean;
 }
 
 /** The Paris calendar day (AAAA-MM-JJ) of an instant, from the same day start as the journal. */
@@ -66,6 +68,7 @@ function toCard(r: Record<string, unknown>): Card {
     error: r.error as string | null,
     inverse: json(r.inverse as string | null),
     decidedAt: r.decided_at as string | null,
+    edited: r.edited === 1,
   };
 }
 
@@ -115,7 +118,7 @@ export function setCardStatus(
 /** « Modifier »: the input of a card still pending (`false` once decided). */
 export function setCardInput(db: DatabaseSync, id: number, input: unknown): boolean {
   const info = db
-    .prepare("UPDATE pina_cards SET input = ? WHERE id = ? AND status = 'pending'")
+    .prepare("UPDATE pina_cards SET input = ?, edited = 1 WHERE id = ? AND status = 'pending'")
     .run(JSON.stringify(input), id);
   return info.changes > 0;
 }
@@ -187,7 +190,7 @@ const DEFAULTS: PinaSettings = { mode: 'validate', instructions: '', retentionDa
 const SettingsPatch = z
   .object({
     mode: z.enum(['validate', 'immediate']),
-    instructions: z.string(),
+    instructions: z.string().max(4000),
     retentionDays: z.number().int().min(1).max(365),
     dailyCapUsd: z.number().min(0).max(50),
   })
