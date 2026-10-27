@@ -18,6 +18,7 @@ export const PARITY: Record<string, Parity> = {
   'GET /api/llm/providers': { excluded: SETTINGS },
   'PUT /api/llm/providers/:id/key': { excluded: SETTINGS },
   'DELETE /api/llm/providers/:id/key': { excluded: SETTINGS },
+  'PUT /api/llm/providers/:id/expires': { excluded: SETTINGS },
   'GET /api/llm/models': { excluded: SETTINGS },
   'GET /api/llm/choice': { excluded: SETTINGS },
   'PUT /api/llm/choice': { excluded: SETTINGS },

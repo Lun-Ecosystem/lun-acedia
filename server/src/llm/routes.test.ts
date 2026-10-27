@@ -1,5 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
+import { eventsSince } from '../contract/events.ts';
 import { getSetting } from '../db.ts';
 import { makeHarness } from '../testing/harness.ts';
 import { saveKey } from './keys.ts';
@@ -45,6 +46,42 @@ describe('/api/llm', () => {
       source: 'saved',
     });
     expect((await call('PUT', '/providers/nope/key', { key: 'x' })).status).toBe(404);
+  });
+
+  it('PUT expires changes or clears the declared date of a saved key, without the key', async () => {
+    const h = makeHarness({ secretKey, llmEnv: { openai: { key: 'sk-env-openai-1234' } } });
+    const call = await api(h);
+    // No key at all, then a key from .env: nothing to change here.
+    const none = await call('PUT', '/providers/google/expires', { expires: '2026-11-10' });
+    expect(none.status).toBe(409);
+    expect(none.body).toEqual({ error: 'Aucune clé enregistrée pour Google Gemini' });
+    const env = await call('PUT', '/providers/openai/expires', { expires: '2026-11-10' });
+    expect(env.status).toBe(409);
+    expect(env.body.error).toMatch(/\.env/);
+    expect((await call('PUT', '/providers/nope/expires', { expires: null })).status).toBe(404);
+
+    saveKey(h.db, secretKey, 'anthropic', 'sk-ant-test-7f3a', '2027-08-11');
+    for (const expires of ['2026-02-30', '11/08/2027', 42]) {
+      const bad = await call('PUT', '/providers/anthropic/expires', { expires });
+      expect(bad.status, String(expires)).toBe(400);
+    }
+    expect((await call('PUT', '/providers/anthropic/expires', {})).status).toBe(400);
+
+    // Within 14 days: the warning goes out at once, once.
+    const soon = await call('PUT', '/providers/anthropic/expires', { expires: '2026-11-10' });
+    expect(soon.status).toBe(200);
+    expect(soon.body).toMatchObject({ id: 'anthropic', expires: '2026-11-10', last4: '7f3a', state: 'ok' });
+    const expiring = () => eventsSince(h.db).filter((e) => e.type === 'key.expiring');
+    expect(expiring()).toHaveLength(1);
+    expect(h.keyCheck.calls).toEqual([]);
+
+    const cleared = await call('PUT', '/providers/anthropic/expires', { expires: null });
+    expect(cleared.status).toBe(200);
+    expect(cleared.body).not.toHaveProperty('expires');
+    expect(getSetting(h.db, 'anthropic.expiryWarned', null)).toEqual([]);
+    // The same date declared again warns again: the flags started over.
+    await call('PUT', '/providers/anthropic/expires', { expires: '2026-11-10' });
+    expect(expiring()).toHaveLength(2);
   });
 
   it('custom baseUrl must be http(s), else 400', async () => {

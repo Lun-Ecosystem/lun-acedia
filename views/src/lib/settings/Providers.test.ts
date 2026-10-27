@@ -31,7 +31,7 @@ describe('Providers', () => {
     const anthropic = card('Anthropic');
     expect(within(anthropic).getByText('En service')).toBeInTheDocument();
     expect(within(anthropic).getByText('7f3a')).toBeInTheDocument();
-    expect(within(anthropic).getByText('31 déc. 2026')).toBeInTheDocument();
+    expect(within(anthropic).getByText(/^31 déc. 2026 · /)).toBeInTheDocument();
     expect(within(card('OpenAI')).getByText('Clé du fichier .env')).toBeInTheDocument();
     expect(within(card('OpenAI')).queryByRole('button', { name: 'Retirer' })).not.toBeInTheDocument();
     expect(
@@ -41,6 +41,61 @@ describe('Providers', () => {
     expect(within(card('Mistral')).getByText('Refusée')).toBeInTheDocument();
     expect(within(card('Point d’accès compatible')).getByText('Crédit épuisé')).toBeInTheDocument();
     expect(document.body.textContent).not.toMatch(/sk-/);
+  });
+
+  it('the declared expiry says the days left, and changes without the key', async () => {
+    const { client } = fakeClient();
+    const user = userEvent.setup();
+    render(Providers, {
+      props: { client, providers: PROVIDERS.map((p) => ({ ...p })), now: new Date('2026-12-20T09:00:00Z') },
+    });
+    const anthropic = screen.getByRole('region', { name: 'Anthropic' });
+    const line = within(anthropic).getByText('31 déc. 2026 · dans 11 jours');
+    expect(line).toHaveAttribute('data-ton', 'attention');
+    // A key from .env declares its date in .env: nothing to change here.
+    expect(
+      within(screen.getByRole('region', { name: 'OpenAI' })).queryByRole('button', {
+        name: 'Modifier l’échéance',
+      }),
+    ).not.toBeInTheDocument();
+
+    client.setProviderExpiry.mockResolvedValueOnce({ ...PROVIDERS[0]!, expires: '2027-08-11' });
+    const action = within(anthropic).getByRole('button', { name: 'Modifier l’échéance' });
+    await user.click(action);
+    const window = await screen.findByRole('dialog', { name: 'Modifier l’échéance' });
+    const date = within(window).getByLabelText('Échéance');
+    expect(date).toHaveValue('2026-12-31');
+    await user.clear(date);
+    await user.type(date, '2027-08-11');
+    await user.click(within(window).getByRole('button', { name: 'Enregistrer' }));
+    expect(client.setProviderExpiry).toHaveBeenCalledWith('anthropic', '2027-08-11');
+    expect(client.saveProviderKey).not.toHaveBeenCalled();
+    const after = await within(anthropic).findByText('11 août 2027 · dans 234 jours');
+    expect(after).toHaveAttribute('data-ton', 'neutre');
+    await waitFor(() => expect(action).toHaveFocus());
+
+    client.setProviderExpiry.mockResolvedValueOnce({
+      id: 'anthropic',
+      label: 'Anthropic',
+      state: 'ok',
+      last4: '7f3a',
+      source: 'saved',
+    });
+    await user.click(action);
+    await user.click(await screen.findByRole('button', { name: 'Sans échéance' }));
+    expect(client.setProviderExpiry).toHaveBeenLastCalledWith('anthropic', null);
+    expect(await within(anthropic).findByText('Aucune')).toBeInTheDocument();
+  });
+
+  it('a date already past shows in danger', () => {
+    const { client } = fakeClient();
+    render(Providers, {
+      props: { client, providers: PROVIDERS.map((p) => ({ ...p })), now: new Date('2027-01-07T09:00:00Z') },
+    });
+    const line = within(screen.getByRole('region', { name: 'Anthropic' })).getByText(
+      '31 déc. 2026 · dépassée depuis 7 jours',
+    );
+    expect(line).toHaveAttribute('data-ton', 'danger');
   });
 
   it('removing a key gives the focus back to its card', async () => {
@@ -115,11 +170,11 @@ describe('Providers', () => {
     expect(field).toHaveAttribute('type', 'password');
     expect(field).toHaveAttribute('autocomplete', 'off');
     await user.type(field, NEW_KEY);
-    await user.type(within(window).getByLabelText('Échéance (facultatif)'), '2027-03-01');
+    await user.type(within(window).getByLabelText('Échéance'), '2027-03-01');
     await user.click(within(window).getByRole('button', { name: 'Vérifier et enregistrer' }));
     expect(client.saveProviderKey).toHaveBeenCalledWith('anthropic', { key: NEW_KEY, expires: '2027-03-01' });
     expect(await within(card('Anthropic')).findByText('c0de')).toBeInTheDocument();
-    expect(within(card('Anthropic')).getByText('1 mars 2027')).toBeInTheDocument();
+    expect(within(card('Anthropic')).getByText(/^1 mars 2027 · /)).toBeInTheDocument();
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
   });
 

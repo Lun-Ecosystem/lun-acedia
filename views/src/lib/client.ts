@@ -181,6 +181,8 @@ export interface AcediaClient {
   ): Promise<PinaThread & { card: PinaCard }>;
   /** Undoes a done card by its inverse; 409 without one, or when already undone. */
   pinaUndo(id: number): Promise<{ card: PinaCard; result: unknown }>;
+  /** Changes or clears the declared expiry of a saved key, without the key (a reminder only). */
+  setProviderExpiry(id: ProviderId, expires: string | null): Promise<ProviderView>;
   getPinaSettings(): Promise<PinaSettingsView>;
   /** Saves the fields given; the server checks the bounds (400 outside them). */
   updatePinaSettings(patch: Partial<PinaSettings>): Promise<PinaSettingsView>;
@@ -308,6 +310,7 @@ export function httpClient(opts: { baseUrl: string; token: string; fetch?: typeo
       (await call<{ providers: ProviderView[] }>('GET', '/api/llm/providers')).providers,
     saveProviderKey: (id, key) => call('PUT', `/api/llm/providers/${id}/key`, key),
     removeProviderKey: (id) => call('DELETE', `/api/llm/providers/${id}/key`),
+    setProviderExpiry: (id, expires) => call('PUT', `/api/llm/providers/${id}/expires`, { expires }),
     getModels: async (use) =>
       (await call<{ models: ModelOffer[] }>('GET', `/api/llm/models?use=${use}`)).models,
     getModelChoice: () => call('GET', '/api/llm/choice'),

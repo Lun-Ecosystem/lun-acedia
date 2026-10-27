@@ -193,6 +193,7 @@ export function fakeClient(opts: { mails?: MailSummary[]; journal?: JournalEntry
     authorize: vi.fn<AcediaClient['authorize']>(notUsed),
     getProviders: vi.fn<AcediaClient['getProviders']>(async () => PROVIDERS.map((p) => ({ ...p }))),
     saveProviderKey: vi.fn<AcediaClient['saveProviderKey']>(notUsed),
+    setProviderExpiry: vi.fn<AcediaClient['setProviderExpiry']>(notUsed),
     removeProviderKey: vi.fn<AcediaClient['removeProviderKey']>(async (id) => {
       const { label } = PROVIDERS.find((p) => p.id === id)!;
       return { id, label, state: 'absent' as const };

@@ -8,12 +8,13 @@
   import ConfirmDialog from '../ui/ConfirmDialog.svelte';
   import Dialog from '../ui/Dialog.svelte';
   import Field from '../ui/Field.svelte';
-  import { Calendar, ICON_STROKE, Plus } from '../ui/Icon.ts';
+  import { Calendar, Plus } from '../ui/Icon.ts';
   import SettingsCard from '../ui/SettingsCard.svelte';
   import SettingsRow from '../ui/SettingsRow.svelte';
   import TextInput from '../ui/TextInput.svelte';
   import { toast } from '../ui/toasts.svelte.ts';
   import type { Tone } from '../ui/types.ts';
+  import { expiryLine } from './expiry.ts';
 
   /*
    * One card per AI provider: its state first, then its key by its last 4 characters only. Adding or
@@ -26,8 +27,31 @@
     providers: ProviderView[] | null;
     /** The provider whose key window is open, from here or from the banner of a refused key. */
     editing?: ProviderId | null | undefined;
+    /** Today, for tests. */
+    now?: Date | undefined;
   }
-  let { client, providers = $bindable(), editing = $bindable(null) }: Props = $props();
+  let { client, providers = $bindable(), editing = $bindable(null), now }: Props = $props();
+
+  /** The provider whose declared expiry is being changed, and the date typed. */
+  let dating = $state<ProviderView | null>(null);
+  let date = $state('');
+  let dateError = $state<string | undefined>();
+  let datingBusy = $state(false);
+
+  async function saveExpiry(expires: string | null) {
+    if (!dating || datingBusy) return;
+    datingBusy = true;
+    dateError = undefined;
+    try {
+      put(await client.setProviderExpiry(dating.id, expires));
+      toast(expires ? 'Échéance enregistrée' : 'Échéance retirée');
+      dating = null;
+    } catch (err) {
+      dateError = errorText(err);
+    } finally {
+      datingBusy = false;
+    }
+  }
 
   const uid = $props.id();
   let key = $state('');
@@ -128,15 +152,6 @@
     removed = null;
     return id ? document.querySelector<HTMLElement>(`.fournisseur-${id} button`) : null;
   }
-
-  /** `AAAA-MM-JJ` as « 12 mars 2027 », without going through the local time zone. */
-  const day = (iso: string) =>
-    new Date(`${iso}T12:00:00Z`).toLocaleDateString('fr-FR', {
-      day: 'numeric',
-      month: 'short',
-      year: 'numeric',
-      timeZone: 'UTC',
-    });
 </script>
 
 {#if providers}
@@ -168,11 +183,24 @@
             <span class="mono adresse">{p.baseUrl}</span>
           </SettingsRow>
         {/if}
-        <SettingsRow label="Échéance déclarée" hint="Avertissement 14 jours puis 3 jours avant.">
-          <span class="puce">
-            <Calendar size={14} strokeWidth={ICON_STROKE} aria-hidden="true" />
-            {p.expires ? day(p.expires) : 'Aucune'}
-          </span>
+        <SettingsRow label="Échéance déclarée">
+          {#snippet hint()}
+            {#if p.expires}
+              {@const line = expiryLine(now ?? new Date(), p.expires)}
+              <span class={['echeance', line.tone]} data-ton={line.tone}>{line.text}</span>
+            {:else}Aucune{/if}
+          {/snippet}
+          {#if p.source === 'saved'}
+            <Button
+              variant="fantome"
+              size="petit"
+              icon={Calendar}
+              onclick={() => {
+                dating = p;
+                date = p.expires ?? '';
+              }}>Modifier l’échéance</Button
+            >
+          {/if}
         </SettingsRow>
       {/if}
     </SettingsCard>
@@ -222,7 +250,7 @@
           disabled={pending}
         />
       </Field>
-      <Field label="Échéance (facultatif)" hint="Avertissement 14 jours puis 3 jours avant.">
+      <Field label="Échéance" hint="Facultatif : aide-mémoire, avertissement 14 puis 3 jours avant.">
         <TextInput type="date" bind:value={expires} disabled={pending} />
       </Field>
       {#if pending && editing}<p class="attente" role="status">Vérification auprès {WITH[editing]}…</p>{/if}
@@ -232,6 +260,47 @@
     <Button onclick={close} disabled={pending}>Annuler</Button>
     <Button type="submit" form="{uid}-cle" variant="principal" loading={pending} disabled={!ready}
       >Vérifier et enregistrer</Button
+    >
+  {/snippet}
+</Dialog>
+
+<!-- The date only: the key stays as it is; Bits gives the focus back to « Modifier l’échéance ». -->
+<Dialog
+  bind:open={
+    () => Boolean(dating),
+    (next) => {
+      if (!next && !datingBusy) {
+        dating = null;
+        dateError = undefined;
+      }
+    }
+  }
+  title="Modifier l’échéance"
+  description={dating
+    ? `Clé ${dating.label} : une date aide-mémoire, avertie 14 puis 3 jours avant. La clé ne change pas.`
+    : undefined}
+>
+  {#snippet children()}
+    <form
+      id="{uid}-echeance"
+      class="champs"
+      onsubmit={(e) => {
+        e.preventDefault();
+        if (date) void saveExpiry(date);
+      }}
+    >
+      <Field label="Échéance" error={dateError}>
+        <TextInput type="date" bind:value={date} disabled={datingBusy} />
+      </Field>
+    </form>
+  {/snippet}
+  {#snippet footer({ close })}
+    <Button variant="fantome" class="sans-date" disabled={datingBusy} onclick={() => saveExpiry(null)}
+      >Sans échéance</Button
+    >
+    <Button onclick={close} disabled={datingBusy}>Annuler</Button>
+    <Button type="submit" form="{uid}-echeance" variant="principal" loading={datingBusy} disabled={!date}
+      >Enregistrer</Button
     >
   {/snippet}
 </Dialog>
@@ -256,21 +325,14 @@
   .adresse {
     overflow-wrap: anywhere;
   }
-  .puce {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    height: 32px;
-    padding: 0 10px;
-    border: 1px solid var(--bordure-forte);
-    border-radius: var(--r-1);
-    background: var(--surface-2);
-    font-size: 13px;
-    color: var(--texte);
-    white-space: nowrap;
+  .echeance.attention {
+    color: var(--attention);
   }
-  .puce :global(svg) {
-    color: var(--texte-3);
+  .echeance.danger {
+    color: var(--danger);
+  }
+  :global(.sans-date) {
+    margin-right: auto;
   }
   :global(.fournisseur) :global(.btn.retirer) {
     color: var(--danger);

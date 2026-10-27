@@ -8,6 +8,7 @@ import {
   choiceFor,
   configuredProviders,
   credentials,
+  currentKey,
   keyWorks,
   LABELS,
   PROVIDERS,
@@ -15,6 +16,7 @@ import {
   providerView,
   removeKey,
   saveChoice,
+  saveExpiry,
   saveKey,
   type ProviderView,
 } from './keys.ts';
@@ -111,6 +113,22 @@ export function llmRoutes(deps: AppDeps): Hono {
     if (!isProvider(id)) return c.json({ error: 'Fournisseur inconnu' }, 404);
     const res = await putKey(deps, id, c);
     return res instanceof Response ? res : c.json(res);
+  });
+  // The declared expiry is a reminder only: changed without the key, never read from the provider.
+  r.put('/providers/:id/expires', async (c) => {
+    const id = c.req.param('id');
+    if (!isProvider(id)) return c.json({ error: 'Fournisseur inconnu' }, 404);
+    const current = currentKey(deps.db, deps.secretKey, env(), id);
+    if (!current) return c.json({ error: `Aucune clé enregistrée pour ${LABELS[id]}` }, 409);
+    if (current.source === 'env')
+      return c.json({ error: `Clé ${LABELS[id]} du fichier .env : son échéance se déclare dans .env` }, 409);
+    const body = await jsonBody(c);
+    const expires = body?.expires;
+    if (!(expires === null || (typeof expires === 'string' && isValidDate(expires))))
+      return c.json({ error: 'Date d’échéance attendue au format AAAA-MM-JJ, ou null' }, 400);
+    saveExpiry(deps.db, id, expires);
+    if (expires) checkExpiry(deps.db, deps.clock(), expires, `Clé ${LABELS[id]}`, id);
+    return c.json(providerView(deps.db, deps.secretKey, env(), id));
   });
   r.delete('/providers/:id/key', (c) => {
     const id = c.req.param('id');

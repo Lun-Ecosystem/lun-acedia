@@ -174,6 +174,12 @@ export function saveKey(
   if (id === 'custom') putSetting(db, BASE_URL, baseUrl ?? null);
 }
 
+/** Changes (or clears) the declared expiry of a saved key, the key untouched; the warnings start over. */
+export function saveExpiry(db: DatabaseSync, id: ProviderId, expires: string | null): void {
+  putSetting(db, expiresOf(id), expires);
+  putSetting(db, warnedKey(id), []);
+}
+
 /** Forgets the saved key and its expiry; without a key nothing is refused any more. */
 export function removeKey(db: DatabaseSync, id: ProviderId): void {
   putSetting(db, keyOf(id), null);

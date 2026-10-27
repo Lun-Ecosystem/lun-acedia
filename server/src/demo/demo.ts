@@ -437,7 +437,9 @@ export async function createDemo(
   await pair('Safari sur iPhone');
   const token = await pair('Démo (écrans)');
   // An invented key, shown by its last 4 characters only; refused on demand (`DEMO_KEY=refused`).
-  saveKey(db, secretKey, 'anthropic', 'sk-ant-demo-invented-ZQAA', '2027-03-12');
+  // Its declared expiry falls within 14 days: the card shows the warning.
+  const soon = new Date(clock().getTime() + 9 * 86_400_000).toISOString().slice(0, 10);
+  saveKey(db, secretKey, 'anthropic', 'sk-ant-demo-invented-ZQAA', soon);
   const call = async (method: string, path: string, body?: unknown) => {
     const res = await app.request(path, {
       method,
