@@ -15,7 +15,8 @@ import {
   type LabelChange,
 } from './actions.ts';
 import { findPart } from './body.ts';
-import { defaultFrom, sendMail } from './compose.ts';
+import { defaultFrom, headerValue, sendMail, type Draft } from './compose.ts';
+import { createDraft, deleteDraft, getDraft, sendDraft, updateDraft } from './drafts.ts';
 import { fetchFull, listMail, readMail, searchMail, summary } from './read.ts';
 import type { StoredMessage } from './store.ts';
 import { GMAIL_API } from './sync.ts';
@@ -132,6 +133,34 @@ export function sendAsRoutes(deps: AppDeps, google: GoogleClient | undefined): H
   return r;
 }
 
+/** `/api/drafts`: the composer's drafts. Sending is here only, on the screen's request. */
+export function draftRoutes(deps: AppDeps, google: GoogleClient | undefined): Hono {
+  const r = new Hono();
+  r.use('*', requireToken(deps.db));
+  r.use('*', async (c, next) => {
+    if (!google) return c.json({ error: 'Google n’est pas configuré sur ce serveur' }, 503);
+    await next();
+  });
+  const d = (): ActionDeps => ({ db: deps.db, google: google!, now: deps.clock });
+  const withBody = (save: (draft: Draft, id: string) => Promise<unknown>) => async (c: Context) => {
+    const parsed = DraftBody.safeParse(await c.req.json().catch(() => undefined));
+    if (!parsed.success) return c.json({ error: parsed.error.message }, 400);
+    return guard(c, () => save(stripUndefined(parsed.data), c.req.param('id') ?? ''));
+  };
+  r.post(
+    '/',
+    withBody((draft) => createDraft(d(), draft)),
+  );
+  r.get('/:id', (c) => guard(c, () => getDraft(d(), c.req.param('id'))));
+  r.put(
+    '/:id',
+    withBody((draft, id) => updateDraft(d(), id, draft)),
+  );
+  r.delete('/:id', (c) => guard(c, () => deleteDraft(d(), c.req.param('id'))));
+  r.post('/:id/send', (c) => guard(c, () => sendDraft(d(), c.req.param('id'))));
+  return r;
+}
+
 const SINGLE_OPS = {
   file: z.object({ boxId: z.string().min(1) }).transform((b) => ({ kind: 'file' as const, ...b })),
   archive: z.object({}).transform(() => ({ kind: 'archive' as const })),
@@ -158,13 +187,13 @@ const BatchBody = z.object({ ids: z.array(z.string().min(1)).min(1).max(500), op
 
 const DraftBody = z.object({
   from: z.string().min(1),
-  to: z.string().min(1),
-  cc: z.string().optional(),
+  to: headerValue.min(1),
+  cc: headerValue.optional(),
   subject: z.string(),
   html: z.string(),
   text: z.string().optional(),
-  inReplyTo: z.string().optional(),
-  references: z.string().optional(),
+  inReplyTo: headerValue.optional(),
+  references: headerValue.optional(),
   threadId: z.string().optional(),
 });
 

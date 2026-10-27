@@ -25,6 +25,11 @@ Aucune dépendance au NAS : tout tourne sur le poste. Node `^22.13.0 || >=24`. L
 `npm run build && npm run demo` lance une démo (développement seulement) sur `localhost:8797` : faux Gmail,
 faux agenda, faux tri, aucun compte Google, aucun réseau. La commande affiche le jeton d'appareil à coller dans la console du navigateur.
 
+## Pina, l’assistante
+
+Pina agit par le catalogue d’actions : les écritures deviennent des cartes à valider, les suppressions le
+restent toujours, et elle n’envoie jamais de mail (brouillon seulement). Voir [docs/pina.md](docs/pina.md).
+
 ## Relier un appareil
 
 ```bash
@@ -51,7 +56,8 @@ Monorepo à workspaces npm ; l'outillage (format, lint, typage, tests) est à la
 
 - [`docs/`](docs/) : ce que fait le projet aujourd'hui (utilisateur, technique, exploitation), dont
   [Brancher Google](docs/brancher-google.md), [Installer sur le téléphone](docs/installer-sur-le-telephone.md)
-  et [Prouver J1](docs/prouver-j1.md).
+  [Prouver J1](docs/prouver-j1.md), [Pina](docs/pina.md)
+  et [Prouver Pina](docs/prouver-pina.md).
 - [`docs/decisions/`](docs/decisions/) : les décisions propres au projet.
 - Cahier des attendus de J1 :
   [lun-docs](https://github.com/Lun-Ecosystem/lun-docs/blob/main/docs/specs/2026-10-19-j1-acedia-design.md).

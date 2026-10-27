@@ -1,4 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite';
+import { emitEvent } from '../contract/events.ts';
 import { NotFoundError } from '../gmail/actions.ts';
 import { getSyncState, setSyncState } from '../gmail/store.ts';
 import type { SyncDeps } from '../gmail/sync.ts';
@@ -177,6 +178,14 @@ function toGoogle(input: Partial<TaskInput>): Record<string, unknown> {
   return out;
 }
 
+/** A write from Acedia changed the cache: said like a sync, so the counters and other screens read again. */
+const changed = (deps: SyncDeps) =>
+  emitEvent(
+    deps.db,
+    { type: 'agenda.changed', importance: 'info', title: 'Agenda mis à jour', data: { changes: 1 } },
+    deps.now(),
+  );
+
 async function write(
   deps: SyncDeps,
   method: string,
@@ -194,6 +203,7 @@ async function write(
 export async function createTask(deps: SyncDeps, listId: string, input: TaskInput): Promise<AgendaTask> {
   const t = (await write(deps, 'POST', tasksUrl(listId), toGoogle(input)))!;
   upsertTask(deps.db, listId, t);
+  changed(deps);
   return getTask(deps.db, listId, t.id)!;
 }
 
@@ -205,10 +215,12 @@ export async function updateTask(
 ): Promise<AgendaTask> {
   const t = (await write(deps, 'PATCH', `${tasksUrl(listId)}/${encodeURIComponent(id)}`, toGoogle(patch)))!;
   upsertTask(deps.db, listId, t);
+  changed(deps);
   return getTask(deps.db, listId, t.id)!;
 }
 
 export async function deleteTask(deps: SyncDeps, listId: string, id: string): Promise<void> {
   await write(deps, 'DELETE', `${tasksUrl(listId)}/${encodeURIComponent(id)}`);
   removeTask(deps.db, listId, id);
+  changed(deps);
 }

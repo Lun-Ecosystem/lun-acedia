@@ -10,7 +10,7 @@
   import { Ban, Check, ChevronDown, Clock, Eye, ICON_STROKE, Sparkles, Trash, X } from '../ui/Icon.ts';
   import IconButton from '../ui/IconButton.svelte';
   import Menu from '../ui/Menu.svelte';
-  import { shellOf } from '../ui/shell.ts';
+  import { setScreenContext, shellOf } from '../ui/shell.ts';
   import { bindShortcuts } from '../ui/shortcuts.ts';
   import Skeleton from '../ui/Skeleton.svelte';
   import TextInput from '../ui/TextInput.svelte';
@@ -301,6 +301,7 @@
 
   // ---- The shell around, if any, shows the boxes in its rail, as on the mail screen.
   const shell = shellOf();
+  setScreenContext({ screen: 'pending' });
   $effect(() => {
     if (!shell) return;
     shell({ rail: nav });
@@ -629,7 +630,7 @@
     gap: 18px;
     min-height: 0;
     overflow-y: auto;
-    padding: 18px 24px 24px;
+    padding: 18px 24px calc(24px + var(--pina-coin));
   }
 
   /* ---- Heading */

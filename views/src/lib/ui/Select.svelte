@@ -87,8 +87,11 @@
               {#each items as item (item.value)}
                 <Select.Item value={item.value} label={item.label} disabled={item.disabled ?? false}>
                   {#snippet child({ props: itemProps, selected: isSelected })}
-                    <div {...itemProps} class="item">
-                      <span class="texte">{item.label}</span>
+                    <div {...itemProps} class={['item', { double: item.hint }]}>
+                      <span class="lignes">
+                        <span class="texte">{item.label}</span>
+                        {#if item.hint}<span class="indice">{item.hint}</span>{/if}
+                      </span>
                       {#if isSelected}
                         <Check size={16} strokeWidth={ICON_STROKE} aria-hidden="true" class="coche" />
                       {/if}
@@ -197,6 +200,20 @@
     font: 400 13.5px var(--sans);
     cursor: pointer;
     outline: none;
+  }
+  .item.double {
+    height: auto;
+    min-height: 32px;
+    padding-block: 6px;
+  }
+  .lignes {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+  }
+  .indice {
+    font: 400 12px var(--sans);
+    color: var(--texte-3);
   }
   .item[data-highlighted] {
     background: var(--survol);

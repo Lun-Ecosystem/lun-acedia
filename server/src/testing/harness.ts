@@ -2,22 +2,28 @@ import { createApp, type AppDeps } from '../app.ts';
 import { ActionRegistry } from '../contract/actions.ts';
 import { issuePairingCode } from '../contract/auth.ts';
 import { openDb } from '../db.ts';
-import type { KeyCheck } from '../keys/anthropic-key.ts';
+import type { PinaDeps } from '../pina/agent.ts';
+import type { KeyCheck, KeyChecker } from '../llm/keys.ts';
 
 /** A fresh app on an in-memory database, with a clock the test moves by hand. */
 export function makeHarness(
-  extra: Partial<Pick<AppDeps, 'google' | 'staticDir' | 'secretKey' | 'anthropicEnv'>> = {},
+  extra: Partial<Pick<AppDeps, 'google' | 'staticDir' | 'secretKey' | 'llmEnv' | 'listCustomModels'>> = {},
 ) {
   const db = openDb(':memory:');
   let now = new Date('2026-11-02T08:00:00.000Z');
   const clock = () => now;
   const actions = new ActionRegistry();
   const logs: string[] = [];
-  // Never the network: the Anthropic key check answers what the test sets.
-  const anthropicCheck = { result: 'ok' as KeyCheck, calls: [] as string[] };
-  const checkAnthropicKey = async (key: string) => {
-    anthropicCheck.calls.push(key);
-    return anthropicCheck.result;
+  /** The provider Pina gets; tests set `choice` (a simulated one, never the network). */
+  const pina: { choice: ReturnType<PinaDeps['provider']> } = { choice: undefined };
+  // Never the network: the key check answers what the test sets.
+  const keyCheck = {
+    result: 'ok' as KeyCheck,
+    calls: [] as { id: string; key: string; baseUrl?: string }[],
+  };
+  const checkKey: KeyChecker = async (id, key, baseUrl) => {
+    keyCheck.calls.push({ id, key, ...(baseUrl ? { baseUrl } : {}) });
+    return keyCheck.result;
   };
   const app = createApp({
     db,
@@ -25,7 +31,8 @@ export function makeHarness(
     version: '0.0.0-test',
     actions,
     log: (l) => logs.push(l),
-    checkAnthropicKey,
+    checkKey,
+    pinaProvider: () => pina.choice,
     ...extra,
   });
 
@@ -34,10 +41,11 @@ export function makeHarness(
     db,
     actions,
     clock,
+    pina,
     /** Warnings the app logged. */
     logs,
-    /** What the fake Anthropic key check answers, and the keys it was given. */
-    anthropicCheck,
+    /** What the fake key check answers, and the keys it was given. */
+    keyCheck,
     advance(ms: number) {
       now = new Date(now.getTime() + ms);
     },

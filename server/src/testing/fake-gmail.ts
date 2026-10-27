@@ -104,6 +104,9 @@ export class FakeGmail {
     { sendAsEmail: 'contact@lun.example', displayName: "Lun'Ecosystem", isPrimary: false },
   ];
   readonly sent: { raw: string; threadId?: string }[] = [];
+  /** Drafts by id: the raw message as posted. */
+  readonly drafts = new Map<string, { raw: string; threadId?: string }>();
+  private draftSeq = 0;
 
   constructor(initial: FakeMessage[] = []) {
     for (const m of initial) this.messages.set(m.id, structuredClone(m));
@@ -160,6 +163,69 @@ export class FakeGmail {
 
   private metadata(m: FakeMessage) {
     return { ...structuredClone(m), payload: { ...m.payload, parts: undefined, body: { size: 0 } } };
+  }
+
+  /** `users.drafts`: create, get (full), update, delete, send. */
+  private handleDrafts(call: RecordedCall, path: string) {
+    if (path !== '/drafts' && !path.startsWith('/drafts/')) return undefined;
+    const body = JSON.parse(call.body ?? '{}') as {
+      id?: string;
+      message?: { raw: string; threadId?: string };
+    };
+    const id = path.split('/')[2];
+    if (call.method === 'POST' && !id) {
+      const key = `d${(this.draftSeq += 1)}`;
+      this.drafts.set(key, body.message!);
+      return {
+        json: { id: key, message: { id: `${key}-m`, threadId: body.message!.threadId ?? `${key}-t` } },
+      };
+    }
+    if (call.method === 'POST' && id === 'send') {
+      const draft = this.drafts.get(body.id ?? '');
+      if (!draft) return { status: 404, json: { error: { message: 'Not Found' } } };
+      this.drafts.delete(body.id!);
+      this.sent.push(draft);
+      return {
+        json: { id: `sent-${this.sent.length}`, threadId: draft.threadId ?? 'new', labelIds: ['SENT'] },
+      };
+    }
+    const draft = id ? this.drafts.get(id) : undefined;
+    if (!draft) return { status: 404, json: { error: { message: 'Not Found' } } };
+    if (call.method === 'PUT') {
+      this.drafts.set(id!, body.message!);
+      return { json: { id, message: { id: `${id}-m`, threadId: body.message!.threadId ?? `${id}-t` } } };
+    }
+    if (call.method === 'DELETE') {
+      this.drafts.delete(id!);
+      return { json: {} };
+    }
+    // GET: the raw message parsed back into headers and a text/plain part, decoded like Gmail does.
+    const raw = Buffer.from(draft.raw, 'base64url').toString('utf8');
+    const [head = '', ...rest] = raw.split('\r\n\r\n');
+    const headers = head.split('\r\n').map((line) => {
+      const [name = '', ...value] = line.split(': ');
+      const v = value
+        .join(': ')
+        .replace(/=\?UTF-8\?B\?(.+?)\?=/g, (_, b: string) => Buffer.from(b, 'base64').toString('utf8'));
+      return { name, value: v };
+    });
+    const b64 = rest[1]?.split('\r\n--')[0] ?? '';
+    const text = Buffer.from(b64.replace(/\r\n/g, ''), 'base64').toString('utf8');
+    return {
+      json: {
+        id: id,
+        message: {
+          id: `${id}-m`,
+          threadId: draft.threadId ?? `${id}-t`,
+          payload: {
+            mimeType: 'multipart/alternative',
+            headers,
+            body: { size: 0 },
+            parts: [textPart('text/plain', text)],
+          },
+        },
+      },
+    };
   }
 
   /** The fetch handler: plug it into `fakeFetch(gmail.handler)`. */
@@ -247,6 +313,8 @@ export class FakeGmail {
         json: { id: `sent-${this.sent.length}`, threadId: body.threadId ?? 'new', labelIds: ['SENT'] },
       };
     }
+    const drafts = this.handleDrafts(call, path);
+    if (drafts) return drafts;
     if (call.method === 'POST' && path === '/labels') {
       const body = JSON.parse(call.body ?? '{}') as { name: string };
       if (this.labels.some((l) => l.name.toLowerCase() === body.name.toLowerCase())) {

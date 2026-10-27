@@ -18,14 +18,14 @@ describe('buildMime', () => {
   it('writes the headers and both alternatives', () => {
     const mime = buildMime({
       from: 'Test <test@example.com>',
-      to: 'prof@ecole.fr',
+      to: 'prof@example.org',
       subject: 'Re: Rendu décalé',
       html: '<p>Merci</p>',
       inReplyTo: '<abc@mail>',
       references: '<abc@mail>',
     });
     expect(mime).toContain('From: Test <test@example.com>');
-    expect(mime).toContain('To: prof@ecole.fr');
+    expect(mime).toContain('To: prof@example.org');
     expect(mime).toContain(`Subject: =?UTF-8?B?${Buffer.from('Re: Rendu décalé').toString('base64')}?=`);
     expect(mime).toContain('In-Reply-To: <abc@mail>');
     expect(mime).toContain('References: <abc@mail>');
@@ -40,7 +40,7 @@ describe('POST /api/mail/send', () => {
     const h = await makeGmailHarness();
     const { status } = await h.call('POST', '/api/mail/send', {
       from: 'test@example.com',
-      to: 'prof@ecole.fr',
+      to: 'prof@example.org',
       subject: 'Bonjour',
       html: '<p>Bonjour</p>',
     });
@@ -52,8 +52,8 @@ describe('POST /api/mail/send', () => {
   it('refuses an address that is not a "send as" alias', async () => {
     const h = await makeGmailHarness();
     const { status, body } = await h.call('POST', '/api/mail/send', {
-      from: 'someone@else.com',
-      to: 'prof@ecole.fr',
+      from: 'someone@example.com',
+      to: 'prof@example.org',
       subject: 'x',
       html: 'x',
     });
@@ -66,7 +66,7 @@ describe('POST /api/mail/send', () => {
     const h = await makeGmailHarness();
     await h.call('POST', '/api/mail/send', {
       from: 'test@example.com',
-      to: 'prof@ecole.fr',
+      to: 'prof@example.org',
       subject: 'Re: x',
       html: 'ok',
       threadId: 't-1',

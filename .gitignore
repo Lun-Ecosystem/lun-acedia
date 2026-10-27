@@ -7,3 +7,4 @@ dist/
 .svelte-kit/
 build/
 data/
+server/scripts/pina-eval-report.md

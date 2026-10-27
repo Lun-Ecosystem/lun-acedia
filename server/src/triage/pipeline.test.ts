@@ -118,6 +118,29 @@ describe('triageNew', () => {
     expect(cost).toEqual([{ provider: 'anthropic', model: 'claude-haiku-5-5', amount: 0.000125, calls: 1 }]);
   });
 
+  it("records triage costs with purpose 'triage'", async () => {
+    const s = await setup(() => ({}));
+    await s.triage(await s.deliver({ id: 'm1' }));
+    expect(s.h.db.prepare('SELECT purpose FROM costs').all()).toEqual([{ purpose: 'triage' }]);
+  });
+
+  it('counts an unknown price as 0 and warns once per model', async () => {
+    const s = await setup(() => ({}));
+    const unpriced = { ...s.fake.classifier, model: 'mystery-1', provider: 'custom' as const };
+    const ids = await s.deliver({ id: 'm1' }, { id: 'm2' });
+    await triageNew({ ...s.h.deps, classifier: unpriced }, ids);
+    expect(s.h.db.prepare('SELECT provider, model, amount FROM costs').all()).toEqual([
+      { provider: 'custom', model: 'mystery-1', amount: 0 },
+      { provider: 'custom', model: 'mystery-1', amount: 0 },
+    ]);
+    const warnings = eventsSince(s.h.db, '0').filter((e) => e.type === 'llm.unknown-price');
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toMatchObject({
+      importance: 'info',
+      title: 'Prix inconnu pour mystery-1 : coût compté à 0',
+    });
+  });
+
   it('a matching rule files without calling the AI', async () => {
     const s = await setup(() => new Error('the classifier must not be called'));
     createRule(s.h.db, { field: 'fromDomain', op: 'equals', value: 'ecole.fr', boxId: s.ecole });

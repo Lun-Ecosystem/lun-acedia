@@ -120,6 +120,18 @@ export interface Draft {
   threadId?: string;
 }
 
+/** A Gmail draft as the composer and Pina see it; `replyTo.id` is the Message-ID of the mail answered. */
+export interface DraftView {
+  id: string;
+  /** The sender's address (an alias of the account), from the draft's From header. */
+  from?: string;
+  to: string;
+  cc?: string;
+  subject: string;
+  text: string;
+  replyTo?: { id: string; threadId: string };
+}
+
 export interface SendAsAddress {
   email: string;
   name?: string;
@@ -150,7 +162,7 @@ export interface Rule {
   position: number;
 }
 
-export type Origin = 'rule' | 'ai' | 'user';
+export type Origin = 'rule' | 'ai' | 'user' | 'pina';
 
 export interface JournalEntry {
   id: number;
@@ -186,3 +198,110 @@ export interface TodayStats {
 
 /** A label change recorded in the journal, so that it can be undone. */
 export type JournaledChange = LabelChange & { journalId: number };
+
+/** The AI providers the user can pick; `custom` is any OpenAI-compatible endpoint. */
+export type ProviderId = 'anthropic' | 'openai' | 'google' | 'mistral' | 'custom';
+
+/** A provider as the settings show it (`GET /api/llm/providers`): never more of its key than the last 4 characters. */
+export interface ProviderView {
+  id: ProviderId;
+  label: string;
+  /** `credit`: the key works but its credit is spent. */
+  state: 'ok' | 'refused' | 'credit' | 'absent';
+  /** Absent when the key has 4 characters or fewer. */
+  last4?: string;
+  /** Declared expiry, `AAAA-MM-JJ`. */
+  expires?: string;
+  /** Where the key in service comes from: saved in the settings or declared in `.env`. */
+  source?: 'saved' | 'env';
+  /** The custom endpoint's address, without credentials. */
+  baseUrl?: string;
+}
+
+export interface ModelInfo {
+  provider: ProviderId;
+  id: string;
+  label: string;
+  /** The provider documents tool calling for this model. */
+  tools: boolean;
+  /** Dollars per million tokens; absent when no official price was found (shown « prix inconnu »). */
+  price?: { input: number; output: number };
+}
+
+/** Marker by output price: € under $2, €€ from $2 to under $15, €€€ beyond; `null` without a price. */
+export type CostTier = '€' | '€€' | '€€€' | null;
+
+/** A model offered for a use (`GET /api/llm/models`), with its cost marker. */
+export type ModelOffer = ModelInfo & { tier: CostTier };
+
+/** The model of a use (`GET /api/llm/choice`); `null` while nothing is chosen nor configured. */
+export interface ModelChoice {
+  provider: ProviderId;
+  model: string;
+}
+
+/** What the screen shows when CrOliX asks Pina (`POST /api/pina/messages`): « ce mail » is `mailId`. */
+export interface ScreenContext {
+  screen: 'mail' | 'pending' | 'agenda' | 'tasks' | 'journal' | 'settings' | 'compose';
+  mailId?: string;
+  /** `AAAA-MM-JJ`. */
+  day?: string;
+  listId?: string;
+  draftId?: string;
+}
+
+export type PinaCardStatus = 'pending' | 'done' | 'refused' | 'failed' | 'expired';
+
+/** A write Pina proposed (or did, in « faire tout de suite »), as a card of the day's thread. */
+export interface PinaCard {
+  id: number;
+  day: string;
+  /** Id of the user message that started the turn: the cards of one turn are decided together. */
+  turn: number;
+  createdAt: string;
+  callId: string;
+  /** Name of the catalogue action (`task.create`). */
+  action: string;
+  input: unknown;
+  effect: string;
+  status: PinaCardStatus;
+  result: unknown;
+  /** Why a `failed` card failed, as the server said it. */
+  error: string | null;
+  /** Present when « Annuler » can undo a `done` card. */
+  inverse: unknown;
+  decidedAt: string | null;
+  /** CrOliX changed the input (« Modifier ») before accepting. */
+  edited: boolean;
+}
+
+/** One stored message of the thread; `turn` ties Pina's messages to the request they answer. */
+export type PinaMessage =
+  | { role: 'user'; text: string; context?: ScreenContext; turn?: number }
+  | {
+      role: 'assistant';
+      text: string;
+      toolCalls: { id: string; name: string; input: unknown }[];
+      turn?: number;
+    }
+  | { role: 'tool'; callId: string; content: string; isError: boolean; turn?: number };
+
+/** A day of Pina's thread (`GET /api/pina/today`, `/days/:day`); `pending` counts its waiting cards. */
+export interface PinaThread {
+  day: string;
+  messages: { id: number; at: string; message: PinaMessage }[];
+  cards: PinaCard[];
+  pending: number;
+}
+
+export interface PinaSettings {
+  mode: 'validate' | 'immediate';
+  instructions: string;
+  retentionDays: number;
+  dailyCapUsd: number;
+}
+
+/** The settings as `GET/PUT /api/pina/settings` answer them, with Pina's spend since the Paris day started. */
+export interface PinaSettingsView extends PinaSettings {
+  spentTodayUsd: number;
+}

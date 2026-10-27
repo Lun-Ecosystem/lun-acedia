@@ -30,6 +30,8 @@
     id: string;
     title: string;
     color: string;
+    /** Lists only: a calendar that is read-only on Google (holidays, birthdays) has `false`. */
+    writable?: boolean;
   }
   interface Props {
     client: AcediaClient;
@@ -95,7 +97,7 @@
   let error = $state<string | null>(null);
 
   $effect(() => {
-    if (!calendarId && calendars[0]) calendarId = calendars[0].id;
+    if (!calendarId) calendarId = calendars.find((c) => c.writable !== false)?.id ?? '';
     if (!listId && lists[0]) listId = lists[0].id;
   });
   $effect(() => {
@@ -253,7 +255,7 @@
           <Select
             aria-label="Agenda"
             class="choix"
-            items={options(calendars)}
+            items={options(calendars.filter((c) => c.writable !== false || c.id === calendarId))}
             bind:value={calendarId}
             disabled={item !== undefined}
           />

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest';
-import { render, screen, within } from '@testing-library/svelte';
+import { render, screen, waitFor, within } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Settings } from '@lun-ecosystem/lunacedia-views';
@@ -10,7 +10,44 @@ import { createHttpClient } from './httpClient.ts';
 const TOKEN_KEY = 'lunacedia.token';
 
 /** A fake Lun'Acedia server: records each call as `METHOD /path`. */
-function fakeServer({ keyRefused = false, startPaused = false } = {}) {
+/** Today's thread of Pina with one reply drafted (`d1`), done. */
+const DRAFT_THREAD = {
+  day: '2026-11-02',
+  messages: [
+    { id: 1, at: '2026-11-02T09:00:00.000Z', message: { role: 'user', text: 'Réponds-lui oui.' } },
+    {
+      id: 2,
+      at: '2026-11-02T09:00:02.000Z',
+      message: {
+        role: 'assistant',
+        text: 'Brouillon prêt.',
+        toolCalls: [{ id: 'c1', name: 'draft_create', input: {} }],
+        turn: 1,
+      },
+    },
+  ],
+  cards: [
+    {
+      id: 12,
+      day: '2026-11-02',
+      turn: 1,
+      createdAt: '2026-11-02T09:00:01.000Z',
+      callId: 'c1',
+      action: 'draft.create',
+      input: { to: 'marie@example.com', subject: 'Re: Dîner samedi ?', text: 'Coucou Marie' },
+      effect: 'write',
+      status: 'done',
+      result: { id: 'd1', to: 'marie@example.com', subject: 'Re: Dîner samedi ?', text: 'Coucou Marie' },
+      error: null,
+      inverse: null,
+      decidedAt: '2026-11-02T09:00:02.000Z',
+      edited: false,
+    },
+  ],
+  pending: 0,
+};
+
+function fakeServer({ keyRefused = false, startPaused = false, draft = false } = {}) {
   const calls: string[] = [];
   let paused = startPaused;
   const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status });
@@ -51,14 +88,39 @@ function fakeServer({ keyRefused = false, startPaused = false } = {}) {
         if (keyRefused)
           return json({ status: 'degraded', reason: 'anthropic-key', ...(paused ? { paused } : {}) });
         return json({ status: paused ? 'paused' : 'ok' });
-      case 'GET /api/anthropic-key':
-        return json({ state: keyRefused ? 'refused' : 'ok', last4: '7f3a' });
+      case 'GET /api/llm/providers':
+        return json({
+          providers: [
+            { id: 'anthropic', label: 'Anthropic', state: keyRefused ? 'refused' : 'ok', last4: '7f3a' },
+          ],
+        });
+      case 'GET /api/llm/models':
+        return json({ models: [] });
+      case 'GET /api/llm/choice':
+        return json({ triage: null, pina: null });
       case 'POST /lun/v1/resume':
         paused = false;
         return json({ status: 'ok' });
       case 'POST /lun/v1/pause':
         paused = true;
         return json({ status: 'paused' });
+      case 'GET /api/pina/today':
+        return json(draft ? DRAFT_THREAD : { day: '2026-11-02', messages: [], cards: [], pending: 0 });
+      case 'GET /api/drafts/d1':
+        return json({
+          id: 'd1',
+          to: 'marie@example.com',
+          subject: 'Re: Dîner samedi ?',
+          text: 'Coucou Marie',
+        });
+      case 'GET /api/mail':
+        return json({ items: [] });
+      case 'GET /api/send-as':
+        return json({ addresses: [{ email: 'moi@example.com', primary: true }], default: 'moi@example.com' });
+      case 'GET /api/pina/days':
+        return json({ days: [] });
+      case 'GET /api/pina/settings':
+        return json({ mode: 'validate', instructions: '', retentionDays: 30, dailyCapUsd: 1 });
       case 'POST /lun/v1/pair':
         return json({ token: 'tok-2', satellite: {} });
       default:
@@ -95,6 +157,57 @@ afterEach(() => {
 });
 
 describe('App', () => {
+  it('Pina overlays the shell: opening her window never changes the main area', async () => {
+    fakeServer();
+    localStorage.setItem(TOKEN_KEY, 'tok-1');
+    const user = userEvent.setup();
+    const { container } = render(App);
+    const main = await waitFor(() => container.querySelector('main')!);
+    const zone = main.parentElement!;
+    const look = () => [
+      main.className,
+      main.getAttribute('style'),
+      zone.className,
+      zone.getAttribute('style'),
+    ];
+    const before = look();
+    await user.keyboard('{Control>}j{/Control}');
+    const pina = await screen.findByRole('dialog', { name: 'Pina' });
+    expect(main.contains(pina)).toBe(false);
+    expect(look()).toEqual(before);
+  });
+
+  it('« Ouvrir le brouillon » opens the composer on that draft, under Pina’s window, layout unchanged', async () => {
+    fakeServer({ draft: true });
+    localStorage.setItem(TOKEN_KEY, 'tok-1');
+    history.replaceState(null, '', '/#/agenda');
+    const user = userEvent.setup();
+    const { container } = render(App);
+    const main = await waitFor(() => container.querySelector('main')!);
+    const zone = main.parentElement!;
+    const look = () => [
+      main.className,
+      main.getAttribute('style'),
+      zone.className,
+      zone.getAttribute('style'),
+    ];
+    const before = look();
+    await user.keyboard('{Control>}j{/Control}');
+    const pina = await screen.findByRole('dialog', { name: 'Pina' });
+    await user.click(await within(pina).findByRole('button', { name: 'Ouvrir le brouillon' }));
+
+    const composer = await screen.findByRole('form', { name: 'Brouillon' });
+    expect(within(composer).getByText('Brouillon préparé par Pina.')).toBeInTheDocument();
+    await waitFor(() =>
+      expect(within(composer).getByRole('textbox', { name: 'Message' })).toHaveValue('Coucou Marie'),
+    );
+    // On a desktop the window stays open, over the composer, which keeps its place.
+    expect(screen.getByRole('dialog', { name: 'Pina' })).toBeInTheDocument();
+    expect(main.contains(screen.getByRole('dialog', { name: 'Pina' }))).toBe(false);
+    expect(main.contains(composer)).toBe(true);
+    expect(look()).toEqual(before);
+  });
+
   it('revoking the current device clears the token and shows pairing, once', async () => {
     const { calls } = fakeServer();
     localStorage.setItem(TOKEN_KEY, 'tok-1');
@@ -173,7 +286,9 @@ describe('Shell', () => {
     const user = userEvent.setup();
     render(App);
     const rail = await screen.findByRole('navigation', { name: 'Sections' });
-    expect(await within(rail).findByText('Clé refusée · les règles continuent')).toBeInTheDocument();
+    expect(
+      await within(rail).findByText('Clé Anthropic refusée · les règles continuent'),
+    ).toBeInTheDocument();
     await user.click(await screen.findByRole('button', { name: 'Reprendre le tri' }));
     expect(calls).toContain('POST /lun/v1/resume');
     expect(calls).not.toContain('POST /lun/v1/pause');

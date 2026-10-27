@@ -15,20 +15,13 @@ import {
 } from './contract/auth.ts';
 import { allowAuthorization, denyAuthorization, readAuthorizationRequest } from './contract/authorize.ts';
 import { contractRoutes } from './contract/routes.ts';
-import { gmailRoutes, sendAsRoutes } from './gmail/routes.ts';
+import { draftRoutes, gmailRoutes, sendAsRoutes } from './gmail/routes.ts';
 import { createGoogleClient, type GoogleClient, type GoogleDeps } from './google/client.ts';
 import { googleRoutes } from './google/oauth.ts';
-import {
-  ANTHROPIC_LABEL,
-  anthropicKeyView,
-  checkWithModelsList,
-  keyWorks,
-  removeAnthropicKey,
-  saveAnthropicKey,
-  type AnthropicEnv,
-  type KeyChecker,
-} from './keys/anthropic-key.ts';
-import { checkExpiry, isValidDate } from './keys/expiry.ts';
+import { choiceFor, makeProvider, providerFor, type KeyChecker, type LlmEnv } from './llm/keys.ts';
+import { llmRoutes, type ModelLister } from './llm/routes.ts';
+import type { PinaDeps } from './pina/agent.ts';
+import { pinaRoutes } from './pina/routes.ts';
 import { serveApp } from './static.ts';
 import { afterUserAction, withProposal } from './triage/pipeline.ts';
 import { triageRoutes } from './triage/routes.ts';
@@ -45,12 +38,16 @@ export interface AppDeps {
   staticDir?: string | undefined;
   /** Where warnings go (the pairing lock); `console.warn` by default. */
   log?: ((line: string) => void) | undefined;
-  /** ACEDIA_SECRET_KEY: without it, no Anthropic key can be saved. */
+  /** ACEDIA_SECRET_KEY: without it, no provider key can be saved. */
   secretKey?: string | undefined;
-  /** The Anthropic key and its expiry declared in `.env`. */
-  anthropicEnv?: AnthropicEnv | undefined;
-  /** How a new Anthropic key is tried; the free models listing by default. */
-  checkAnthropicKey?: KeyChecker | undefined;
+  /** The provider keys, their expiry and the custom address declared in `.env`. */
+  llmEnv?: LlmEnv | undefined;
+  /** How a new key is tried; each provider's free models listing by default. */
+  checkKey?: KeyChecker | undefined;
+  /** How the custom endpoint lists its models; its `models.list` by default. */
+  listCustomModels?: ModelLister | undefined;
+  /** Pina's model, looked up at each use; the chosen provider (real factory) by default. */
+  pinaProvider?: PinaDeps['provider'] | undefined;
 }
 
 export function createApp(deps: AppDeps): Hono {
@@ -98,39 +95,26 @@ export function createApp(deps: AppDeps): Hono {
     if (body.decision === 'deny') return c.json({ redirect: denyAuthorization(read.request) });
     return c.json({ error: "decision attendue : 'allow' ou 'deny'" }, 400);
   });
-  const anthropicEnv = deps.anthropicEnv ?? {};
-  api.get('/anthropic-key', (c) => c.json(anthropicKeyView(deps.db, deps.secretKey, anthropicEnv)));
-  // The key is never logged nor sent back: the answer carries its last 4 characters at most.
-  api.put('/anthropic-key', async (c) => {
-    if (!deps.secretKey)
-      return c.json({ error: 'ACEDIA_SECRET_KEY absente : la clé ne peut pas être enregistrée' }, 400);
-    let body: { key?: unknown; expires?: unknown };
-    try {
-      body = (await c.req.json()) as { key?: unknown; expires?: unknown };
-    } catch {
-      return c.json({ error: 'Corps JSON invalide' }, 400);
-    }
-    if (body === null || typeof body !== 'object') return c.json({ error: 'Corps JSON invalide' }, 400);
-    const key = typeof body.key === 'string' ? body.key.trim() : '';
-    if (!key) return c.json({ error: 'Clé attendue' }, 400);
-    // No date (absent, null or empty) is fine; anything else must be a real AAAA-MM-JJ.
-    const rawExpires = body.expires ?? '';
-    const expires = typeof rawExpires === 'string' ? rawExpires.trim() || undefined : '';
-    if (expires !== undefined && !isValidDate(expires))
-      return c.json({ error: 'Date d’échéance attendue au format AAAA-MM-JJ' }, 400);
-    const check = await (deps.checkAnthropicKey ?? checkWithModelsList)(key);
-    if (check === 'refused') return c.json({ error: 'Clé refusée par Anthropic, rien n’a changé' }, 400);
-    if (check === 'unreachable') return c.json({ error: 'Anthropic injoignable, rien n’a changé' }, 502);
-    saveAnthropicKey(deps.db, deps.secretKey, key, expires);
-    keyWorks(deps.db, deps.clock());
-    checkExpiry(deps.db, deps.clock(), expires, ANTHROPIC_LABEL);
-    return c.json(anthropicKeyView(deps.db, deps.secretKey, anthropicEnv));
-  });
-  api.delete('/anthropic-key', (c) => {
-    removeAnthropicKey(deps.db);
-    return c.json(anthropicKeyView(deps.db, deps.secretKey, anthropicEnv));
-  });
   app.route('/api', api);
+  app.route('/api/llm', llmRoutes(deps));
+  const pinaProvider: PinaDeps['provider'] =
+    deps.pinaProvider ??
+    (() => {
+      const env = deps.llmEnv ?? {};
+      const choice = choiceFor(deps.db, deps.secretKey, env, 'pina');
+      const provider = choice && providerFor(deps.db, deps.secretKey, env, choice.provider, makeProvider);
+      return choice && provider ? { provider, model: choice.model } : undefined;
+    });
+  app.route(
+    '/api/pina',
+    pinaRoutes({
+      db: deps.db,
+      actions: deps.actions,
+      clock: deps.clock,
+      provider: pinaProvider,
+      triageProvider: () => choiceFor(deps.db, deps.secretKey, deps.llmEnv ?? {}, 'triage')?.provider,
+    }),
+  );
 
   const auth = googleRoutes(deps);
   app.route('/oauth', auth.callback);
@@ -143,6 +127,7 @@ export function createApp(deps: AppDeps): Hono {
         afterUserAction({ db: deps.db, google: google!, now: deps.clock }, change, op),
     }),
   );
+  app.route('/api/drafts', draftRoutes(deps, google));
   app.route('/api/send-as', sendAsRoutes(deps, google));
   app.route('/api', triageRoutes(deps, google));
   app.route('/api', agendaRoutes(deps, google));

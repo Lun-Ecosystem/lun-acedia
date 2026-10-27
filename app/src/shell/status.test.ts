@@ -32,10 +32,12 @@ describe('readStatus', () => {
     const { client } = fakeClient();
     client.health.mockResolvedValue({ status: 'paused' });
     expect((await readStatus(client, start, { now })).service).toBe('pause');
-    client.getAnthropicKey.mockResolvedValueOnce({ state: 'refused', last4: '7f3a' });
+    client.getProviders.mockResolvedValueOnce([
+      { id: 'mistral', label: 'Mistral', state: 'refused', last4: '7f3a' },
+    ]);
     expect(await readStatus(client, start, { now })).toMatchObject({
       service: 'cle-refusee',
-      detail: 'Clé refusée · les règles continuent',
+      detail: 'Clé Mistral refusée · les règles continuent',
     });
   });
 
@@ -59,8 +61,25 @@ describe('readStatus', () => {
   it('keeps the pause apart from the card: a refused key and a pause still offer to resume', async () => {
     const { client } = fakeClient();
     client.health.mockResolvedValueOnce({ status: 'degraded', reason: 'anthropic-key', paused: true });
-    client.getAnthropicKey.mockResolvedValueOnce({ state: 'refused', last4: '7f3a' });
+    client.getProviders.mockResolvedValueOnce([
+      { id: 'anthropic', label: 'Anthropic', state: 'refused', last4: '7f3a' },
+    ]);
     expect(await readStatus(client, start, { now })).toMatchObject({ service: 'cle-refusee', paused: true });
+  });
+
+  it('tells a refused key of any provider from the degraded reason alone', async () => {
+    const { client } = fakeClient();
+    for (const [reason, detail] of [
+      ['openai-key', 'Clé OpenAI refusée · les règles continuent'],
+      ['google-reauth, mistral-key', 'Clé refusée · les règles continuent'],
+    ] as const) {
+      client.health.mockResolvedValueOnce({ status: 'degraded', reason });
+      // The states of the keys say nothing (OpenAI) or could not be read (Mistral).
+      if (reason === 'openai-key')
+        client.getProviders.mockResolvedValueOnce([{ id: 'openai', label: 'OpenAI', state: 'ok' }]);
+      else client.getProviders.mockRejectedValueOnce(new Error('hors ligne'));
+      expect(await readStatus(client, start, { now })).toMatchObject({ service: 'cle-refusee', detail });
+    }
   });
 
   it('never shows a degraded service as active', async () => {

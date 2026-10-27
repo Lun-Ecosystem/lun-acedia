@@ -12,7 +12,7 @@
   import IconButton from '../ui/IconButton.svelte';
   import NavGroup from '../ui/NavGroup.svelte';
   import Segmented from '../ui/Segmented.svelte';
-  import { shellOf } from '../ui/shell.ts';
+  import { setScreenContext, shellOf } from '../ui/shell.ts';
   import { bindShortcuts } from '../ui/shortcuts.ts';
   import { toast } from '../ui/toasts.svelte.ts';
   import CalendarGrid from './CalendarGrid.svelte';
@@ -181,6 +181,9 @@
   }
   const go = (direction: 1 | -1) => (cursor = step(mode, cursor, direction));
 
+  /** A menu or a window has the keyboard (Pina's included): the screen's shortcuts wait. */
+  const overlay = () => Boolean(document.activeElement?.closest('[role="menu"], [role="dialog"]'));
+
   // Keys are the page's only while no window or bubble is open.
   onMount(() =>
     bindShortcuts(
@@ -194,12 +197,21 @@
           m: () => view('month'),
           a: () => view('agenda'),
           c: () => create(),
-        }).map(([key, run]) => [key, () => !editing && !bubbleOpen && !removing && run()]),
+        }).map(([key, run]) => [key, () => !editing && !bubbleOpen && !removing && !overlay() && run()]),
       ),
     ),
   );
 
   const shell = shellOf();
+  setScreenContext({
+    screen: 'agenda',
+    get day() {
+      return dayKey(cursor);
+    },
+    get label() {
+      return `Agenda, ${cursor.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })}`;
+    },
+  });
   $effect(() => {
     if (!shell) return;
     shell({ action: side, rail: agendas, create: () => create(), createLabel: 'Créer' });

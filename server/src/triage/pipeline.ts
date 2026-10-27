@@ -2,7 +2,7 @@ import type { DatabaseSync } from 'node:sqlite';
 import { recordCost } from '../contract/costs.ts';
 import { emitEvent } from '../contract/events.ts';
 import { addDegraded, clearDegraded, getState } from '../contract/state.ts';
-import { getSetting } from '../db.ts';
+import { getSetting, putSetting } from '../db.ts';
 import {
   BadRequestError,
   boxIds,
@@ -18,7 +18,8 @@ import {
 import { plainText } from '../gmail/body.ts';
 import { getStoredMessage, header, type StoredMessage } from '../gmail/store.ts';
 import { fetchFull } from '../gmail/read.ts';
-import { keyRefused, keyWorks } from '../keys/anthropic-key.ts';
+import { costOf, priceOf } from '../llm/models.ts';
+import { keyRefused, keyWorks } from '../llm/keys.ts';
 import {
   ClassifierError,
   CreditExhaustedError,
@@ -29,7 +30,6 @@ import {
 import { getExample, pickExamples, recordExample } from './examples.ts';
 import { ConflictError, logAuto, logUser, type Previous, type UserAction } from './journal.ts';
 import { listBoxes, listTags } from './labels.ts';
-import { costOf } from './prices.ts';
 import {
   claim,
   getProposal,
@@ -115,10 +115,23 @@ function creditExhausted(deps: ActionDeps): void {
   );
 }
 
+/** One `info` event per model: it is counted at 0 rather than blocking the triage. */
+function warnUnknownPrice(deps: TriageDeps, key: string, model: string): void {
+  const warned = getSetting<string[]>(deps.db, 'llm.unknownPriceWarned', []);
+  if (warned.includes(key)) return;
+  putSetting(deps.db, 'llm.unknownPriceWarned', [...warned, key]);
+  emitEvent(
+    deps.db,
+    { type: 'llm.unknown-price', importance: 'info', title: `Prix inconnu pour ${model} : coût compté à 0` },
+    deps.now(),
+  );
+}
+
 async function classify(
   deps: TriageDeps & { classifier: Classifier },
   mail: StoredMessage,
 ): Promise<Classification | 'ai-off' | 'gone' | 'unusable'> {
+  const provider = deps.classifier.provider ?? 'anthropic';
   const payload = (await fetchFull(deps.google, mail.id))?.payload;
   if (!payload) return 'gone';
   try {
@@ -135,16 +148,15 @@ async function classify(
       examples: pickExamples(deps.db, mail),
     });
     if (getState(deps.db).degraded.includes('credit')) clearDegraded(deps.db, 'credit');
-    keyWorks(deps.db, deps.now());
+    keyWorks(deps.db, provider, deps.now());
+    const model = deps.classifier.model;
+    const price = priceOf(deps.db, provider, model);
+    if (!price) warnUnknownPrice(deps, `${provider}/${model}`, model);
     recordCost(
       deps.db,
-      {
-        provider: 'anthropic',
-        model: deps.classifier.model,
-        amount: costOf(deps.classifier.model, result.usage),
-        calls: 1,
-      },
+      { provider, model, amount: price ? costOf(price, result.usage) : 0, calls: 1 },
       deps.now(),
+      'triage',
     );
     return result;
   } catch (err) {
@@ -153,7 +165,7 @@ async function classify(
       return 'ai-off';
     }
     if (err instanceof KeyRefusedError) {
-      keyRefused(deps.db, deps.now());
+      keyRefused(deps.db, provider, deps.now());
       return 'ai-off';
     }
     if (err instanceof ClassifierError) return 'unusable';

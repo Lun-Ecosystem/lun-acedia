@@ -50,6 +50,12 @@
     account?: string | undefined;
     /** Pauses or resumes the sorting. */
     ontogglepause: () => void;
+    /** Pina's window, above the screens (it never resizes them). */
+    pina?: Snippet | undefined;
+    /** Under 768 px, the violet button of the top bar opens and closes Pina. */
+    onpina?: (() => void) | undefined;
+    pinaOpen?: boolean | undefined;
+    pinaPending?: number | undefined;
     children: Snippet;
   };
 
@@ -61,6 +67,10 @@
     counts,
     account,
     ontogglepause,
+    pina,
+    onpina,
+    pinaOpen = false,
+    pinaPending = 0,
     children,
   }: Props = $props();
 
@@ -208,6 +218,18 @@
             onclick={ontogglepause}
           />
         </span>
+        {#if onpina}
+          <button
+            type="button"
+            class="pina"
+            aria-label={pinaPending ? `Pina, ${pinaPending} en attente` : 'Pina'}
+            aria-expanded={pinaOpen}
+            onclick={onpina}
+          >
+            <icons.Sparkles size={16} strokeWidth={1.75} aria-hidden="true" />
+            {#if pinaPending}<span class="pt" aria-hidden="true">{pinaPending}</span>{/if}
+          </button>
+        {/if}
         {#if initial}<span class="avatar" title={account}>{initial}</span>{/if}
       </div>
     </header>
@@ -230,6 +252,7 @@
     bind:search
     placeholder="Rechercher dans les mails, ou une commande"
   />
+  {@render pina?.()}
   <Toaster />
 </div>
 
@@ -323,6 +346,36 @@
     color: var(--texte-2);
     font: 500 11.5px var(--sans);
   }
+  .pina {
+    position: relative;
+    display: none;
+    place-items: center;
+    flex: none;
+    width: 42px;
+    height: 42px;
+    border: 1px solid var(--ia-bord);
+    border-radius: 21px;
+    background: var(--ia-doux);
+    color: var(--ia);
+    cursor: pointer;
+  }
+  .pina:focus-visible {
+    outline: 2px solid var(--ia);
+    outline-offset: 2px;
+  }
+  .pt {
+    position: absolute;
+    top: -3px;
+    right: -3px;
+    min-width: 16px;
+    height: 16px;
+    padding: 0 4px;
+    box-sizing: border-box;
+    border-radius: 8px;
+    background: var(--ia);
+    color: var(--encre-2);
+    font: 500 10px/16px var(--sans);
+  }
   main {
     flex: 1;
     min-height: 0;
@@ -357,6 +410,9 @@
     }
     .court {
       display: inline;
+    }
+    .pina {
+      display: grid;
     }
     .avatar {
       width: 36px;

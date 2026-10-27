@@ -21,7 +21,8 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "check:colors": "node scripts/check-colors.mjs",
-    "typecheck": "tsc --noEmit && npm run check -w @lun-ecosystem/lunacedia-views && npm run check -w @lun-acedia/app"
+    "typecheck": "tsc --noEmit && npm run check -w @lun-ecosystem/lunacedia-views && npm run check -w @lun-acedia/app",
+    "pina:eval": "npm run -s pina:eval -w @lun-acedia/server --"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

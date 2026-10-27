@@ -12,14 +12,18 @@ import { openDb } from './db.ts';
 import { startSyncLoop } from './gmail/sync.ts';
 import { createGoogleClient, GoogleNotConnectedError, GoogleReauthError } from './google/client.ts';
 import { googleFromEnv } from './google/oauth.ts';
+import { isValidDate } from './keys/expiry.ts';
 import {
-  ANTHROPIC_LABEL,
-  checkWithModelsList,
+  checkKeyExpiries,
+  checkWithProvider,
   classifierFor,
-  currentAnthropicKey,
-  currentExpiry,
-} from './keys/anthropic-key.ts';
-import { checkExpiry, isValidDate } from './keys/expiry.ts';
+  configuredProviders,
+  expiresEnvName,
+  llmEnvFrom,
+  PROVIDERS,
+} from './llm/keys.ts';
+import { expireCards } from './pina/agent.ts';
+import { dayOf, pinaSettings, purge } from './pina/store.ts';
 import { triageNew } from './triage/pipeline.ts';
 import { recoverQueue } from './triage/queue.ts';
 import { startLoop } from './util.ts';
@@ -44,10 +48,7 @@ const appDist = resolve(root, 'app/dist');
 const staticDir = existsSync(resolve(appDist, 'index.html')) ? appDist : undefined;
 if (!staticDir) console.log('Front autonome absent : lancer « npm run build -w @lun-acedia/app ».');
 const secretKey = process.env.ACEDIA_SECRET_KEY || undefined;
-const anthropicEnv = {
-  key: process.env.ANTHROPIC_API_KEY || undefined,
-  expires: process.env.ANTHROPIC_KEY_EXPIRES || undefined,
-};
+const llmEnv = llmEnvFrom(process.env);
 const app = createApp({
   db,
   clock,
@@ -56,18 +57,20 @@ const app = createApp({
   google,
   staticDir,
   secretKey,
-  anthropicEnv,
-  checkAnthropicKey: checkWithModelsList,
+  llmEnv,
+  checkKey: checkWithProvider,
 });
 
 bootstrapPairing(db, clock(), (line) => console.log(line));
-if (!currentAnthropicKey(db, secretKey, anthropicEnv.key))
-  console.log('Aucune clé Anthropic (Réglages ou ANTHROPIC_API_KEY) : seules les règles trient les mails.');
-if (anthropicEnv.expires && !isValidDate(anthropicEnv.expires))
-  console.log('ANTHROPIC_KEY_EXPIRES ignorée : date attendue au format AAAA-MM-JJ.');
-// The declared expiry of the key in service: checked at start, then every hour.
-const checkKeyExpiry = () =>
-  checkExpiry(db, clock(), currentExpiry(db, secretKey, anthropicEnv), ANTHROPIC_LABEL);
+if (!configuredProviders(db, secretKey, llmEnv).length)
+  console.log('Aucune clé de fournisseur d’IA (Réglages ou .env) : seules les règles trient les mails.');
+for (const id of PROVIDERS) {
+  const expires = llmEnv[id]?.expires;
+  if (expires && !isValidDate(expires))
+    console.log(`${expiresEnvName(id)} ignorée : date attendue au format AAAA-MM-JJ.`);
+}
+// The declared expiry of each key in service: checked at start, then every hour.
+const checkKeyExpiry = () => checkKeyExpiries(db, secretKey, llmEnv, clock());
 checkKeyExpiry();
 setInterval(checkKeyExpiry, 3600_000).unref();
 function logError(what: string) {
@@ -84,7 +87,7 @@ if (google) {
   startSyncLoop(deps, {
     // The sync queues the new mails; the triage drains the queue (also what waited for a resume).
     // The classifier is looked up at each pass: a key saved in the settings serves at once.
-    onResult: () => triageNew({ ...deps, classifier: classifierFor(db, secretKey, anthropicEnv.key) }),
+    onResult: () => triageNew({ ...deps, classifier: classifierFor(db, secretKey, llmEnv) }),
     onError: logError('Synchro Gmail'),
   });
   // The agenda has its own loop: a Gmail or AI failure never stops it.
@@ -95,6 +98,15 @@ if (google) {
 }
 startReminderLoop(db, clock);
 setInterval(() => pruneEvents(db, clock()), 3600_000).unref();
+
+// Pina's thread: yesterday's pending cards expire and old days go, at start then every day.
+const tidyPina = () => {
+  const today = dayOf(clock());
+  expireCards(db, today);
+  purge(db, today, pinaSettings(db).retentionDays);
+};
+tidyPina();
+setInterval(tidyPina, 24 * 3600_000).unref();
 
 const port = Number(process.env.PORT ?? 8787);
 // Loopback by default: a deployment that must be reachable gives its address explicitly.

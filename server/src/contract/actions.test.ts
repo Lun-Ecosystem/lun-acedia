@@ -6,15 +6,33 @@ import { DegradedError } from './actions.ts';
 describe('/lun/v1/actions', () => {
   function withEcho() {
     const h = makeHarness();
-    h.actions.register('test.echo', 'Renvoie le texte', z.object({ text: z.string() }), async ({ text }) => ({
-      text,
-    }));
-    h.actions.register('test.degraded', 'Toujours indisponible', z.object({}), async () => {
-      throw new DegradedError('credit');
-    });
-    h.actions.register('test.fails', 'Échoue', z.object({}), async () => {
-      throw new Error('Mail introuvable');
-    });
+    h.actions.register(
+      'test.echo',
+      'Renvoie le texte',
+      z.object({ text: z.string() }),
+      async ({ text }) => ({
+        text,
+      }),
+      'read',
+    );
+    h.actions.register(
+      'test.degraded',
+      'Toujours indisponible',
+      z.object({}),
+      async () => {
+        throw new DegradedError('credit');
+      },
+      'write',
+    );
+    h.actions.register(
+      'test.fails',
+      'Échoue',
+      z.object({}),
+      async () => {
+        throw new Error('Mail introuvable');
+      },
+      'write',
+    );
     return h;
   }
 

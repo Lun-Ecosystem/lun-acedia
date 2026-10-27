@@ -70,7 +70,7 @@ describe('agendaRange', () => {
     const h = await makeAgendaHarness();
     await h.syncAgenda();
     expect((await h.call('GET', '/api/calendars')).body.items).toEqual([
-      { id: 'primary', title: 'Personnel' },
+      { id: 'primary', title: 'Personnel', writable: true },
     ]);
     expect((await h.call('GET', '/api/task-lists')).body.items).toEqual([
       { id: 'list1', title: 'Mes tâches' },

@@ -8,12 +8,14 @@
     "dev": "node --watch --experimental-strip-types src/main.ts",
     "start": "node dist/main.js",
     "demo": "node --experimental-strip-types --no-warnings src/demo/main.ts",
-    "pair-code": "node --experimental-strip-types --no-warnings src/cli/pair-code.ts"
+    "pair-code": "node --experimental-strip-types --no-warnings src/cli/pair-code.ts",
+    "pina:eval": "node --experimental-strip-types --no-warnings scripts/pina-eval.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.135.0",
     "@hono/node-server": "^2.1.5",
     "hono": "^4.13.13",
+    "openai": "^7.39.0",
     "zod": "^4.6.7"
   }
 }

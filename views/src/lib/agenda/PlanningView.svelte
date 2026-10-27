@@ -76,7 +76,7 @@
   .planning {
     height: 100%;
     overflow-y: auto;
-    padding: 0 18px 96px;
+    padding: 0 18px var(--pina-coin);
     box-sizing: border-box;
   }
   .jour {

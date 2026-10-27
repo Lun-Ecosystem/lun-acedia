@@ -1,0 +1,97 @@
+import type { DatabaseSync } from 'node:sqlite';
+import { getEvent } from '../agenda/calendar.ts';
+import { getTask } from '../agenda/tasks.ts';
+import { listLabels } from '../triage/labels.ts';
+import { listRules } from '../triage/rules.ts';
+
+export interface Inverse {
+  action: string;
+  input: Record<string, unknown>;
+}
+
+type Fields = Record<string, unknown>;
+const fields = (v: unknown): Fields => (v && typeof v === 'object' ? (v as Fields) : {});
+
+/** The ids of an update: kept as they are in its inverse. */
+const KEYS: Record<string, string[]> = {
+  'event.update': ['calendarId', 'id'],
+  'task.update': ['listId', 'id'],
+  'rule.update': ['id'],
+};
+
+/** How a field absent before is put back: cleared. */
+const CLEARED: Record<string, unknown> = { due: null, location: '', notes: '' };
+
+/** What an update will overwrite, read in the local cache before the write. */
+export function beforeOf(db: DatabaseSync, action: string, input: unknown): unknown {
+  const i = fields(input);
+  if (action === 'event.update') return getEvent(db, String(i.calendarId), String(i.id));
+  if (action === 'task.update') return getTask(db, String(i.listId), String(i.id));
+  if (action === 'rule.update') return listRules(db).find((r) => r.id === i.id);
+  if (action === 'label.setRole') return listLabels(db).find((l) => l.id === i.id);
+  return undefined;
+}
+
+/**
+ * The journal keeps neither read, tags nor untrash: their opposite gesture undoes them, from the labels
+ * before and after the write (`LabelChange`), so that only what really changed is put back.
+ */
+function opposite(action: string, id: unknown, change: Fields): Inverse | null {
+  const before = Array.isArray(change.before) ? (change.before as string[]) : [];
+  const after = Array.isArray(change.after) ? (change.after as string[]) : [];
+  const added = after.filter((l) => !before.includes(l));
+  const removed = before.filter((l) => !after.includes(l));
+  if (!added.length && !removed.length) return null;
+  if (action === 'mail.markRead') return { action, input: { id, read: !before.includes('UNREAD') } };
+  if (action === 'mail.tags') return { action, input: { id, add: removed, remove: added } };
+  if (action === 'mail.untrash') return { action: 'mail.trash', input: { id } };
+  return null;
+}
+
+/** The action that undoes a done write (its « Annuler »), or `null` when there is none. */
+export function inverseOf(action: string, input: unknown, result: unknown, before: unknown): Inverse | null {
+  const i = fields(input);
+  const r = fields(result);
+  // A journaled gesture (filing, validation, correction…) is undone by its journal line.
+  if (typeof r.journalId === 'number') return { action: 'journal.undo', input: { id: r.journalId } };
+  switch (action) {
+    case 'event.create':
+      return { action: 'event.delete', input: { calendarId: r.calendarId, id: r.id } };
+    case 'task.create':
+      return { action: 'task.delete', input: { listId: r.listId, id: r.id } };
+    case 'rule.create':
+      return { action: 'rule.delete', input: { id: r.id } };
+    case 'draft.create':
+      return { action: 'draft.delete', input: { id: r.id } };
+    case 'event.update':
+    case 'task.update':
+    case 'rule.update': {
+      if (!before) return null;
+      const b = fields(before);
+      const keys = KEYS[action]!;
+      const restored = Object.fromEntries(
+        // A field absent before is cleared when it can be (no due date, location or notes), else left out.
+        Object.keys(i).flatMap((k) =>
+          keys.includes(k) || b[k] !== undefined
+            ? [[k, keys.includes(k) ? i[k] : b[k]]]
+            : k in CLEARED
+              ? [[k, CLEARED[k]]]
+              : [],
+        ),
+      );
+      return { action, input: restored };
+    }
+    case 'label.setRole':
+      return before ? { action, input: { id: i.id, role: fields(before).role ?? null } } : null;
+    case 'mail.file':
+    case 'mail.archive':
+    case 'mail.trash':
+    case 'mail.untrash':
+    case 'mail.spam':
+    case 'mail.tags':
+    case 'mail.markRead':
+      return opposite(action, i.id, r);
+    default:
+      return null;
+  }
+}

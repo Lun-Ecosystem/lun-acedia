@@ -27,6 +27,7 @@ interface Calendar {
   id: string;
   summary: string;
   selected?: boolean;
+  accessRole: string;
   defaultReminders: { method: string; minutes: number }[];
   /** Each event with the version at which it last changed (deleted ones stay as `cancelled`). */
   events: Map<string, { event: FakeEvent; version: number }>;
@@ -53,12 +54,17 @@ export class FakeAgenda {
   addCalendar(
     id: string,
     summary: string,
-    opts: { selected?: boolean; defaultReminders?: { method: string; minutes: number }[] } = {},
+    opts: {
+      selected?: boolean;
+      accessRole?: string;
+      defaultReminders?: { method: string; minutes: number }[];
+    } = {},
   ): void {
     this.calendars.set(id, {
       id,
       summary,
       selected: opts.selected ?? true,
+      accessRole: opts.accessRole ?? 'owner',
       defaultReminders: opts.defaultReminders ?? [],
       events: new Map(),
     });
@@ -116,12 +122,16 @@ export class FakeAgenda {
     if (call.method === 'GET' && path === '/users/me/calendarList') {
       return {
         json: {
-          items: [...this.calendars.values()].map(({ id, summary, selected, defaultReminders }) => ({
-            id,
-            summary,
-            ...(selected ? { selected } : {}),
-            defaultReminders,
-          })),
+          items: [...this.calendars.values()].map(
+            ({ id, summary, selected, accessRole, defaultReminders }) => ({
+              id,
+              summary,
+              accessRole,
+              ...(id === 'primary' ? { primary: true } : {}),
+              ...(selected ? { selected } : {}),
+              defaultReminders,
+            }),
+          ),
         },
       };
     }

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { eventsSince } from '../contract/events.ts';
 import { makeAgendaHarness } from '../testing/agenda-harness.ts';
+import { listCalendars } from './calendar.ts';
 import { agendaRange } from './unified.ts';
 
 const meeting = (id: string, start: string, end: string, summary = `Réunion ${id}`) => ({
@@ -25,6 +26,19 @@ describe('calendar sync', () => {
     expect(q.get('singleEvents')).toBe('true');
     expect(q.get('timeMin')).toBe('2026-10-03T08:00:00.000Z');
     expect(q.get('timeMax')).toBe('2027-11-02T08:00:00.000Z');
+  });
+
+  it('lists the main calendar first, and read-only calendars as not writable', async () => {
+    const h = await makeAgendaHarness();
+    // Titled to sort before the main calendar, as Google's « Jours fériés… » before a lower-case address.
+    h.agenda.addCalendar('holidays', 'Jours fériés', { accessRole: 'reader' });
+    h.agenda.addCalendar('shared', 'Associatif', { accessRole: 'writer' });
+    await h.syncAgenda();
+    expect(listCalendars(h.db)).toEqual([
+      { id: 'primary', title: 'Personnel', writable: true },
+      { id: 'shared', title: 'Associatif', writable: true },
+      { id: 'holidays', title: 'Jours fériés', writable: false },
+    ]);
   });
 
   it('follows a move and a deletion made on Google', async () => {

@@ -23,6 +23,7 @@
   } from '../ui/Icon.ts';
   import IconButton from '../ui/IconButton.svelte';
   import ListRow from '../ui/ListRow.svelte';
+  import { setScreenContext } from '../ui/shell.ts';
   import Skeleton from '../ui/Skeleton.svelte';
   import { boxColor, dayLabel, errorText, time } from './format.ts';
 
@@ -46,9 +47,12 @@
   /** The server's answer to an undo of a line already undone (server/src/triage/journal.ts). */
   const ALREADY_UNDONE = 'Action déjà annulée';
 
+  setScreenContext({ screen: 'journal' });
+
   const ORIGINS = {
     ai: { label: 'IA', by: 'par l’IA', icon: Sparkles },
     rule: { label: 'Règle', by: 'par une règle', icon: Funnel },
+    pina: { label: 'Pina', by: 'par Pina', icon: Sparkles },
     user: { label: 'À la main', by: 'à la main', icon: Hand },
   } as const;
 
@@ -322,7 +326,7 @@
   .journal {
     flex: 1;
     min-width: 0;
-    padding: 22px 28px 40px;
+    padding: 22px 28px calc(40px + var(--pina-coin));
     overflow-y: auto;
   }
   .colonne {
@@ -395,7 +399,8 @@
     background: var(--surface-2);
     color: var(--texte-2);
   }
-  .origine.ai {
+  .origine.ai,
+  .origine.pina {
     border-color: var(--ia-bord);
     background: var(--ia-doux);
     color: var(--ia);

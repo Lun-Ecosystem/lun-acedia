@@ -244,8 +244,8 @@ describe('app token scope', () => {
     for (const [method, path, body] of [
       ['POST', '/api/pairing-codes', null],
       ['DELETE', `/api/clients/${appId}`, null],
-      ['PUT', '/api/anthropic-key', JSON.stringify({ key: 'sk-ant-test-0000' })],
-      ['DELETE', '/api/anthropic-key', null],
+      ['PUT', '/api/llm/providers/anthropic/key', JSON.stringify({ key: 'sk-ant-test-0000' })],
+      ['DELETE', '/api/llm/providers/anthropic/key', null],
       ['GET', '/api/google/status', null],
     ] as const) {
       const res = await h.app.request(path, { method, headers: h.auth(token), body });
@@ -260,7 +260,7 @@ describe('app token scope', () => {
     expect(h.db.prepare('SELECT COUNT(*) AS n FROM clients WHERE revoked_at IS NULL').get()).toEqual({
       n: 2,
     });
-    expect(h.anthropicCheck.calls).toEqual([]);
+    expect(h.keyCheck.calls).toEqual([]);
   });
 
   it('still lets a device token use /api and an app token use /lun/v1', async () => {

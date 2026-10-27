@@ -4,17 +4,21 @@
  * and a scripted classifier. Nothing here reads `.env`, and nothing reaches the network.
  */
 import { randomBytes } from 'node:crypto';
-import type { Hono } from 'hono';
+import type { DatabaseSync } from 'node:sqlite';
 import { syncAgenda } from '../agenda/unified.ts';
 import { createApp } from '../app.ts';
 import { ActionRegistry } from '../contract/actions.ts';
 import { issuePairingCode } from '../contract/auth.ts';
+import { recordCost } from '../contract/costs.ts';
 import { openDb } from '../db.ts';
 import { syncGmail } from '../gmail/sync.ts';
 import { createGoogleClient, saveTokens } from '../google/client.ts';
 import type { Classification, Classifier } from '../triage/classifier.ts';
 import { triageNew } from '../triage/pipeline.ts';
-import { keyRefused, saveAnthropicKey } from '../keys/anthropic-key.ts';
+import { keyRefused, saveKey } from '../llm/keys.ts';
+import type { ChatMessage } from '../llm/types.ts';
+import { addCard, appendMessage, dayOf, setCardStatus } from '../pina/store.ts';
+import { markPina } from '../triage/journal.ts';
 import { createRule } from '../triage/rules.ts';
 import { FakeAgenda } from '../testing/fake-agenda.ts';
 import { fakeFetch } from '../testing/fake-fetch.ts';
@@ -270,27 +274,151 @@ function seedAgenda(agenda: FakeAgenda, now: Date) {
   task('list1', 't7', 'Acheter du pain', { status: 'completed', due: due(0) });
 }
 
+/**
+ * Today's thread of Pina, written as her loop would have (the demo has no model): a mail she filed
+ * (done, with Annuler), a reply drafted, and a task waiting for Valider.
+ */
+function seedPina(db: DatabaseSync, now: Date, refs: { journalId: number; perso: string; draftId: string }) {
+  const day = dayOf(now);
+  const at = (min: number) => new Date(now.getTime() - min * 60_000);
+  const say = (min: number, message: ChatMessage & { turn?: number; context?: unknown }) =>
+    appendMessage(db, day, message as ChatMessage, at(min));
+  const turnOf = (min: number, text: string, context: object) => say(min, { role: 'user', text, context });
+  const card = (
+    turn: number,
+    min: number,
+    callId: string,
+    action: string,
+    input: unknown,
+    done?: { result: unknown; inverse: unknown },
+    effect = 'write',
+  ) => {
+    const id = addCard(db, { day, turn, callId, action, input, effect, now: at(min) });
+    if (done) setCardStatus(db, id, 'pending', 'done', { ...done, at: at(min - 1) });
+    return id;
+  };
+
+  const t1 = turnOf(48, 'Range les photos du week-end dans Perso.', { screen: 'mail', mailId: 'm12' });
+  const file = { id: 'm12', boxId: refs.perso };
+  say(48, {
+    role: 'assistant',
+    text: '',
+    toolCalls: [{ id: 'c1', name: 'mail_file', input: file }],
+    turn: t1,
+  });
+  card(t1, 48, 'c1', 'mail.file', file, {
+    result: { id: 'm12', journalId: refs.journalId },
+    inverse: { action: 'journal.undo', input: { id: refs.journalId } },
+  });
+  say(47, { role: 'tool', callId: 'c1', content: '{"ok":true}', isError: false, turn: t1 });
+  say(47, {
+    role: 'assistant',
+    text: 'C’est rangé dans Perso, avec les autres souvenirs.',
+    toolCalls: [],
+    turn: t1,
+  });
+
+  const t2 = turnOf(30, 'Réponds à Camille que mercredi 12 h 30 au Café des Arts, c’est parfait.', {
+    screen: 'mail',
+    mailId: 'm06',
+  });
+  const draft = {
+    to: 'Camille Durand <camille@example.com>',
+    subject: 'Re: Déjeuner mercredi ?',
+    text: 'Salut Camille,\n\nMercredi 12 h 30 au Café des Arts, c’est parfait. À mercredi !\n\nNatsume',
+    replyTo: 'm06',
+  };
+  say(30, {
+    role: 'assistant',
+    text: '',
+    toolCalls: [{ id: 'c1', name: 'draft_create', input: draft }],
+    turn: t2,
+  });
+  card(t2, 30, 'c1', 'draft.create', draft, {
+    result: { id: refs.draftId, to: draft.to, subject: draft.subject, text: draft.text },
+    inverse: { action: 'draft.delete', input: { id: refs.draftId } },
+  });
+  say(29, {
+    role: 'tool',
+    callId: 'c1',
+    content: JSON.stringify({ id: refs.draftId }),
+    isError: false,
+    turn: t2,
+  });
+  say(29, {
+    role: 'assistant',
+    text: 'Ton brouillon est prêt ! Relis-le avant de l’envoyer, c’est toi qui cliques.',
+    toolCalls: [],
+    turn: t2,
+  });
+
+  // A deletion always waits for Valider, whatever the mode: the card says what goes.
+  const monday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - ((now.getDay() + 6) % 7));
+  const sport = new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() + 3, 18).toISOString();
+  const tDel = turnOf(15, 'Supprime le sport de jeudi, je n’y vais pas cette semaine.', { screen: 'agenda' });
+  const week = { from: monday.toISOString(), to: new Date(monday.getTime() + 7 * 86_400_000).toISOString() };
+  say(15, {
+    role: 'assistant',
+    text: '',
+    toolCalls: [{ id: 'c1', name: 'agenda_list', input: week }],
+    turn: tDel,
+  });
+  say(15, {
+    role: 'tool',
+    callId: 'c1',
+    content: JSON.stringify({
+      items: [{ kind: 'event', id: 'e7', calendarId: 'primary', title: 'Sport', start: sport }],
+    }),
+    isError: false,
+    turn: tDel,
+  });
+  const gone = { calendarId: 'primary', id: 'e7' };
+  say(14, {
+    role: 'assistant',
+    text: 'Pas de sport jeudi, ça marche. Je te laisse confirmer la suppression.',
+    toolCalls: [{ id: 'c2', name: 'event_delete', input: gone }],
+    turn: tDel,
+  });
+  card(tDel, 14, 'c2', 'event.delete', gone, undefined, 'delete');
+
+  const t3 = turnOf(
+    2,
+    'Mets-moi une tâche pour payer la taxe foncière, quelques jours avant la date limite.',
+    {
+      screen: 'mail',
+      mailId: 'm04',
+    },
+  );
+  const task = { title: 'Payer la taxe foncière', due: '2026-11-12' };
+  say(1, {
+    role: 'assistant',
+    text: 'Oh, la taxe foncière ! Date limite le 15 novembre : je te la cale au 12, histoire d’avoir de la marge.',
+    toolCalls: [{ id: 'c1', name: 'task_create', input: task }],
+    turn: t3,
+  });
+  card(t3, 1, 'c1', 'task.create', task);
+}
+
 /** Builds the demo app, seeded, with one paired device. */
-export async function createDemo(
-  opts: { staticDir?: string; keyRefused?: boolean } = {},
-): Promise<{ app: Hono; token: string }> {
+export async function createDemo(opts: { staticDir?: string; keyRefused?: boolean; pina?: boolean } = {}) {
   const db = openDb(':memory:');
   const clock = () => new Date();
   const secretKey = randomBytes(32).toString('base64');
   const config = { clientId: 'demo', clientSecret: 'demo', redirectUri: 'http://localhost/demo' };
   const gmail = new FakeGmail();
   const agenda = new FakeAgenda(clock);
+  const actions = new ActionRegistry();
   // The only fetch the app ever gets: it answers from the fakes and throws on anything else.
   const fake = fakeFetch(gmail.handler, (call) => agenda.handler(call));
   const app = createApp({
     db,
     clock,
     version: 'demo',
-    actions: new ActionRegistry(),
+    actions,
     google: { config, secretKey, fetch: fake.fetch },
     secretKey,
     staticDir: opts.staticDir,
-    checkAnthropicKey: async () => 'unreachable',
+    checkKey: async () => 'unreachable',
   });
   saveTokens(db, secretKey, {
     accessToken: 'demo',
@@ -314,7 +442,9 @@ export async function createDemo(
   await pair('Safari sur iPhone');
   const token = await pair('Démo (écrans)');
   // An invented key, shown by its last 4 characters only; refused on demand (`DEMO_KEY=refused`).
-  saveAnthropicKey(db, secretKey, 'sk-ant-demo-invented-ZQAA', '2027-03-12');
+  // Its declared expiry falls within 14 days: the card shows the warning.
+  const soon = new Date(clock().getTime() + 9 * 86_400_000).toISOString().slice(0, 10);
+  saveKey(db, secretKey, 'anthropic', 'sk-ant-demo-invented-ZQAA', soon);
   const call = async (method: string, path: string, body?: unknown) => {
     const res = await app.request(path, {
       method,
@@ -369,13 +499,37 @@ export async function createDemo(
   }
   const { added } = await syncGmail(deps);
   await triageNew({ ...deps, classifier: scriptedClassifier }, added);
-  // Two gestures by hand, so the journal also shows « À la main ».
+  // A gesture by hand, so the journal also shows « À la main »; the second one is Pina's.
   await call('POST', '/api/mail/batch', { ids: ['m07'], op: { kind: 'archive' } });
-  await call('POST', '/api/mail/batch', { ids: ['m12'], op: { kind: 'file', boxId: ids['Perso'] } });
+  const filed = (
+    await call('POST', '/api/mail/batch', { ids: ['m12'], op: { kind: 'file', boxId: ids['Perso'] } })
+  )[0].journalId as number;
+  markPina(db, filed);
+  // The reply Pina drafted exists in Gmail's drafts: « Ouvrir le brouillon » reads it.
+  const camille = await call('GET', '/api/mail/m06');
+  const drafted = await call('POST', '/api/drafts', {
+    from: 'test@example.com',
+    to: 'Camille Durand <camille@example.com>',
+    subject: 'Re: Déjeuner mercredi ?',
+    text: 'Salut Camille,\n\nMercredi 12 h 30 au Café des Arts, c’est parfait. À mercredi !\n\nNatsume',
+    html: '<div>Salut Camille,<br><br>Mercredi 12 h 30 au Café des Arts, c’est parfait. À mercredi !<br><br>Natsume</div>',
+    threadId: camille.threadId,
+  });
+  // `pina: false` (the evaluation script) starts Pina's day empty.
+  if (opts.pina !== false) {
+    seedPina(db, clock(), { journalId: filed, perso: ids['Perso']!, draftId: drafted.id as string });
+    // What those turns cost today: Réglages › Pina shows it against the daily cap.
+    recordCost(
+      db,
+      { provider: 'anthropic', model: 'claude-haiku-5-5', amount: 0.18, calls: 6 },
+      clock(),
+      'pina',
+    );
+  }
 
   seedAgenda(agenda, clock());
   await syncAgenda(deps);
   // Last: the scripted triage above marks the key as working.
-  if (opts.keyRefused) keyRefused(db, clock());
-  return { app, token };
+  if (opts.keyRefused) keyRefused(db, 'anthropic', clock());
+  return { app, token, db, actions, clock, gmail, calls: fake.calls, deps };
 }

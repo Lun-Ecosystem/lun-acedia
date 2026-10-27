@@ -16,13 +16,14 @@ export interface Costs {
 }
 
 /** Every paid call (LLM, API) is counted here by the satellite itself. */
-export function recordCost(db: DatabaseSync, item: CostItem, at: Date): void {
-  db.prepare('INSERT INTO costs (at, provider, model, amount, calls) VALUES (?, ?, ?, ?, ?)').run(
+export function recordCost(db: DatabaseSync, item: CostItem, at: Date, purpose?: 'triage' | 'pina'): void {
+  db.prepare('INSERT INTO costs (at, provider, model, amount, calls, purpose) VALUES (?, ?, ?, ?, ?, ?)').run(
     at.toISOString(),
     item.provider,
     item.model ?? null,
     item.amount,
     item.calls,
+    purpose ?? null,
   );
 }
 

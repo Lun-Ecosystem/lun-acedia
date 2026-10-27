@@ -1,3 +1,4 @@
+import type { ProviderId } from '../llm/types.ts';
 import type { Example } from './examples.ts';
 
 export interface ClassifyInput {
@@ -30,6 +31,8 @@ export interface Classification {
 export interface Classifier {
   /** The model behind it, for the cost table. */
   readonly model: string;
+  /** The provider behind it; `anthropic` when absent. */
+  readonly provider?: ProviderId;
   classify(input: ClassifyInput): Promise<Classification>;
 }
 
@@ -44,7 +47,7 @@ export class CreditExhaustedError extends Error {
 /** The provider refused the key (invalid, revoked or expired): the triage degrades, the rules go on. */
 export class KeyRefusedError extends Error {
   constructor() {
-    super('Clé Anthropic refusée');
+    super('Clé refusée par le fournisseur');
     this.name = 'KeyRefusedError';
   }
 }

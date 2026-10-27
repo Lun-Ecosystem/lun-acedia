@@ -16,14 +16,19 @@ export class InvalidInputError extends Error {
   }
 }
 
+/** What an action does: `delete` always needs the user's say, whatever the mode. */
+export type Effect = 'read' | 'write' | 'delete';
+
 export interface Action {
   name: string;
   description: string;
+  effect: Effect;
   input: object;
 }
 
 interface Entry {
   description: string;
+  effect: Effect;
   schema: ZodType;
   run: (input: unknown) => Promise<unknown>;
 }
@@ -37,14 +42,21 @@ export class ActionRegistry {
     description: string,
     schema: ZodType<T>,
     run: (input: T) => Promise<unknown>,
+    effect: Effect,
   ): void {
-    this.entries.set(name, { description, schema, run: run as (input: unknown) => Promise<unknown> });
+    this.entries.set(name, {
+      description,
+      effect,
+      schema,
+      run: run as (input: unknown) => Promise<unknown>,
+    });
   }
 
   list(): Action[] {
     return [...this.entries].map(([name, e]) => ({
       name,
       description: e.description,
+      effect: e.effect,
       input: z.toJSONSchema(e.schema) as object,
     }));
   }

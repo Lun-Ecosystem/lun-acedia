@@ -1,4 +1,3 @@
-import Anthropic from '@anthropic-ai/sdk';
 import { z } from 'zod';
 import {
   ClassifierError,
@@ -8,17 +7,9 @@ import {
   type Classifier,
   type ClassifyInput,
 } from './classifier.ts';
+import { ProviderError, type LlmProvider } from '../llm/types.ts';
 
 export const DEFAULT_MODEL = 'claude-haiku-5-5';
-
-/** The slice of the SDK the classifier uses, so that tests can stand in for it. */
-export interface MessagesApi {
-  create(params: Record<string, unknown>): Promise<{
-    content: { type: string; text?: string }[];
-    stop_reason: string | null;
-    usage: { input_tokens: number; output_tokens: number };
-  }>;
-}
 
 const Answer = z.object({
   boxId: z.string(),
@@ -76,61 +67,40 @@ function prompt(input: ClassifyInput): string {
 De : ${m.from}\nÀ : ${m.to}\nDate : ${m.date}\nSujet : ${m.subject}\n\n${m.text}`;
 }
 
-function isCreditError(err: unknown): boolean {
-  const e = err as { status?: number; message?: string };
-  return e?.status === 402 || (e?.status === 400 && /credit balance/i.test(e.message ?? ''));
-}
-
-/** 401 (invalid, revoked or expired key) or 403 (no permission): the key itself is refused. */
-export function isKeyRefusedError(err: unknown): boolean {
-  const status = (err as { status?: number })?.status;
-  return status === 401 || status === 403;
-}
-
-export function createAnthropicClassifier(opts: {
-  apiKey?: string;
-  model?: string;
-  api?: MessagesApi;
-}): Classifier {
-  const model = opts.model ?? DEFAULT_MODEL;
-  const api: MessagesApi =
-    opts.api ?? (new Anthropic({ apiKey: opts.apiKey }).messages as unknown as MessagesApi);
-
+export function createLlmClassifier(opts: { provider: LlmProvider; model: string }): Classifier {
+  const { provider, model } = opts;
   return {
     model,
+    provider: provider.id,
     async classify(input) {
-      let res: Awaited<ReturnType<MessagesApi['create']>>;
+      let res: Awaited<ReturnType<LlmProvider['json']>>;
       try {
-        res = await api.create({
+        res = await provider.json({
           model,
-          max_tokens: 512,
-          thinking: { type: 'disabled' },
           system: SYSTEM,
-          messages: [{ role: 'user', content: prompt(input) }],
-          output_config: { format: { type: 'json_schema', schema: schemaFor(input) } },
+          user: prompt(input),
+          schema: schemaFor(input),
+          maxTokens: 512,
         });
       } catch (err) {
-        if (isCreditError(err)) throw new CreditExhaustedError();
-        if (isKeyRefusedError(err)) throw new KeyRefusedError();
+        if (err instanceof ProviderError) {
+          if (err.kind === 'credit') throw new CreditExhaustedError();
+          if (err.kind === 'key') throw new KeyRefusedError();
+          if (err.kind === 'format') throw new ClassifierError(err.message);
+        }
         throw err;
       }
-      if (res.stop_reason !== 'end_turn')
-        throw new ClassifierError(`Réponse inutilisable (${res.stop_reason})`);
-      const text = res.content.find((b) => b.type === 'text')?.text ?? '';
-      let parsed: z.infer<typeof Answer>;
-      try {
-        parsed = Answer.parse(JSON.parse(text));
-      } catch {
-        throw new ClassifierError('Réponse hors du format attendu');
-      }
+      const parsed = Answer.safeParse(res.value);
+      if (!parsed.success) throw new ClassifierError('Réponse hors du format attendu');
+      const answer = parsed.data;
       const knownTags = new Set(input.tags.map((t) => t.id));
       const result: Classification = {
-        boxId: parsed.boxId === 'none' ? null : parsed.boxId,
-        tagIds: parsed.tagIds.filter((t) => knownTags.has(t)),
-        importance: parsed.importance,
-        confidence: Math.max(0, Math.min(100, Math.round(parsed.confidence))),
-        reason: parsed.reason.trim().slice(0, MAX_REASON),
-        usage: { inputTokens: res.usage.input_tokens, outputTokens: res.usage.output_tokens },
+        boxId: answer.boxId === 'none' ? null : answer.boxId,
+        tagIds: answer.tagIds.filter((t) => knownTags.has(t)),
+        importance: answer.importance,
+        confidence: Math.max(0, Math.min(100, Math.round(answer.confidence))),
+        reason: answer.reason.trim().slice(0, MAX_REASON),
+        usage: res.usage,
       };
       return result;
     },

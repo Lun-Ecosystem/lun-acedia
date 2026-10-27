@@ -6,11 +6,15 @@
     Journal,
     Mailbox,
     Pending,
+    PinaPanel,
+    provideScreenContext,
     Settings,
     StandaloneCard,
     Tasks,
     toast,
     type AcediaClient,
+    type ScreenContext,
+    type ShownContext,
   } from '@lun-ecosystem/lunacedia-views';
   import { readAuthorization } from './authorization.ts';
   import Authorize from './Authorize.svelte';
@@ -38,11 +42,16 @@
   let opening = $state<string | undefined>();
   /** View the mail screen starts on (a box chosen in the rail from another screen). */
   let mailView = $state<string | undefined>();
+  /** Draft the composer opens (« Ouvrir le brouillon » of Pina); a new object each time. */
+  let draftOpening = $state.raw<{ id: string } | undefined>();
+  /** Settings page shown first (the « Réglages » link of Pina's mode line opens hers). */
+  let settingsStart = $state<'pina' | undefined>();
   $effect(() => {
     const follow = () => {
       screen = screenOf(window.location.hash);
       // Opened once: back on the mail later, the list shows alone.
-      if (screen !== 'mail') opening = mailView = undefined;
+      if (screen !== 'mail') opening = mailView = draftOpening = undefined;
+      if (screen !== 'reglages') settingsStart = undefined;
     };
     window.addEventListener('hashchange', follow);
     return () => window.removeEventListener('hashchange', follow);
@@ -73,6 +82,24 @@
   }
 
   const client = $derived(token ? createHttpClient(baseUrl, token, { onUnauthorized: forget }) : null);
+
+  // ---- Pina: what the screen shows rides with each request.
+  let pinaOpen = $state(false);
+  /** Opening and closing go through the window itself (focus back, history left). */
+  let pinaPanel = $state<{ toggle: () => Promise<void> } | undefined>();
+  let pinaPending = $state(0);
+  let shown = $state.raw<ShownContext | null>(null);
+  provideScreenContext((ctx, leaving) => {
+    if (ctx || shown === leaving) shown = ctx;
+  });
+  const PINA_SCREEN: Record<Screen, ScreenContext['screen']> = {
+    mail: 'mail',
+    'a-valider': 'pending',
+    agenda: 'agenda',
+    taches: 'tasks',
+    journal: 'journal',
+    reglages: 'settings',
+  };
 
   let status = $state<ShellStatus>(EMPTY_STATUS);
   let account = $state<string | undefined>();
@@ -156,7 +183,30 @@
     counts={status.counts}
     {account}
     ontogglepause={() => togglePause(client)}
+    onpina={() => pinaPanel?.toggle()}
+    {pinaOpen}
+    {pinaPending}
   >
+    {#snippet pina()}
+      {#key client}
+        <PinaPanel
+          bind:this={pinaPanel}
+          {client}
+          bind:open={pinaOpen}
+          bind:pending={pinaPending}
+          context={shown}
+          screen={PINA_SCREEN[screen]}
+          onopendraft={(id) => {
+            draftOpening = { id };
+            location.hash = HREF.mail;
+          }}
+          onsettings={() => {
+            settingsStart = 'pina';
+            location.hash = HREF.reglages;
+          }}
+        />
+      {/key}
+    {/snippet}
     {#key client}
       {#key screen}
         {#if screen === 'mail'}
@@ -164,6 +214,7 @@
             {client}
             {opening}
             start={mailView}
+            draft={draftOpening}
             onchange={() => refresh(client)}
             onjournal={() => (location.hash = HREF.journal)}
           />
@@ -196,7 +247,12 @@
             onsettings={() => (location.hash = HREF.reglages)}
           />
         {:else}
-          <Settings {client} onSelfRevoked={revokedSelf} onchange={() => refresh(client)} />
+          <Settings
+            {client}
+            start={settingsStart}
+            onSelfRevoked={revokedSelf}
+            onchange={() => refresh(client)}
+          />
         {/if}
       {/key}
     {/key}

@@ -1,11 +1,12 @@
 import type { DatabaseSync } from 'node:sqlite';
 import { emitEvent } from '../contract/events.ts';
 import { getSetting, putSetting } from '../db.ts';
+import type { ProviderId } from '../llm/types.ts';
 
-/** The warnings already sent for the declared date (`14`, `3`). */
-export const WARNED = 'anthropic.expiryWarned';
+/** The warnings already sent for the declared date of a provider's key (`14`, `3`). */
+export const warnedKey = (id: ProviderId) => `${id}.expiryWarned`;
 /** The date those warnings were for: another date starts over. */
-const WARNED_FOR = 'anthropic.expiryWarnedFor';
+const warnedForKey = (id: ProviderId) => `${id}.expiryWarnedFor`;
 
 const DAY_MS = 86_400_000;
 const parisDate = new Intl.DateTimeFormat('en-CA', {
@@ -38,9 +39,17 @@ function title(label: string, expires: string, days: number): string {
  * Warns once at 14 days or less (J-14) and once at 3 days or less (J-3) before a declared expiry, in
  * calendar days, Paris time. A date declared less than 3 days ahead only gets J-3. After the date,
  * nothing: the first real refusal is what counts. The flags live in the database, so a restart sends
- * nothing twice; a new date (or a new key, see `saveAnthropicKey`) starts over.
+ * nothing twice; a new date (or a new key, see `saveKey`) starts over. Each provider has its own flags.
  */
-export function checkExpiry(db: DatabaseSync, now: Date, expires: string | undefined, label: string): void {
+export function checkExpiry(
+  db: DatabaseSync,
+  now: Date,
+  expires: string | undefined,
+  label: string,
+  id: ProviderId,
+): void {
+  const WARNED = warnedKey(id);
+  const WARNED_FOR = warnedForKey(id);
   if (!expires || !isValidDate(expires)) return;
   if (getSetting<string | null>(db, WARNED_FOR, null) !== expires) {
     putSetting(db, WARNED_FOR, expires);

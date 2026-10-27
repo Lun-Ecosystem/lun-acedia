@@ -15,7 +15,21 @@ describe('demo', () => {
     expect((await get('/api/calendars')).items.length).toBe(3);
     expect((await get('/api/rules')).rules.length).toBe(2);
     expect((await get('/api/clients')).clients.length).toBe(2);
-    expect(await get('/api/anthropic-key')).toMatchObject({ state: 'ok', last4: 'ZQAA' });
+    expect((await get('/api/llm/providers')).providers[0]).toMatchObject({
+      id: 'anthropic',
+      state: 'ok',
+      last4: 'ZQAA',
+    });
+    const pina = await get('/api/pina/today');
+    expect(pina.cards.map((c: { status: string }) => c.status)).toEqual([
+      'done',
+      'done',
+      'pending',
+      'pending',
+    ]);
+    expect(pina.cards[2]).toMatchObject({ action: 'event.delete', effect: 'delete' });
+    expect(pina.pending).toBe(2);
+    expect((await get('/api/journal')).items.some((e: { origin: string }) => e.origin === 'pina')).toBe(true);
     expect((await app.request('/api/mail')).status).toBe(401);
   });
 });

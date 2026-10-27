@@ -4,6 +4,7 @@ import type {
   AgendaTask,
   BatchOp,
   Draft,
+  DraftView,
   GoogleStatus,
   JournalEntry,
   JournaledChange,
@@ -12,11 +13,20 @@ import type {
   LunEvent,
   MailDetail,
   MailPage,
+  ModelChoice,
+  ModelOffer,
+  PinaCard,
+  PinaSettings,
+  PinaSettingsView,
+  PinaThread,
   ProposalView,
+  ProviderId,
+  ProviderView,
   Role,
   Rule,
   RuleField,
   RuleOp,
+  ScreenContext,
   SendAsAddress,
   Settings,
   TodayStats,
@@ -65,19 +75,6 @@ export interface LinkedClient {
   current: boolean;
 }
 
-/**
- * The Anthropic key in service, as `GET /api/anthropic-key` describes it: never the key itself, only
- * its last 4 characters. `credit` means the key works but its credit is spent.
- */
-export interface AnthropicKeyStatus {
-  state: 'ok' | 'refused' | 'credit' | 'absent';
-  last4?: string;
-  /** Declared expiry, `AAAA-MM-JJ`. */
-  expires?: string;
-  /** Where the key in service comes from: saved in the settings or declared in `.env`. */
-  source?: 'saved' | 'env';
-}
-
 /** An app asking for access (`GET /lun/v1/authorize`), as the authorization page received it. */
 export interface AuthorizationRequest {
   client: string;
@@ -105,6 +102,12 @@ export interface AcediaClient {
   /** `journalId` is present for the filing, archive, trash and spam operations. */
   batch(ids: string[], op: BatchOp): Promise<(LabelChange & { journalId?: number })[]>;
   send(draft: Draft): Promise<{ id: string; threadId: string }>;
+  createDraft(draft: Draft): Promise<DraftView>;
+  getDraft(id: string): Promise<DraftView>;
+  updateDraft(id: string, draft: Draft): Promise<DraftView>;
+  deleteDraft(id: string): Promise<{ ok: true }>;
+  /** Sends a saved draft: the composer's button, the only way a mail leaves. */
+  sendDraft(id: string): Promise<{ id: string; threadId: string }>;
   sendAs(replyTo?: string): Promise<{ addresses: SendAsAddress[]; default: string }>;
   validate(id: string): Promise<ProposalView & { journalId: number }>;
   correct(
@@ -128,7 +131,7 @@ export interface AcediaClient {
   undatedTasks(): Promise<AgendaTask[]>;
   /** Every task of every list, done ones included. */
   allTasks(): Promise<AgendaTask[]>;
-  listCalendars(): Promise<{ id: string; title: string }[]>;
+  listCalendars(): Promise<{ id: string; title: string; writable: boolean }[]>;
   listTaskLists(): Promise<{ id: string; title: string }[]>;
   saveEvent(item: EventDraft): Promise<AgendaEvent>;
   deleteEvent(calendarId: string, id: string): Promise<void>;
@@ -143,16 +146,46 @@ export interface AcediaClient {
   revokeClient(id: number): Promise<void>;
   /** Records the decision of a linked device; returns where to send the browser back. */
   authorize(req: AuthorizationRequest & { decision: 'allow' | 'deny' }): Promise<{ redirect: string }>;
-  getAnthropicKey(): Promise<AnthropicKeyStatus>;
-  /** Checks the key with Anthropic, then saves it; rejects (nothing changed) when refused or unreachable. */
-  saveAnthropicKey(key: string, expires?: string): Promise<AnthropicKeyStatus>;
+  /** The five AI providers and the state of their key; never more of a key than its last 4 characters. */
+  getProviders(): Promise<ProviderView[]>;
+  /** Checks the key with the provider, then saves it; rejects (nothing changed) when refused or unreachable. */
+  saveProviderKey(
+    id: ProviderId,
+    key: { key: string; expires?: string; baseUrl?: string },
+  ): Promise<ProviderView>;
   /** Forgets the saved key; answers what remains in service (the `.env` key, or none). */
-  deleteAnthropicKey(): Promise<AnthropicKeyStatus>;
+  removeProviderKey(id: ProviderId): Promise<ProviderView>;
+  /** The models offered for a use, from the configured providers (Pina: tool models only). */
+  getModels(use: 'triage' | 'pina'): Promise<ModelOffer[]>;
+  /** The model of each use, chosen or computed; `null` without any provider. */
+  getModelChoice(): Promise<{ triage: ModelChoice | null; pina: ModelChoice | null }>;
+  setModelChoice(use: 'triage' | 'pina', provider: ProviderId, model: string): Promise<ModelChoice>;
   /** State of the service (`GET /lun/v1/health`): sorting active, paused, or degraded (`paused` then tells a pause). */
   health(): Promise<{ status: 'ok' | 'paused' | 'degraded'; reason?: string; paused?: boolean }>;
   /** Pauses everything automatic (the AI and the rules); what is asked by hand still runs. */
   pause(): Promise<void>;
   resume(): Promise<void>;
+  /** Today's thread of Pina (a new one each Paris day). */
+  pinaToday(): Promise<PinaThread>;
+  /** The days of the thread still kept, the latest first. */
+  pinaDays(): Promise<{ day: string; messages: number }[]>;
+  /** A past day of the thread, to read. */
+  pinaDay(day: string): Promise<PinaThread>;
+  /** Asks Pina; answers today's thread once her turn stops (a reply, a card to decide, a bound). */
+  pinaAsk(text: string, context: ScreenContext): Promise<PinaThread>;
+  /** Accepts (with the input changed by « Modifier », if any) or refuses a card; 409 when already decided or expired. */
+  pinaDecide(
+    id: number,
+    decision: 'accept' | 'refuse',
+    input?: unknown,
+  ): Promise<PinaThread & { card: PinaCard }>;
+  /** Undoes a done card by its inverse; 409 without one, or when already undone. */
+  pinaUndo(id: number): Promise<{ card: PinaCard; result: unknown }>;
+  /** Changes or clears the declared expiry of a saved key, without the key (a reminder only). */
+  setProviderExpiry(id: ProviderId, expires: string | null): Promise<ProviderView>;
+  getPinaSettings(): Promise<PinaSettingsView>;
+  /** Saves the fields given; the server checks the bounds (400 outside them). */
+  updatePinaSettings(patch: Partial<PinaSettings>): Promise<PinaSettingsView>;
   /** Calls `onEvent` for each satellite event; returns the function that stops listening. */
   subscribe(onEvent: (e: LunEvent) => void): () => void;
 }
@@ -218,6 +251,11 @@ export function httpClient(opts: { baseUrl: string; token: string; fetch?: typeo
     markRead: (id, read) => call('POST', `/api/mail/${enc(id)}/read`, { read }),
     batch: (ids, op) => call('POST', '/api/mail/batch', { ids, op }),
     send: (draft) => call('POST', '/api/mail/send', draft),
+    createDraft: (draft) => call('POST', '/api/drafts', draft),
+    getDraft: (id) => call('GET', `/api/drafts/${enc(id)}`),
+    updateDraft: (id, draft) => call('PUT', `/api/drafts/${enc(id)}`, draft),
+    deleteDraft: (id) => call('DELETE', `/api/drafts/${enc(id)}`),
+    sendDraft: (id) => call('POST', `/api/drafts/${enc(id)}/send`, {}),
     sendAs: (replyTo) => call('GET', `/api/send-as${replyTo ? `?replyTo=${enc(replyTo)}` : ''}`),
     validate: (id) => call('POST', `/api/mail/${enc(id)}/validate`, {}),
     correct: (id, boxId, tagIds, opts) =>
@@ -268,10 +306,15 @@ export function httpClient(opts: { baseUrl: string; token: string; fetch?: typeo
       await call('DELETE', `/api/clients/${id}`);
     },
     authorize: (req) => call('POST', '/api/authorizations', req),
-    getAnthropicKey: () => call('GET', '/api/anthropic-key'),
-    saveAnthropicKey: (key, expires) =>
-      call('PUT', '/api/anthropic-key', expires ? { key, expires } : { key }),
-    deleteAnthropicKey: () => call('DELETE', '/api/anthropic-key'),
+    getProviders: async () =>
+      (await call<{ providers: ProviderView[] }>('GET', '/api/llm/providers')).providers,
+    saveProviderKey: (id, key) => call('PUT', `/api/llm/providers/${id}/key`, key),
+    removeProviderKey: (id) => call('DELETE', `/api/llm/providers/${id}/key`),
+    setProviderExpiry: (id, expires) => call('PUT', `/api/llm/providers/${id}/expires`, { expires }),
+    getModels: async (use) =>
+      (await call<{ models: ModelOffer[] }>('GET', `/api/llm/models?use=${use}`)).models,
+    getModelChoice: () => call('GET', '/api/llm/choice'),
+    setModelChoice: (use, provider, model) => call('PUT', '/api/llm/choice', { use, provider, model }),
     health: () => call('GET', '/lun/v1/health'),
     pause: async () => {
       await call('POST', '/lun/v1/pause', {});
@@ -279,6 +322,16 @@ export function httpClient(opts: { baseUrl: string; token: string; fetch?: typeo
     resume: async () => {
       await call('POST', '/lun/v1/resume', {});
     },
+    pinaToday: () => call('GET', '/api/pina/today'),
+    pinaDays: async () =>
+      (await call<{ days: { day: string; messages: number }[] }>('GET', '/api/pina/days')).days,
+    pinaDay: (day) => call('GET', `/api/pina/days/${enc(day)}`),
+    pinaAsk: (text, context) => call('POST', '/api/pina/messages', { text, context }),
+    pinaDecide: (id, decision, input) =>
+      call('POST', `/api/pina/cards/${id}`, input === undefined ? { decision } : { decision, input }),
+    pinaUndo: (id) => call('POST', `/api/pina/cards/${id}/undo`, {}),
+    getPinaSettings: () => call('GET', '/api/pina/settings'),
+    updatePinaSettings: (patch) => call('PUT', '/api/pina/settings', patch),
     subscribe(onEvent) {
       const stop = new AbortController();
       let lastId: string | undefined;
