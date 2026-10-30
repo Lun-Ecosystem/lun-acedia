@@ -3,6 +3,9 @@ import type { Importance, LunEvent } from '../types.ts';
 
 export type { Importance, LunEvent };
 
+/** The path in Acedia's own front that opens a mail (`#/mail/<id>`). */
+export const mailLink = (id: unknown): string => `#/mail/${encodeURIComponent(String(id))}`;
+
 const RETENTION_MS = 7 * 24 * 3600_000;
 const listeners = new Map<DatabaseSync, Set<(e: LunEvent) => void>>();
 
@@ -13,6 +16,7 @@ interface Row {
   at: string;
   title: string;
   data: string | null;
+  link: string | null;
 }
 
 function toEvent(row: Row): LunEvent {
@@ -24,18 +28,20 @@ function toEvent(row: Row): LunEvent {
     title: row.title,
   };
   if (row.data !== null) e.data = JSON.parse(row.data);
+  if (row.link !== null) e.link = row.link;
   return e;
 }
 
 export function emitEvent(db: DatabaseSync, e: Omit<LunEvent, 'id' | 'at'>, now: Date): LunEvent {
   const info = db
-    .prepare('INSERT INTO events (type, importance, at, title, data) VALUES (?, ?, ?, ?, ?)')
+    .prepare('INSERT INTO events (type, importance, at, title, data, link) VALUES (?, ?, ?, ?, ?, ?)')
     .run(
       e.type,
       e.importance,
       now.toISOString(),
       e.title,
       e.data === undefined ? null : JSON.stringify(e.data),
+      e.link ?? null,
     );
   const event = toEvent(
     db.prepare('SELECT * FROM events WHERE id = ?').get(info.lastInsertRowid) as unknown as Row,

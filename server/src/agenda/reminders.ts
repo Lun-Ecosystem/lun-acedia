@@ -83,7 +83,11 @@ export function runReminders(db: DatabaseSync, now: Date): number {
     const data: Record<string, unknown> = { kind: r.kind, id: r.itemId, at: r.at };
     data[r.kind === 'event' ? 'calendarId' : 'listId'] = r.containerId;
     if (r.minutes !== undefined) data.minutes = r.minutes;
-    emitEvent(db, { type: 'agenda.reminder', importance: 'urgent', title: phrase(r), data }, now);
+    emitEvent(
+      db,
+      { type: 'agenda.reminder', importance: 'urgent', title: phrase(r), data, link: '#/agenda' },
+      now,
+    );
   }
   return due.length;
 }
