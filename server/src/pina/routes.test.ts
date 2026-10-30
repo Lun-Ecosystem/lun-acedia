@@ -90,7 +90,7 @@ describe('Pina routes', () => {
     expect(res.status).toBe(200);
     expect(res.body.card.status).toBe('refused');
     expect(s.writes()).toBe(0);
-    expect(JSON.stringify(s.requests[1])).toContain('CrOliX a refusé');
+    expect(JSON.stringify(s.requests[1])).toContain('L’utilisateur a refusé');
     expect((await s.h.call('POST', `/api/pina/cards/${id}`, { decision: 'refuse' })).status).toBe(409);
   });
 
@@ -159,7 +159,7 @@ describe('Pina routes', () => {
       input: { ...EVENT, title: 'Dentiste (décalé)' },
     });
     const resumed = JSON.stringify(s.requests[1]);
-    expect(resumed).toContain('modifiéParCrOliX');
+    expect(resumed).toContain('modifiéParLUtilisateur');
     expect(resumed).toContain('Dentiste (décalé)');
   });
 
