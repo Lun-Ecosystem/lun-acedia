@@ -3,17 +3,21 @@
   import { onMount } from 'svelte';
   import type { AcediaClient } from '../client.ts';
   import { errorText } from '../mail/format.ts';
+  import { AGENT_ICONS, agentIcon, agentIdentity, takeIdentity } from '../pina/identity.svelte.ts';
   import type { ModelChoice, ModelOffer, PinaSettings, PinaSettingsView } from '../types.ts';
   import Button from '../ui/Button.svelte';
+  import Field from '../ui/Field.svelte';
   import { ICON_STROKE, Plus, Shield } from '../ui/Icon.ts';
   import SettingsCard from '../ui/SettingsCard.svelte';
+  import Segmented from '../ui/Segmented.svelte';
+  import Select from '../ui/Select.svelte';
   import SettingsRow from '../ui/SettingsRow.svelte';
   import TextInput from '../ui/TextInput.svelte';
   import { toast } from '../ui/toasts.svelte.ts';
   import ModelPicker from './ModelPicker.svelte';
 
   /*
-   * Réglages › Pina: how she acts (validate first, or at once), her model, what she may spend a day
+   * Réglages › Agent: who it is (name, icon, tone, character: its voice, never its rights), how it acts (validate first, or at once), her model, what she may spend a day
    * and how long her thread stays, and the standing instructions she reads with each request.
    */
 
@@ -35,7 +39,7 @@
     {
       value: 'immediate',
       label: 'Faire tout de suite',
-      hint: 'Pina agit aussitôt ; la carte garde Annuler.',
+      hint: 'L’agent agit aussitôt ; la carte garde Annuler.',
     },
   ] as const;
 
@@ -44,6 +48,16 @@
   let choice = $state.raw<ModelChoice | null>(null);
   let choosing = $state(false);
   let instructions = $state('');
+  let name = $state('');
+  let persona = $state('');
+  let nameError = $state<string | null>(null);
+  const ICONS = Object.entries(AGENT_ICONS).map(([value, { label }]) => ({ value, label }));
+  const TONES = [
+    { value: 'neutre', label: 'Neutre' },
+    { value: 'chaleureux', label: 'Chaleureux' },
+    { value: 'concis', label: 'Concis' },
+  ];
+  const Preview = $derived(agentIcon(settings?.icon ?? 'sparkles'));
   let savingText = $state(false);
   /** Typed values, kept as typed while out of bounds. */
   let days = $state('');
@@ -58,6 +72,9 @@
     client.getPinaSettings().then((s) => {
       settings = s;
       instructions = s.instructions;
+      name = s.name;
+      persona = s.persona;
+      takeIdentity(s);
       days = String(s.retentionDays);
       cap = String(s.dailyCapUsd);
     }, fail);
@@ -74,7 +91,8 @@
     error = null;
     try {
       settings = await client.updatePinaSettings(patch);
-      toast('Réglage de Pina enregistré');
+      takeIdentity(settings);
+      toast('Réglage de l’agent enregistré');
       return true;
     } catch (err) {
       error = errorText(err);
@@ -102,6 +120,13 @@
     if (!capError && n !== settings?.dailyCapUsd) void save({ dailyCapUsd: n });
   }
 
+  /** 1 to 40 characters, spaces trimmed: an empty name says so and saves nothing. */
+  function saveName() {
+    const next = name.trim();
+    nameError = next ? null : 'Un nom, de 1 à 40 caractères.';
+    if (!nameError && next !== settings?.name) void save({ name: next });
+  }
+
   async function saveInstructions() {
     savingText = true;
     await save({ instructions });
@@ -114,7 +139,7 @@
     choosing = true;
     try {
       choice = await client.setModelChoice('pina', next.provider, next.model);
-      toast('Modèle de Pina enregistré');
+      toast('Modèle de l’agent enregistré');
     } catch (err) {
       choice = before;
       toast(errorText(err), { tone: 'danger' });
@@ -130,12 +155,65 @@
 {#if error}<p class="erreur" role="alert">{error}</p>{/if}
 
 {#if settings}
-  <SettingsCard title="Mode" description="Ce que Pina fait d’une écriture qu’elle propose.">
+  <SettingsCard title="Identité" description="Sa voix, jamais ses droits.">
+    {#snippet aside()}
+      <span class="apercu" role="img" aria-label={`Aperçu du lanceur : ${settings!.name}`}>
+        <Preview size={16} strokeWidth={ICON_STROKE} aria-hidden="true" /><span aria-hidden="true"
+          >{settings!.name}</span
+        >
+      </span>
+    {/snippet}
+    <div class="bloc">
+      <Field label="Nom" error={nameError ?? undefined}>
+        <TextInput
+          size="petit"
+          maxlength={40}
+          bind:value={name}
+          invalid={nameError !== null}
+          onchange={saveName}
+        />
+      </Field>
+    </div>
+    <SettingsRow label="Icône">
+      <Select
+        items={ICONS}
+        value={settings.icon}
+        aria-label="Icône"
+        onchange={(v) => void save({ icon: v as PinaSettings['icon'] })}
+      />
+    </SettingsRow>
+    <SettingsRow label="Ton">
+      <Segmented
+        options={TONES}
+        size="petit"
+        label="Ton"
+        value={settings.tone}
+        onchange={(v) => void save({ tone: v as PinaSettings['tone'] })}
+      />
+    </SettingsRow>
+    <div class="bloc">
+      <Field
+        label="Contexte du personnage"
+        hint="Règle la voix de l’agent, jamais ce qu’il a le droit de faire"
+      >
+        <textarea
+          class="persona"
+          aria-label="Contexte du personnage"
+          rows="3"
+          maxlength={500}
+          bind:value={persona}
+          onchange={() => persona !== settings!.persona && void save({ persona })}></textarea>
+      </Field>
+      <span class="compteur">{persona.length} / 500</span>
+    </div>
+  </SettingsCard>
+
+  <SettingsCard title="Mode" description="Ce que l’agent fait d’une écriture qu’il propose.">
     <div class="modes">
       <RadioGroup.Root
         value={settings.mode}
         onValueChange={setMode}
-        aria-label="Mode de Pina"
+        aria-label="Mode de l’agent"
         class="options"
       >
         {#each MODES as mode (mode.value)}
@@ -162,11 +240,11 @@
 
 {#if models}
   <SettingsCard
-    title="Modèle de Pina"
+    title="Modèle de l’agent"
     description="Le modèle qui lit les demandes et appelle les actions d’Acedia. Seuls les modèles capables d’appeler des outils sont proposés."
   >
     {#if models.length === 0}
-      <SettingsRow label="Aucun fournisseur d’IA en service" hint="Pina ne répond pas sans modèle.">
+      <SettingsRow label="Aucun fournisseur d’IA en service" hint="L’agent ne répond pas sans modèle.">
         {#if onproviders}
           <Button variant="principal" size="petit" icon={Plus} onclick={onproviders}>Ajouter une clé</Button>
         {/if}
@@ -174,7 +252,9 @@
     {:else}
       <div class="modele">
         {#if !choice}
-          <p class="invite">Aucun modèle choisi : Pina ne répond pas tant qu’un modèle n’est pas choisi.</p>
+          <p class="invite">
+            Aucun modèle choisi : l’agent ne répond pas tant qu’un modèle n’est pas choisi.
+          </p>
         {/if}
         <ModelPicker use="pina" {models} value={choice} onchange={choose} disabled={choosing} />
         {#if selected && !selected.price}
@@ -186,8 +266,8 @@
 {/if}
 
 {#if settings}
-  <SettingsCard title="Dépense et conservation" description="Ce que Pina peut coûter, et ce qu’elle garde.">
-    <SettingsRow label="Plafond quotidien" hint="Atteint, Pina s’arrête jusqu’au lendemain.">
+  <SettingsCard title="Dépense et conservation" description="Ce que l’agent peut coûter, et ce qu’il garde.">
+    <SettingsRow label="Plafond quotidien" hint="Atteint, l’agent s’arrête jusqu’au lendemain.">
       {#snippet children({ labelId })}
         <div class="nombre">
           <TextInput
@@ -255,7 +335,7 @@
 
   <SettingsCard
     title="Consignes"
-    description="Ce que Pina garde en tête à chaque demande : une signature, un ton, des habitudes."
+    description="Ce que l’agent garde en tête à chaque demande : une signature, des habitudes."
   >
     <div class="consignes">
       <textarea
@@ -280,6 +360,36 @@
 {/if}
 
 <style>
+  .bloc {
+    position: relative;
+    padding: 14px 18px;
+    border-bottom: 1px solid var(--bordure);
+  }
+  .compteur {
+    position: absolute;
+    top: 14px;
+    right: 18px;
+    font-size: 12px;
+    color: var(--texte-3);
+    font-variant-numeric: tabular-nums;
+  }
+  .apercu {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    max-width: 180px;
+    color: var(--texte);
+    font-size: 13.5px;
+  }
+  .apercu :global(svg) {
+    flex: none;
+    color: var(--ia);
+  }
+  .apercu span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
   .modes {
     display: flex;
     flex-direction: column;

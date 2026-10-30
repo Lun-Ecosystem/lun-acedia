@@ -25,10 +25,11 @@ Aucune dépendance au NAS : tout tourne sur le poste. Node `^22.13.0 || >=24`. L
 `npm run build && npm run demo` lance une démo (développement seulement) sur `localhost:8797` : faux Gmail,
 faux agenda, faux tri, aucun compte Google, aucun réseau. La commande affiche le jeton d'appareil à coller dans la console du navigateur.
 
-## Pina, l’assistante
+## L’agent
 
-Pina agit par le catalogue d’actions : les écritures deviennent des cartes à valider, les suppressions le
-restent toujours, et elle n’envoie jamais de mail (brouillon seulement). Voir [docs/pina.md](docs/pina.md).
+L’agent agit par le catalogue d’actions : les écritures deviennent des cartes à valider, les suppressions le
+restent toujours, et il n’envoie jamais de mail (brouillon seulement). Neutre par défaut, son nom, son icône,
+son ton et son personnage se règlent dans Réglages › Agent. Voir [docs/pina.md](docs/pina.md).
 
 Contrat v1.1 : le core lui délègue des demandes (`POST /lun/v1/agent`) et relaie ses cartes
 (`GET /lun/v1/cards`, `POST /lun/v1/cards/:id/accept`, `POST /lun/v1/cards/:id/refuse`) ; l'action

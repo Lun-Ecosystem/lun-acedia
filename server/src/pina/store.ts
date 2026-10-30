@@ -162,7 +162,16 @@ export function days(db: DatabaseSync): { day: string; messages: number }[] {
 
 export type { PinaSettings };
 
-const DEFAULTS: PinaSettings = { mode: 'validate', instructions: '', retentionDays: 30, dailyCapUsd: 1 };
+const DEFAULTS: PinaSettings = {
+  mode: 'validate',
+  instructions: '',
+  retentionDays: 30,
+  dailyCapUsd: 1,
+  name: 'Agent',
+  icon: 'sparkles',
+  tone: 'neutre',
+  persona: '',
+};
 
 // Out-of-range input is rejected, not clamped.
 const SettingsPatch = z
@@ -171,6 +180,10 @@ const SettingsPatch = z
     instructions: z.string().max(4000),
     retentionDays: z.number().int().min(1).max(365),
     dailyCapUsd: z.number().min(0).max(50),
+    name: z.string().trim().min(1).max(40),
+    icon: z.enum(['sparkles', 'mail', 'inbox', 'calendar', 'feather', 'moon', 'gem', 'bell']),
+    tone: z.enum(['neutre', 'chaleureux', 'concis']),
+    persona: z.string().max(500),
   })
   .partial()
   .strict();

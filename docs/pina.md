@@ -1,8 +1,10 @@
-# Pina-co-lada, l’assistante d’Acedia
+# L’agent d’Acedia (Pina)
 
-Pina (« Pina-co-lada ») est l’assistante d’Acedia : on lui parle en français, elle lit les mails, l’agenda et
-les tâches, et prépare ce qu’on lui demande. Elle ne fait rien que l’écran d’Acedia ne permette de faire à la
-main.
+L’agent d’Acedia lit les mails, l’agenda et les tâches, et prépare ce qu’on lui demande, en français. Il ne
+fait rien que l’écran d’Acedia ne permette de faire à la main. Il est **neutre par défaut** (« Agent », ton
+neutre, sans personnage) : son nom, son icône, son ton et le contexte de son personnage se règlent dans
+Réglages › Agent, et ne changent jamais ce qu’il a le droit de faire. « Pina » est le nom donné par CrOliX en
+prod ; le code garde `pina` comme nom interne.
 
 ## Ce qu’elle fait
 
@@ -53,9 +55,9 @@ mêmes garde-fous.
 
 ## Réglages
 
-Dans Réglages › Pina : le mode (Valider avant chaque action, ou Faire tout de suite), les consignes (ses instructions
+Dans Réglages › Agent : l’identité (nom, icône, ton, contexte du personnage), le mode (Valider avant chaque action, ou Faire tout de suite), les consignes (ses instructions
 supplémentaires), la conservation (nombre de jours de fil gardés), le plafond de dépense par jour et le
-modèle. Les actions faites par Pina portent la mention « par Pina » dans le journal.
+modèle. Les actions faites par l’agent portent son nom dans le journal (« par Pina »).
 
 ## Fournisseurs
 

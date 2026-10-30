@@ -46,16 +46,16 @@ export interface PinaDeps {
 const MAX_ROUNDS = 8;
 const MAX_TOKENS = 4096;
 
-export const NO_PROVIDER = 'Aucun modèle choisi pour Pina : à régler dans Réglages › Fournisseurs d’IA.';
+export const NO_PROVIDER = 'Aucun modèle choisi pour l’agent : à régler dans Réglages › Fournisseurs d’IA.';
 const CAP =
-  'J’ai atteint mon plafond de dépense pour aujourd’hui : on reprend demain, ou tu peux le relever dans Réglages › Pina.';
+  'J’ai atteint mon plafond de dépense pour aujourd’hui : on reprend demain, ou tu peux le relever dans Réglages › Agent.';
 const TOO_LONG =
   'Je m’arrête là, ça me demandait trop d’allers-retours. Dis-moi par où reprendre, ou découpe la demande.';
 const EMPTY = 'Je n’ai rien de clair à te répondre là-dessus. Tu peux reformuler ?';
 const FAILED: Record<ProviderError['kind'], string> = {
   key: 'Le fournisseur d’IA refuse ma clé : à vérifier dans Réglages › Fournisseurs d’IA.',
   credit:
-    'Plus de crédit chez le fournisseur d’IA : à recharger, ou choisis un autre modèle dans Réglages › Pina.',
+    'Plus de crédit chez le fournisseur d’IA : à recharger, ou choisis un autre modèle dans Réglages › Agent.',
   unavailable: 'Le fournisseur d’IA ne répond pas pour le moment. Réessaie dans un instant.',
   format: 'Le fournisseur d’IA m’a renvoyé une réponse illisible. Réessaie dans un instant.',
 };
@@ -350,6 +350,7 @@ async function loop(
     context,
     instructions: settings.instructions,
     labels: listLabels(db),
+    identity: settings,
   });
   // A resumed turn keeps the rounds it already used, and only its own.
   let rounds = messagesOf(db, day).filter(

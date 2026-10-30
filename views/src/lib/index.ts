@@ -18,4 +18,5 @@ export { default as Agenda } from './agenda/Agenda.svelte';
 export { default as Tasks } from './agenda/Tasks.svelte';
 export { default as Settings } from './settings/Settings.svelte';
 export { default as PinaPanel } from './pina/PinaPanel.svelte';
+export { agentIcon, agentIdentity } from './pina/identity.svelte.ts';
 export * from './ui/index.ts';

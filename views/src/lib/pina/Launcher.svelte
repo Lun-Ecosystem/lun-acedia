@@ -1,6 +1,7 @@
 <script lang="ts">
-  import { ICON_STROKE, Sparkles } from '../ui/Icon.ts';
+  import { ICON_STROKE } from '../ui/Icon.ts';
   import Kbd from '../ui/Kbd.svelte';
+  import { agentIcon, agentIdentity } from './identity.svelte.ts';
 
   /** The only fixed element of the bottom-right corner (plate 01, state 1); the badge counts the pending cards. */
 
@@ -11,6 +12,7 @@
   }
 
   let { pending, onclick, element = $bindable(null) }: Props = $props();
+  const Icon = $derived(agentIcon(agentIdentity.icon));
 </script>
 
 <button
@@ -21,8 +23,8 @@
   aria-expanded="false"
   {onclick}
 >
-  <Sparkles size={16} strokeWidth={ICON_STROKE} aria-hidden="true" />
-  Pina
+  <Icon size={16} strokeWidth={ICON_STROKE} aria-hidden="true" />
+  {agentIdentity.name}
   <Kbd>Ctrl J</Kbd>
   {#if pending > 0}
     <span class="pt" aria-hidden="true">{pending}</span><span class="sr">, {pending} en attente</span>

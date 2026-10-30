@@ -226,6 +226,11 @@ export function fakeClient(opts: { mails?: MailSummary[]; journal?: JournalEntry
       instructions: '',
       retentionDays: 30,
       dailyCapUsd: 1,
+      // The identity a user gave the agent; a fresh install says « Agent ».
+      name: 'Pina',
+      icon: 'sparkles' as const,
+      tone: 'chaleureux' as const,
+      persona: '',
       spentTodayUsd: 0,
     })),
     updatePinaSettings: vi.fn<AcediaClient['updatePinaSettings']>(async (patch) => ({
@@ -233,6 +238,11 @@ export function fakeClient(opts: { mails?: MailSummary[]; journal?: JournalEntry
       instructions: '',
       retentionDays: 30,
       dailyCapUsd: 1,
+      // The identity a user gave the agent; a fresh install says « Agent ».
+      name: 'Pina',
+      icon: 'sparkles' as const,
+      tone: 'chaleureux' as const,
+      persona: '',
       spentTodayUsd: 0,
       ...patch,
     })),

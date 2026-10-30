@@ -1,5 +1,6 @@
 import { ApiError, type AcediaClient } from '../client.ts';
 import type { PinaCard, PinaSettings, PinaThread, ScreenContext } from '../types.ts';
+import { takeIdentity } from './identity.svelte.ts';
 import { toast } from '../ui/toasts.svelte.ts';
 
 /*
@@ -84,7 +85,10 @@ export class PinaState {
       this.#client.getPinaSettings(),
       this.#client.pinaDays(),
     ]);
-    if (settings.status === 'fulfilled') this.mode = settings.value.mode;
+    if (settings.status === 'fulfilled') {
+      this.mode = settings.value.mode;
+      takeIdentity(settings.value);
+    }
     if (days.status === 'fulfilled') this.days = days.value;
   }
 

@@ -103,11 +103,11 @@
     },
     {
       id: 'pina',
-      label: 'Pina',
+      label: 'Agent',
       icon: Sparkles,
       group: 'IA',
       description:
-        'L’assistante d’Acedia : comment elle agit, son modèle, ce qu’elle peut dépenser et ce qu’elle garde. Elle prépare les mails, l’envoi reste un clic sur Envoyer.',
+        'L’agent d’Acedia : qui il est, comment il agit, son modèle, ce qu’il peut dépenser et ce qu’il garde. Il prépare les mails, l’envoi reste un clic sur Envoyer.',
     },
     {
       id: 'fournisseurs',

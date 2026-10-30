@@ -25,6 +25,7 @@
   import ListRow from '../ui/ListRow.svelte';
   import { setScreenContext } from '../ui/shell.ts';
   import Skeleton from '../ui/Skeleton.svelte';
+  import { agentIcon, agentIdentity } from '../pina/identity.svelte.ts';
   import { boxColor, dayLabel, errorText, time } from './format.ts';
 
   /*
@@ -49,12 +50,13 @@
 
   setScreenContext({ screen: 'journal' });
 
-  const ORIGINS = {
+  // The agent's name and icon follow its settings.
+  const ORIGINS = $derived({
     ai: { label: 'IA', by: 'par l’IA', icon: Sparkles },
     rule: { label: 'Règle', by: 'par une règle', icon: Funnel },
-    pina: { label: 'Pina', by: 'par Pina', icon: Sparkles },
+    pina: { label: agentIdentity.name, by: `par ${agentIdentity.name}`, icon: agentIcon(agentIdentity.icon) },
     user: { label: 'À la main', by: 'à la main', icon: Hand },
-  } as const;
+  } as const);
 
   const FILTERS = [
     { id: 'tout', label: 'Tout', icon: undefined, keep: () => true },

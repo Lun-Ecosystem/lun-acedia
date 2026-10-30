@@ -101,10 +101,31 @@ describe('pina store', () => {
       instructions: '',
       retentionDays: 30,
       dailyCapUsd: 1,
+      name: 'Agent',
+      icon: 'sparkles',
+      tone: 'neutre',
+      persona: '',
     });
     expect(db.prepare("SELECT 1 FROM settings WHERE key LIKE 'pina.%'").get()).toBeUndefined();
     putPinaSettings(db, { mode: 'immediate', dailyCapUsd: 2.5 });
     expect(pinaSettings(db)).toMatchObject({ mode: 'immediate', retentionDays: 30, dailyCapUsd: 2.5 });
+  });
+
+  it('the identity is a setting: neutral by default, checked whole before any write', () => {
+    const db = openDb(':memory:');
+    putPinaSettings(db, { name: '  Pina  ', icon: 'moon', tone: 'chaleureux', persona: 'Une viera.' });
+    expect(pinaSettings(db)).toMatchObject({
+      name: 'Pina',
+      icon: 'moon',
+      tone: 'chaleureux',
+      persona: 'Une viera.',
+    });
+    expect(() => putPinaSettings(db, { name: 'Lune', icon: 'licorne' as never })).toThrow();
+    expect(pinaSettings(db).name).toBe('Pina');
+    expect(() => putPinaSettings(db, { name: ' ' })).toThrow();
+    expect(() => putPinaSettings(db, { name: 'x'.repeat(41) })).toThrow();
+    expect(() => putPinaSettings(db, { persona: 'x'.repeat(501) })).toThrow();
+    expect(() => putPinaSettings(db, { tone: 'sec' as never })).toThrow();
   });
 
   it('retentionDays bounded 1..365', () => {

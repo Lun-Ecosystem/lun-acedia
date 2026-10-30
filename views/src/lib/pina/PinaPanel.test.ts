@@ -65,6 +65,19 @@ afterEach(() => {
 });
 
 describe('Pina', () => {
+  it('the launcher carries the name and icon of the settings, « Agent » on a fresh install', async () => {
+    const fake = fakeClient();
+    fake.client.pinaToday.mockResolvedValue(thread([]));
+    fake.client.getPinaSettings.mockResolvedValue({
+      ...(await fake.client.getPinaSettings()),
+      name: 'Agent',
+      icon: 'moon',
+    });
+    render(PinaPanel, { props: { client: fake.client } });
+    const launcher = await screen.findByRole('button', { name: /^Agent/ });
+    expect(launcher.querySelector('svg')).toHaveClass('lucide-moon');
+  });
+
   it('the launcher badge shows pending', async () => {
     await setup(thread([card(10), card(11)]));
     const launcher = await screen.findByRole('button', { name: /Pina/ });

@@ -31,7 +31,7 @@ describe('Composer', () => {
 
   it('composer opened from a draft shows the banner and sends through drafts/send', async () => {
     const { client, user, onsent } = setup();
-    expect(await screen.findByText('Brouillon préparé par Pina.')).toBeInTheDocument();
+    expect(await screen.findByText('Brouillon préparé par Agent.')).toBeInTheDocument();
     expect(
       screen.getByText(/Relire avant d’envoyer : rien ne part sans un clic sur Envoyer\./),
     ).toBeInTheDocument();
@@ -138,7 +138,7 @@ describe('Composer', () => {
     const fake = fakeClient();
     render(Composer, { props: { client: fake.client, onsent: vi.fn(), onclose: vi.fn() } });
     await screen.findByRole('form', { name: 'Nouveau message' });
-    expect(screen.queryByText('Brouillon préparé par Pina.')).not.toBeInTheDocument();
+    expect(screen.queryByText('Brouillon préparé par Agent.')).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Jeter' })).not.toBeInTheDocument();
     expect(fake.client.getDraft).not.toHaveBeenCalled();
   });
