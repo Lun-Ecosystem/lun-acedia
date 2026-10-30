@@ -48,6 +48,8 @@
   };
   let screen = $state(screenOf(window.location.hash));
   /** Mail to open on reaching the mail screen (the eye of « À valider », or a `#/mail/<id>` address). */
+  /** Bumped by each `#/mail/<id>` arrival: the mail screen starts afresh on it, even for the same id. */
+  let openingKey = $state(0);
   let opening = $state<string | undefined>(mailOf(window.location.hash));
   /** View the mail screen starts on (a box chosen in the rail from another screen). */
   let mailView = $state<string | undefined>();
@@ -59,7 +61,10 @@
     const follow = () => {
       screen = screenOf(window.location.hash);
       const addressed = mailOf(window.location.hash);
-      if (addressed) opening = addressed;
+      if (addressed) {
+        opening = addressed;
+        openingKey++;
+      }
       // Opened once: back on the mail later, the list shows alone.
       if (screen !== 'mail') opening = mailView = draftOpening = undefined;
       if (screen !== 'reglages') settingsStart = undefined;
@@ -221,14 +226,16 @@
     {#key client}
       {#key screen}
         {#if screen === 'mail'}
-          <Mailbox
-            {client}
-            {opening}
-            start={mailView}
-            draft={draftOpening}
-            onchange={() => refresh(client)}
-            onjournal={() => (location.hash = HREF.journal)}
-          />
+          {#key openingKey}
+            <Mailbox
+              {client}
+              {opening}
+              start={mailView}
+              draft={draftOpening}
+              onchange={() => refresh(client)}
+              onjournal={() => (location.hash = HREF.journal)}
+            />
+          {/key}
         {:else if screen === 'a-valider'}
           <Pending
             {client}

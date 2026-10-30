@@ -126,6 +126,15 @@ function fakeServer({ keyRefused = false, startPaused = false, draft = false, ma
         });
       case 'GET /api/mail':
         return json({ items: mails ? [MAIL_42] : [] });
+      case 'GET /api/mail/43':
+        return json({
+          ...MAIL_42,
+          id: '43',
+          subject: 'Hors boîte',
+          to: 'moi@example.com',
+          html: '<p>Rangé ailleurs</p>',
+          attachments: [],
+        });
       case 'GET /api/mail/42':
         return json({ ...MAIL_42, to: 'moi@example.com', html: '<p>Tu viens ?</p>', attachments: [] });
       case 'GET /api/send-as':
@@ -331,8 +340,33 @@ describe('Shell', () => {
     history.replaceState(null, '', '/#/mail/inconnu');
     render(App);
     await waitFor(() => expect(calls).toContain('GET /api/mail'));
-    expect(calls.some((c) => c.startsWith('GET /api/mail/'))).toBe(false);
+    // Not in the list: it is asked by its id, fails quietly, and the box shows alone.
+    await waitFor(() => expect(calls).toContain('GET /api/mail/inconnu'));
     expect(await screen.findByRole('navigation', { name: 'Sections' })).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('#/mail/43 opens a mail absent from the loaded list', async () => {
+    const { calls } = fakeServer({ mails: true });
+    localStorage.setItem(TOKEN_KEY, 'tok-1');
+    history.replaceState(null, '', '/#/mail/43');
+    render(App);
+    await waitFor(() => expect(calls).toContain('GET /api/mail/43'));
+    expect(await screen.findAllByText('Hors boîte')).not.toHaveLength(0);
+  });
+
+  it('#/mail/42 then #/mail/43 while the mail screen is open opens the second mail', async () => {
+    const { calls } = fakeServer({ mails: true });
+    localStorage.setItem(TOKEN_KEY, 'tok-1');
+    history.replaceState(null, '', '/#/mail/42');
+    render(App);
+    await waitFor(() => expect(calls).toContain('GET /api/mail/42'));
+    window.location.hash = '#/mail/43';
+    await waitFor(() => expect(calls).toContain('GET /api/mail/43'));
+    // The same address again, after another hash, opens it again.
+    window.location.hash = '#/mail';
+    window.location.hash = '#/mail/43';
+    await waitFor(() => expect(calls.filter((c) => c === 'GET /api/mail/43')).toHaveLength(2));
   });
 
   it('a #/mail/<id> hashchange opens that mail too', async () => {

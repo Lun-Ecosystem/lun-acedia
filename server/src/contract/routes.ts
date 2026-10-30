@@ -38,6 +38,7 @@ const PAUSED = 'Acedia est en pause : je ne fais rien tant qu’elle n’est pas
 
 function toContractCard(db: AppDeps['db'], card: Card): ContractCard {
   const text = cardText(db, card);
+  const mailId = (card.input as { id?: unknown } | null)?.id;
   return {
     id: String(card.id),
     action: card.action,
@@ -47,9 +48,7 @@ function toContractCard(db: AppDeps['db'], card: Card): ContractCard {
     status: card.status,
     at: card.createdAt,
     ...(card.error ? { error: card.error } : {}),
-    ...(card.action.startsWith('mail.') && (card.input as { id?: unknown } | null)?.id !== undefined
-      ? { link: mailLink((card.input as { id: unknown }).id) }
-      : {}),
+    ...(card.action.startsWith('mail.') && mailId !== undefined ? { link: mailLink(mailId) } : {}),
   };
 }
 
