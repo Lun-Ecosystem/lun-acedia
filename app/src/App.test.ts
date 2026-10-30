@@ -120,7 +120,16 @@ function fakeServer({ keyRefused = false, startPaused = false, draft = false } =
       case 'GET /api/pina/days':
         return json({ days: [] });
       case 'GET /api/pina/settings':
-        return json({ mode: 'validate', instructions: '', retentionDays: 30, dailyCapUsd: 1 });
+        return json({
+          mode: 'validate',
+          instructions: '',
+          retentionDays: 30,
+          dailyCapUsd: 1,
+          name: 'Pina',
+          icon: 'sparkles',
+          tone: 'chaleureux',
+          persona: '',
+        });
       case 'POST /lun/v1/pair':
         return json({ token: 'tok-2', satellite: {} });
       default:

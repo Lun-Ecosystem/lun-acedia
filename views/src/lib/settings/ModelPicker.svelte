@@ -56,7 +56,7 @@
   <Select
     {items}
     {disabled}
-    aria-label={use === 'triage' ? 'Modèle du tri' : 'Modèle de Pina'}
+    aria-label={use === 'triage' ? 'Modèle du tri' : 'Modèle de l’agent'}
     placeholder="Choisir un modèle…"
     value={value ? keyOf(value.provider, value.model) : ''}
     onchange={(next) => {

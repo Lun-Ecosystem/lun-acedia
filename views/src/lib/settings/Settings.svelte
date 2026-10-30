@@ -103,7 +103,7 @@
     },
     {
       id: 'pina',
-      label: 'Pina',
+      label: 'Agent',
       icon: Sparkles,
       group: 'IA',
       description:

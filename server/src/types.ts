@@ -308,11 +308,20 @@ export interface PinaThread {
   pending: number;
 }
 
+/** The agent's icon, from a closed list. */
+export type AgentIcon = 'sparkles' | 'mail' | 'inbox' | 'calendar' | 'feather' | 'moon' | 'gem' | 'bell';
+
 export interface PinaSettings {
   mode: 'validate' | 'immediate';
   instructions: string;
   retentionDays: number;
   dailyCapUsd: number;
+  /** The agent's identity: neutral by default, the user's to set (the lore is configuration). */
+  name: string;
+  icon: AgentIcon;
+  tone: 'neutre' | 'chaleureux' | 'concis';
+  /** Context of the character: it sets the voice, never the rules. */
+  persona: string;
 }
 
 /** The settings as `GET/PUT /api/pina/settings` answer them, with Pina's spend since the Paris day started. */

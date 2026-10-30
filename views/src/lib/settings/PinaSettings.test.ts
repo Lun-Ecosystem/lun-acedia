@@ -2,6 +2,7 @@ import { render, screen, waitFor } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it } from 'vitest';
 import { fakeClient } from '../../testing/fake-client.ts';
+import { agentIdentity } from '../pina/identity.svelte.ts';
 import { dismissAll } from '../ui/toasts.svelte.ts';
 import PinaSettings from './PinaSettings.svelte';
 
@@ -12,11 +13,15 @@ async function setup() {
     instructions: 'Signer Natsume.',
     retentionDays: 30,
     dailyCapUsd: 1,
+    name: 'Pina',
+    icon: 'sparkles',
+    tone: 'chaleureux',
+    persona: '',
     spentTodayUsd: 0.25,
   });
   const user = userEvent.setup();
   render(PinaSettings, { props: { client: fake.client } });
-  await screen.findByRole('radiogroup', { name: 'Mode de Pina' });
+  await screen.findByRole('radiogroup', { name: 'Mode de l’agent' });
   return { ...fake, user };
 }
 
@@ -84,6 +89,29 @@ describe('PinaSettings', () => {
   it('the model of Pina is chosen among the tool models', async () => {
     const { client } = await setup();
     await waitFor(() => expect(client.getModels).toHaveBeenCalledWith('pina'));
-    expect(await screen.findByRole('combobox', { name: 'Modèle de Pina' })).toBeInTheDocument();
+    expect(await screen.findByRole('combobox', { name: 'Modèle de l’agent' })).toBeInTheDocument();
+  });
+
+  it('the identity is a setting: the name trimmed, never empty, and it follows everywhere', async () => {
+    const { client, user } = await setup();
+    const put = client.updatePinaSettings;
+    const name = screen.getByRole('textbox', { name: 'Nom' });
+    await user.clear(name);
+    await user.tab();
+    expect(await screen.findByText('Un nom, de 1 à 40 caractères.')).toBeInTheDocument();
+    expect(put).not.toHaveBeenCalled();
+    await user.type(name, '  Lune  ');
+    await user.tab();
+    await waitFor(() => expect(put).toHaveBeenCalledWith({ name: 'Lune' }));
+    expect(agentIdentity.name).toBe('Lune');
+
+    await user.click(screen.getByRole('radio', { name: 'Concis' }));
+    await waitFor(() => expect(put).toHaveBeenCalledWith({ tone: 'concis' }));
+
+    const persona = screen.getByRole('textbox', { name: 'Contexte du personnage' });
+    await user.click(persona);
+    await user.paste('Une viera de bonne humeur.');
+    await user.tab();
+    await waitFor(() => expect(put).toHaveBeenCalledWith({ persona: 'Une viera de bonne humeur.' }));
   });
 });

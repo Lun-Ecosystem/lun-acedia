@@ -11,6 +11,7 @@
   import Select from '../ui/Select.svelte';
   import TextInput from '../ui/TextInput.svelte';
   import { toast } from '../ui/toasts.svelte.ts';
+  import { agentIdentity } from '../pina/identity.svelte.ts';
   import { errorText, escapeHtml } from './format.ts';
 
   interface Props {
@@ -172,7 +173,8 @@
     <p class="bandeau-ia">
       <Sparkles size={16} strokeWidth={ICON_STROKE} aria-hidden="true" />
       <span
-        ><b>Brouillon préparé par Pina.</b> Relire avant d’envoyer : rien ne part sans un clic sur Envoyer.</span
+        ><b>Brouillon préparé par {agentIdentity.name}.</b> Relire avant d’envoyer : rien ne part sans un clic sur
+        Envoyer.</span
       >
     </p>
   {/if}

@@ -24,6 +24,7 @@
   import { bindShortcuts } from '../ui/shortcuts.ts';
   import { dayLabel, targetsOf, type Names } from './cards.ts';
   import History from './History.svelte';
+  import { agentIcon, agentIdentity, takeIdentity } from './identity.svelte.ts';
   import Launcher from './Launcher.svelte';
   import { PinaState, type Size } from './pina.svelte.ts';
   import Thread from './Thread.svelte';
@@ -61,6 +62,10 @@
 
   // svelte-ignore state_referenced_locally
   const pina = new PinaState(client);
+  // The launcher shows before any opening: the agent's name and icon are read at once.
+  // svelte-ignore state_referenced_locally
+  client.getPinaSettings().then(takeIdentity, () => {});
+  const AgentIcon = $derived(agentIcon(agentIdentity.icon));
   let text = $state('');
   let field = $state<HTMLTextAreaElement | null>(null);
   let fil = $state<HTMLElement | null>(null);
@@ -284,14 +289,20 @@
 <svelte:window onresize={() => pina.fit()} />
 
 {#if open}
-  <button type="button" class="voile" tabindex="-1" aria-label="Fermer Pina" onclick={toggle}></button>
+  <button
+    type="button"
+    class="voile"
+    tabindex="-1"
+    aria-label={`Fermer ${agentIdentity.name}`}
+    onclick={toggle}
+  ></button>
   <div
     bind:this={panel}
     class={['panneau', { grande: pina.maximized }]}
     role="dialog"
     aria-modal={modal}
     tabindex="-1"
-    aria-label="Pina"
+    aria-label={agentIdentity.name}
     onkeydown={trap}
     {@attach (node) => {
       // The sheet takes the focus on a phone; on a wider screen the field does.
@@ -310,7 +321,7 @@
       role="separator"
       tabindex="0"
       aria-orientation="vertical"
-      aria-label="Largeur de Pina"
+      aria-label={`Largeur de ${agentIdentity.name}`}
       aria-valuenow={pina.size.width}
       aria-valuemin={340}
       onpointerdown={grab('gauche')}
@@ -323,7 +334,7 @@
         role="separator"
         tabindex="0"
         aria-orientation="horizontal"
-        aria-label="Hauteur de Pina"
+        aria-label={`Hauteur de ${agentIdentity.name}`}
         aria-valuenow={pina.size.height}
         aria-valuemin={420}
         onpointerdown={grab('haut')}
@@ -342,7 +353,9 @@
     ></div>
 
     <header class="p-tete">
-      <span class="nom"><Sparkles size={16} strokeWidth={ICON_STROKE} aria-hidden="true" />Pina</span>
+      <span class="nom"
+        ><AgentIcon size={16} strokeWidth={ICON_STROKE} aria-hidden="true" />{agentIdentity.name}</span
+      >
       <div class="fin">
         <History
           days={pina.days}
@@ -379,7 +392,7 @@
       </div>
     {/if}
 
-    <div class="fil" bind:this={fil} role="log" aria-label="Échanges avec Pina">
+    <div class="fil" bind:this={fil} role="log" aria-label={`Échanges avec ${agentIdentity.name}`}>
       {#if !pina.past}
         <span class="contexte">
           <pill.icon size={14} strokeWidth={ICON_STROKE} aria-hidden="true" />
@@ -389,8 +402,8 @@
       {#if shown}
         {#if !shown.messages.length && !pina.asking}
           <p class="vide">
-            Aucun échange aujourd’hui. Pina lit les mails, l’agenda et les tâches, et propose chaque action en
-            carte avant de la faire.
+            Aucun échange aujourd’hui. {agentIdentity.name} lit les mails, l’agenda et les tâches, et propose chaque
+            action en carte avant de la faire.
           </p>
         {/if}
         <Thread
@@ -407,7 +420,7 @@
       {#if pina.asking && !pina.past}
         <div class="bulle moi">{pina.asking}</div>
         <div class="bulle ia attente" aria-live="polite">
-          <span class="sr">Pina réfléchit</span><i></i><i></i><i></i>
+          <span class="sr">{agentIdentity.name} réfléchit</span><i></i><i></i><i></i>
         </div>
       {/if}
     </div>
@@ -419,8 +432,8 @@
             bind:this={field}
             bind:value={text}
             rows="1"
-            aria-label="Demande à Pina"
-            placeholder="Demander à Pina…"
+            aria-label={`Demande à ${agentIdentity.name}`}
+            placeholder={`Demander à ${agentIdentity.name}…`}
             maxlength={4000}
             onkeydown={onfieldkey}
             {@attach (node) => {
