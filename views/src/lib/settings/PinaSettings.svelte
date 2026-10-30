@@ -208,7 +208,7 @@
     </div>
   </SettingsCard>
 
-  <SettingsCard title="Mode" description={`Ce que ${agentIdentity.name} fait d’une écriture proposée.`}>
+  <SettingsCard title="Mode" description="Ce que l’agent fait d’une écriture qu’il propose.">
     <div class="modes">
       <RadioGroup.Root
         value={settings.mode}

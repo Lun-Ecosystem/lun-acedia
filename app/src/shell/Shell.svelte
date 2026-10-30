@@ -24,6 +24,8 @@
     Rail,
     ServiceCard,
     Toaster,
+    agentIcon,
+    agentIdentity,
     icons,
     provideShell,
     type PaletteCommand,
@@ -73,6 +75,7 @@
     pinaPending = 0,
     children,
   }: Props = $props();
+  const AgentIcon = $derived(agentIcon(agentIdentity.icon));
 
   let parts = $state<ScreenParts | null>(null);
   let palette = $state(false);
@@ -222,11 +225,11 @@
           <button
             type="button"
             class="pina"
-            aria-label={pinaPending ? `Pina, ${pinaPending} en attente` : 'Pina'}
+            aria-label={pinaPending ? `${agentIdentity.name}, ${pinaPending} en attente` : agentIdentity.name}
             aria-expanded={pinaOpen}
             onclick={onpina}
           >
-            <icons.Sparkles size={16} strokeWidth={1.75} aria-hidden="true" />
+            <AgentIcon size={16} strokeWidth={1.75} aria-hidden="true" />
             {#if pinaPending}<span class="pt" aria-hidden="true">{pinaPending}</span>{/if}
           </button>
         {/if}
