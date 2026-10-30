@@ -167,6 +167,7 @@ const MIGRATIONS: string[] = [
    CREATE INDEX pina_cards_by_turn ON pina_cards (turn);`,
   `ALTER TABLE pina_cards ADD COLUMN edited INTEGER NOT NULL DEFAULT 0;`,
   'ALTER TABLE calendars ADD COLUMN writable INTEGER NOT NULL DEFAULT 1',
+  'ALTER TABLE events ADD COLUMN link TEXT',
 ];
 
 export function openDb(path: string): DatabaseSync {

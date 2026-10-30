@@ -47,7 +47,18 @@ const DRAFT_THREAD = {
   pending: 0,
 };
 
-function fakeServer({ keyRefused = false, startPaused = false, draft = false } = {}) {
+const MAIL_42 = {
+  id: '42',
+  threadId: 't42',
+  from: { name: 'Marie', email: 'marie@example.com' },
+  subject: 'Dîner samedi ?',
+  snippet: 'Tu viens ?',
+  date: '2026-11-02T08:00:00.000Z',
+  unread: false,
+  labels: [],
+};
+
+function fakeServer({ keyRefused = false, startPaused = false, draft = false, mails = false } = {}) {
   const calls: string[] = [];
   let paused = startPaused;
   const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status });
@@ -114,7 +125,9 @@ function fakeServer({ keyRefused = false, startPaused = false, draft = false } =
           text: 'Coucou Marie',
         });
       case 'GET /api/mail':
-        return json({ items: [] });
+        return json({ items: mails ? [MAIL_42] : [] });
+      case 'GET /api/mail/42':
+        return json({ ...MAIL_42, to: 'moi@example.com', html: '<p>Tu viens ?</p>', attachments: [] });
       case 'GET /api/send-as':
         return json({ addresses: [{ email: 'moi@example.com', primary: true }], default: 'moi@example.com' });
       case 'GET /api/pina/days':
@@ -302,6 +315,34 @@ describe('Shell', () => {
     expect(calls).toContain('POST /lun/v1/resume');
     expect(calls).not.toContain('POST /lun/v1/pause');
     expect(await screen.findByRole('button', { name: 'Mettre le tri en pause' })).toBeInTheDocument();
+  });
+
+  it('#/mail/42 opens the mail 42', async () => {
+    const { calls } = fakeServer({ mails: true });
+    localStorage.setItem(TOKEN_KEY, 'tok-1');
+    history.replaceState(null, '', '/#/mail/42');
+    render(App);
+    await waitFor(() => expect(calls).toContain('GET /api/mail/42'));
+  });
+
+  it('#/mail/inconnu opens the box', async () => {
+    const { calls } = fakeServer({ mails: true });
+    localStorage.setItem(TOKEN_KEY, 'tok-1');
+    history.replaceState(null, '', '/#/mail/inconnu');
+    render(App);
+    await waitFor(() => expect(calls).toContain('GET /api/mail'));
+    expect(calls.some((c) => c.startsWith('GET /api/mail/'))).toBe(false);
+    expect(await screen.findByRole('navigation', { name: 'Sections' })).toBeInTheDocument();
+  });
+
+  it('a #/mail/<id> hashchange opens that mail too', async () => {
+    const { calls } = fakeServer({ mails: true });
+    localStorage.setItem(TOKEN_KEY, 'tok-1');
+    history.replaceState(null, '', '/#/agenda');
+    render(App);
+    await screen.findByRole('navigation', { name: 'Sections' });
+    window.location.hash = '#/mail/42';
+    await waitFor(() => expect(calls).toContain('GET /api/mail/42'));
   });
 
   it('opens the palette with Ctrl K and goes to a screen', async () => {

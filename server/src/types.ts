@@ -90,6 +90,8 @@ export interface LunEvent {
   at: string;
   title: string;
   data?: unknown;
+  /** A path in this satellite's own front (`#/mail/<id>`), never an address. */
+  link?: string;
 }
 
 export interface LabelChange {
@@ -264,6 +266,8 @@ export interface ContractCard {
   at: string;
   /** Why a `failed` card failed. */
   error?: string;
+  /** A path in this satellite's own front (`#/mail/<id>`), never an address. */
+  link?: string;
 }
 
 /** A write Pina proposed (or did, in « faire tout de suite »), as a card of the day's thread. */

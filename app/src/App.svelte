@@ -37,9 +37,18 @@
   /** The screen shown, from the hash of the page (`#/agenda`); the mail by default. */
   const screenOf = (hash: string): Screen =>
     (Object.keys(HREF) as Screen[]).find((s) => HREF[s] === hash) ?? 'mail';
+  /** The mail a `#/mail/<id>` address points at; an id that cannot be decoded points at none. */
+  const mailOf = (hash: string): string | undefined => {
+    if (!hash.startsWith('#/mail/') || hash.length === 7) return undefined;
+    try {
+      return decodeURIComponent(hash.slice(7));
+    } catch {
+      return undefined;
+    }
+  };
   let screen = $state(screenOf(window.location.hash));
-  /** Mail to open on reaching the mail screen (the eye of « À valider »). */
-  let opening = $state<string | undefined>();
+  /** Mail to open on reaching the mail screen (the eye of « À valider », or a `#/mail/<id>` address). */
+  let opening = $state<string | undefined>(mailOf(window.location.hash));
   /** View the mail screen starts on (a box chosen in the rail from another screen). */
   let mailView = $state<string | undefined>();
   /** Draft the composer opens (« Ouvrir le brouillon » of Pina); a new object each time. */
@@ -49,6 +58,8 @@
   $effect(() => {
     const follow = () => {
       screen = screenOf(window.location.hash);
+      const addressed = mailOf(window.location.hash);
+      if (addressed) opening = addressed;
       // Opened once: back on the mail later, the list shows alone.
       if (screen !== 'mail') opening = mailView = draftOpening = undefined;
       if (screen !== 'reglages') settingsStart = undefined;

@@ -167,6 +167,19 @@ describe('triageNew', () => {
     expect(triaged.map((e) => e.importance).sort()).toEqual(['info', 'urgent']);
   });
 
+  it('mail.triaged and mail.pending carry the link to their mail', async () => {
+    let box = '';
+    const s = await setup(() => ({ boxId: box, importance: 'normal', confidence: 90 }));
+    box = s.ecole;
+    putSetting(s.h.db, 'threshold', 80);
+    await s.triage(await s.deliver({ id: 'a1', subject: 'x' }));
+    putSetting(s.h.db, 'threshold', 100);
+    await s.triage(await s.deliver({ id: 'c', subject: 'y' }));
+    const link = (type: string) => eventsSince(s.h.db).find((x) => x.type === type)?.link;
+    expect(link('mail.triaged')).toBe('#/mail/a1');
+    expect(link('mail.pending')).toBe('#/mail/c');
+  });
+
   it('an AI-urgent mail never emits urgent; AI-filed is info, pending is low', async () => {
     let box = '';
     const s = await setup((input) => ({

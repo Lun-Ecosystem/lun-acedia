@@ -50,6 +50,16 @@ describe('/lun/v1/cards', () => {
     ]);
   });
 
+  it('a mail card carries its link', async () => {
+    const s = await setup();
+    s.card({ action: 'mail.archive', input: { id: 'm 1' } });
+    s.card();
+    const { cards } = await (await s.get('/cards')).json();
+    const byAction = (a: string) => cards.find((c: { action: string }) => c.action === a);
+    expect(byAction('mail.archive').link).toBe('#/mail/m%201');
+    expect(byAction('event.create')).not.toHaveProperty('link');
+  });
+
   it('filters by status, newest first', async () => {
     const s = await setup();
     const a = s.card();
