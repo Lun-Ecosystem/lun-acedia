@@ -309,7 +309,7 @@ export function registerCatalog(
   add(
     'write',
     'draft.create',
-    'Prépare un brouillon de mail (jamais envoyé : CrOliX le relit et l’envoie lui-même).',
+    'Prépare un brouillon de mail (jamais envoyé : l’utilisateur le relit et l’envoie lui-même).',
     z.object(DraftFields),
     async (i) => createDraft(mail(), await toDraft(i)),
   );

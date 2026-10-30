@@ -95,6 +95,8 @@ describe('contract actions', () => {
     for (const a of actions) {
       expect(a.input.type).toBe('object');
       expect(a.description.length).toBeGreaterThan(0);
+      // The agent is neutral: no user is named to the model.
+      expect(a.description).not.toMatch(/CrOliX/);
     }
   });
 

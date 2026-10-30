@@ -60,11 +60,11 @@ const FAILED: Record<ProviderError['kind'], string> = {
   format: 'Le fournisseur d’IA m’a renvoyé une réponse illisible. Réessaie dans un instant.',
 };
 const REFUSED =
-  'CrOliX a refusé cette action : elle n’a pas été faite. Ne la refais pas sans qu’il le demande.';
+  'L’utilisateur a refusé cette action : elle n’a pas été faite. Ne la refais pas sans qu’il le demande.';
 const ALREADY_UNDONE = 'Action déjà annulée';
 const EXPIRED = 'Cette action a expiré sans être validée : elle n’a pas été faite.';
-const WAITING = 'En attente de la validation de CrOliX : pas encore faite.';
-const LATE = 'Décisions de CrOliX sur tes actions en attente, prises depuis :';
+const WAITING = 'En attente de la validation de l’utilisateur : pas encore faite.';
+const LATE = 'Décisions de l’utilisateur sur tes actions en attente, prises depuis :';
 
 /** The tools sent to the model, and the action behind each tool name. */
 export function toolsOf(actions: Action[]) {
@@ -211,7 +211,9 @@ const toolResult = (turn: number, callId: string, out: Outcome): Stored =>
 function cardResult(c: Card): Stored {
   if (c.status === 'done') {
     // The model must describe what really ran, not what it had asked.
-    const result = c.edited ? { result: c.result, modifiéParCrOliX: true, entréeFinale: c.input } : c.result;
+    const result = c.edited
+      ? { result: c.result, modifiéParLUtilisateur: true, entréeFinale: c.input }
+      : c.result;
     return toolResult(c.turn, c.callId, { ok: true, result });
   }
   if (c.status === 'refused')
