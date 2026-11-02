@@ -168,6 +168,7 @@ const MIGRATIONS: string[] = [
   `ALTER TABLE pina_cards ADD COLUMN edited INTEGER NOT NULL DEFAULT 0;`,
   'ALTER TABLE calendars ADD COLUMN writable INTEGER NOT NULL DEFAULT 1',
   'ALTER TABLE events ADD COLUMN link TEXT',
+  'ALTER TABLE events ADD COLUMN lines TEXT',
 ];
 
 export function openDb(path: string): DatabaseSync {

@@ -28,6 +28,7 @@ describe('reminders', () => {
     const sent = reminderEvents(h.db);
     expect(sent).toHaveLength(1);
     expect(sent[0]).toMatchObject({ importance: 'urgent', title: 'Oral dans 10 min', link: '#/agenda' });
+    expect(sent[0]!.data).toMatchObject({ due: '2026-11-02T08:15:00.000Z' });
   });
 
   it('reminds of a task due today at 09:00 local time', async () => {
@@ -46,6 +47,7 @@ describe('reminders', () => {
     const sent = reminderEvents(h.db);
     expect(sent).toHaveLength(1);
     expect(sent[0]!.title).toBe('Payer le loyer : à faire aujourd’hui');
+    expect(sent[0]!.data).not.toHaveProperty('due');
   });
 
   it('uses the calendar default reminders for an all-day event without overrides', async () => {

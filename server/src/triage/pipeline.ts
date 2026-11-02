@@ -209,6 +209,14 @@ async function triageOne(deps: TriageDeps, id: string, useAi: boolean): Promise<
         type: 'mail.triaged',
         importance: ruleUrgent ? 'urgent' : 'info',
         title: mail.subject,
+        ...(ruleUrgent
+          ? {
+              lines: [
+                `De : ${mail.from.name ? `${mail.from.name} <${mail.from.addr}>` : mail.from.addr}`,
+                ...(mail.snippet ? [`Extrait : ${mail.snippet}`] : []),
+              ],
+            }
+          : {}),
         data: { id, boxId: rule.boxId },
         link: mailLink(id),
       },

@@ -161,10 +161,18 @@ describe('triageNew', () => {
     });
     createRule(s.h.db, { field: 'fromDomain', op: 'equals', value: 'perso.example.org', boxId: s.perso });
     await s.triage(
-      await s.deliver({ id: 'm1', from: 'p@ecole.example.org' }, { id: 'm2', from: 'p@perso.example.org' }),
+      await s.deliver(
+        { id: 'm1', from: 'Prof <prof@ecole.example.org>', snippet: 'Réunion demain' },
+        { id: 'm2', from: 'p@perso.example.org' },
+      ),
     );
     const triaged = eventsSince(s.h.db).filter((e) => e.type === 'mail.triaged');
     expect(triaged.map((e) => e.importance).sort()).toEqual(['info', 'urgent']);
+    expect(triaged.find((e) => e.importance === 'urgent')!.lines).toEqual([
+      'De : Prof <prof@ecole.example.org>',
+      'Extrait : Réunion demain',
+    ]);
+    expect(triaged.find((e) => e.importance === 'info')).not.toHaveProperty('lines');
   });
 
   it('mail.triaged and mail.pending carry the link to their mail', async () => {

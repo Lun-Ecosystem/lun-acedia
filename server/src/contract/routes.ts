@@ -45,6 +45,10 @@ function toContractCard(db: AppDeps['db'], card: Card): ContractCard {
     id: String(card.id),
     action: card.action,
     effect: card.effect === 'delete' ? 'delete' : 'write',
+    kind: text.title,
+    ...(card.action === 'draft.create' && (card.input as { replyTo?: unknown } | null)?.replyTo
+      ? { sends: true as const }
+      : {}),
     title: text.title,
     lines: text.fields.map((f) => `${f.label} : ${f.value}`),
     status: card.status,
