@@ -71,7 +71,8 @@ export async function readStatus(
   const reasons = state?.reason?.split(',').map((r) => r.trim()) ?? [];
   // `<provider>-key`: that provider refused its key (server keyReason).
   const keyReason = reasons.find((r) => r.endsWith('-key'));
-  if (state) paused = state.status === 'paused' || state.paused === true;
+  // Only a pause this front set is its to lift; it never says who else paused.
+  if (state) paused = (state.status === 'paused' || state.paused === true) && state.pausedBy !== 'core';
   if (problem) {
     service = 'cle-refusee';
     detail = problem.state === 'credit' ? DEGRADED.credit! : refused(problem.id);
@@ -83,7 +84,7 @@ export async function readStatus(
       : (DEGRADED[reasons[0] ?? ''] ?? 'Service dégradé');
   } else if (state?.status === 'paused') {
     service = 'pause';
-    detail = 'Rien n’est rangé seul';
+    detail = state.pausedBy === 'core' ? 'Les règles seules rangent' : 'Rien n’est rangé seul';
   } else if (state) {
     service = 'actif';
     const threshold = value(settings)?.threshold;

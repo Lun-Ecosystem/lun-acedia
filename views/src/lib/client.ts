@@ -161,7 +161,12 @@ export interface AcediaClient {
   getModelChoice(): Promise<{ triage: ModelChoice | null; pina: ModelChoice | null }>;
   setModelChoice(use: 'triage' | 'pina', provider: ProviderId, model: string): Promise<ModelChoice>;
   /** State of the service (`GET /lun/v1/health`): sorting active, paused, or degraded (`paused` then tells a pause). */
-  health(): Promise<{ status: 'ok' | 'paused' | 'degraded'; reason?: string; paused?: boolean }>;
+  health(): Promise<{
+    status: 'ok' | 'paused' | 'degraded';
+    reason?: string;
+    paused?: boolean;
+    pausedBy?: 'core' | 'local';
+  }>;
   /** Pauses everything automatic (the AI and the rules); what is asked by hand still runs. */
   pause(): Promise<void>;
   resume(): Promise<void>;

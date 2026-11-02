@@ -161,7 +161,9 @@
     client.googleStatus().then((g) => (google = g), fail);
     client.listClients().then((c) => (clients = c), fail);
     client.getSettings().then((s) => (settings = s), fail);
-    client.health().then((h) => (paused = h.status === 'paused' || h.paused === true), fail);
+    client
+      .health()
+      .then((h) => (paused = (h.status === 'paused' || h.paused === true) && h.pausedBy !== 'core'), fail);
   });
 
   /** The models of the triage, read again when a key comes or goes. */
