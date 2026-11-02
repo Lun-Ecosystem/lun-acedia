@@ -209,6 +209,14 @@ async function triageOne(deps: TriageDeps, id: string, useAi: boolean): Promise<
         type: 'mail.triaged',
         importance: ruleUrgent ? 'urgent' : 'info',
         title: mail.subject,
+        ...(ruleUrgent
+          ? {
+              lines: [
+                `De : ${mail.from.name ? `${mail.from.name} <${mail.from.addr}>` : mail.from.addr}`,
+                ...(mail.snippet ? [`Extrait : ${mail.snippet}`] : []),
+              ],
+            }
+          : {}),
         data: { id, boxId: rule.boxId },
         link: mailLink(id),
       },
@@ -274,15 +282,16 @@ async function triageOne(deps: TriageDeps, id: string, useAi: boolean): Promise<
 
 /**
  * Triages the queued mails (the sync queues each new one; `ids` are queued too): rules first, then
- * the AI. Each mail is treated once (claimed before anything else); nothing happens while paused,
- * and the queue waits. After a credit error or a refused key, the rest only gets the rules and waits
+ * the AI. Each mail is treated once (claimed before anything else); nothing happens under a local pause
+ * (the queue waits); under a core pause only the rules run, the rest waits for the AI. After a credit error or a refused key, the rest only gets the rules and waits
  * for the AI; the next pass tries again. A failure stops the pass and leaves the mail queued.
  */
 export async function triageNew(deps: TriageDeps, ids: string[] = []): Promise<void> {
   enqueue(deps.db, ids, deps.now());
   let useAi = true;
   for (const id of queuedIds(deps.db)) {
-    if (getState(deps.db).paused) return;
+    const { pausedBy } = getState(deps.db);
+    if (pausedBy === 'local') return;
     if (!claim(deps.db, id, deps.now())) {
       // Already decided; or being triaged by another pass, which will dequeue it.
       if (getProposal(deps.db, id)) dequeue(deps.db, id);
@@ -290,7 +299,7 @@ export async function triageNew(deps: TriageDeps, ids: string[] = []): Promise<v
     }
     let outcome: Outcome | 'ai-off';
     try {
-      outcome = await triageOne(deps, id, useAi);
+      outcome = await triageOne(deps, id, useAi && pausedBy !== 'core');
     } catch (err) {
       release(deps.db, id);
       failedAttempt(deps.db, id);

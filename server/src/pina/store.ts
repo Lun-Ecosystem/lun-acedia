@@ -196,6 +196,12 @@ export function pinaSettings(db: DatabaseSync): PinaSettings {
   return s;
 }
 
+/** The name the user gave the agent; undefined while empty or still the neutral default. */
+export function declaredAgentName(db: DatabaseSync): string | undefined {
+  const name = pinaSettings(db).name.trim();
+  return name && name !== DEFAULTS.name ? name : undefined;
+}
+
 export function putPinaSettings(db: DatabaseSync, patch: Partial<PinaSettings>): void {
   for (const [k, v] of Object.entries(SettingsPatch.parse(patch))) putSetting(db, `pina.${k}`, v);
 }

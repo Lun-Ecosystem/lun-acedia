@@ -90,6 +90,8 @@ export interface LunEvent {
   importance: Importance;
   at: string;
   title: string;
+  /** Human lines the core shows under the title. */
+  lines?: string[];
   data?: unknown;
   /** A path in this satellite's own front (`#/mail/<id>`), never an address. */
   link?: string;
@@ -260,6 +262,10 @@ export interface ContractCard {
   id: string;
   action: string;
   effect: 'write' | 'delete';
+  /** What the card is, in words (the same text as its title's kind). */
+  kind?: string;
+  /** Present only as `true`: accepting the card sends a mail. */
+  sends?: true;
   title: string;
   lines: string[];
   status: PinaCardStatus;

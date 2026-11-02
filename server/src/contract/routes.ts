@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import { streamSSE } from 'hono/streaming';
 import type { AppDeps } from '../app.ts';
-import { SATELLITE } from '../identity.ts';
+import { CONTRACT, SATELLITE } from '../identity.ts';
 import { DegradedError, InvalidInputError } from './actions.ts';
 import { pair, recordPairingFailure, requireToken } from './auth.ts';
 import { authorizationPage, exchangeAuthorizationCode, readAuthorizationRequest } from './authorize.ts';
@@ -10,7 +10,7 @@ import { costsSince } from './costs.ts';
 import { ask, decideCard, expireCards, type PinaDeps } from '../pina/agent.ts';
 import { cardText } from '../pina/lines.ts';
 import { Context, Decision } from '../pina/routes.ts';
-import { cardsOf, dayOf, getCard, messagesOf, type Card } from '../pina/store.ts';
+import { cardsOf, dayOf, declaredAgentName, getCard, messagesOf, type Card } from '../pina/store.ts';
 import { spentToday } from '../llm/models.ts';
 import type { ScreenContext } from '../types.ts';
 import type { ContractCard, PinaCardStatus } from '../types.ts';
@@ -34,6 +34,8 @@ const Delegation = z.object({
   request: z.string().min(1).max(4000),
   context: Context.partial().strict().optional(),
 });
+const PauseBody = z.object({ reason: z.string().max(500).optional(), by: z.literal('core').optional() });
+const ResumeBody = z.object({ by: z.literal('core').optional() });
 const PAUSED = 'Acedia est en pause : je ne fais rien tant qu’elle n’est pas reprise.';
 
 function toContractCard(db: AppDeps['db'], card: Card): ContractCard {
@@ -43,6 +45,10 @@ function toContractCard(db: AppDeps['db'], card: Card): ContractCard {
     id: String(card.id),
     action: card.action,
     effect: card.effect === 'delete' ? 'delete' : 'write',
+    kind: text.title,
+    ...(card.action === 'draft.create' && (card.input as { replyTo?: unknown } | null)?.replyTo
+      ? { sends: true as const }
+      : {}),
     title: text.title,
     lines: text.fields.map((f) => `${f.label} : ${f.value}`),
     status: card.status,
@@ -105,7 +111,16 @@ export function contractRoutes(deps: AppDeps, pina: PinaDeps): Hono {
     const status = statusOf(state);
     // Degraded hides the pause in `status`: said apart, so a front can still offer to resume.
     const paused = status.status === 'degraded' && state.paused ? { paused: true } : {};
-    return c.json({ ...status, ...paused, version: deps.version, agent: true });
+    const name = declaredAgentName(db);
+    return c.json({
+      ...status,
+      ...paused,
+      ...(state.pausedBy && { pausedBy: state.pausedBy }),
+      version: deps.version,
+      contract: CONTRACT,
+      agent: true,
+      ...(name && { agentName: name }),
+    });
   });
 
   r.get('/costs', (c) => {
@@ -115,15 +130,29 @@ export function contractRoutes(deps: AppDeps, pina: PinaDeps): Hono {
     return c.json(costsSince(db, since, clock()));
   });
 
-  r.post('/pause', (c) => {
-    if (getState(db).paused) return c.json({ error: 'Déjà en pause' }, 409);
-    setPaused(db, true);
+  const parseBody = async (req: Request, schema: typeof PauseBody | typeof ResumeBody) => {
+    try {
+      return schema.safeParse(await readJson(req));
+    } catch {
+      return undefined;
+    }
+  };
+
+  r.post('/pause', async (c) => {
+    const body = await parseBody(c.req.raw, PauseBody);
+    if (!body?.success) return c.json({ error: 'Corps invalide' }, 400);
+    const by = body.data.by ?? 'local';
+    if (getState(db)[by]) return c.json({ error: 'Déjà en pause' }, 409);
+    setPaused(db, true, by);
     return c.json({ status: 'paused' });
   });
 
-  r.post('/resume', (c) => {
-    if (!getState(db).paused) return c.json({ error: 'Déjà actif' }, 409);
-    setPaused(db, false);
+  r.post('/resume', async (c) => {
+    const body = await parseBody(c.req.raw, ResumeBody);
+    if (!body?.success) return c.json({ error: 'Corps invalide' }, 400);
+    const by = body.data.by ?? 'local';
+    if (!getState(db)[by]) return c.json({ error: 'Déjà actif' }, 409);
+    setPaused(db, false, by);
     return c.json({ status: statusOf(getState(db)).status });
   });
 
@@ -213,7 +242,7 @@ export function contractRoutes(deps: AppDeps, pina: PinaDeps): Hono {
     const cost = (amount: number) => ({ currency: 'USD' as const, amount });
     // shortcut: refs empty until the core shows them, fill from the turn's read tools
     const refs: never[] = [];
-    if (getState(db).paused) return c.json({ summary: PAUSED, cards: [], refs, cost: cost(0) });
+    if (getState(db).pausedBy === 'local') return c.json({ summary: PAUSED, cards: [], refs, cost: cost(0) });
     const before = spentToday(db, 'pina', clock());
     const context = { screen: 'mail', ...parsed.data.context } as ScreenContext;
     const turn = await ask(pina, parsed.data.request, context, { mode: 'validate' });

@@ -41,6 +41,22 @@ describe('readStatus', () => {
     });
   });
 
+  it('under a pause it did not set, offers to pause and says the rules go on', async () => {
+    const { client } = fakeClient();
+    client.health.mockResolvedValue({ status: 'paused', pausedBy: 'core' });
+    expect(await readStatus(client, start, { now })).toMatchObject({
+      service: 'pause',
+      detail: 'Les règles seules rangent',
+      paused: false,
+    });
+    client.health.mockResolvedValue({ status: 'paused', pausedBy: 'local' });
+    expect(await readStatus(client, start, { now })).toMatchObject({
+      service: 'pause',
+      detail: 'Rien n’est rangé seul',
+      paused: true,
+    });
+  });
+
   it('keeps the last values of what fails', async () => {
     const { client } = fakeClient();
     client.listMail.mockRejectedValue(new Error('hors ligne'));

@@ -16,6 +16,7 @@ interface Row {
   at: string;
   title: string;
   data: string | null;
+  lines: string | null;
   link: string | null;
 }
 
@@ -27,6 +28,7 @@ function toEvent(row: Row): LunEvent {
     at: row.at,
     title: row.title,
   };
+  if (row.lines !== null) e.lines = JSON.parse(row.lines);
   if (row.data !== null) e.data = JSON.parse(row.data);
   if (row.link !== null) e.link = row.link;
   return e;
@@ -34,7 +36,9 @@ function toEvent(row: Row): LunEvent {
 
 export function emitEvent(db: DatabaseSync, e: Omit<LunEvent, 'id' | 'at'>, now: Date): LunEvent {
   const info = db
-    .prepare('INSERT INTO events (type, importance, at, title, data, link) VALUES (?, ?, ?, ?, ?, ?)')
+    .prepare(
+      'INSERT INTO events (type, importance, at, title, data, link, lines) VALUES (?, ?, ?, ?, ?, ?, ?)',
+    )
     .run(
       e.type,
       e.importance,
@@ -42,6 +46,7 @@ export function emitEvent(db: DatabaseSync, e: Omit<LunEvent, 'id' | 'at'>, now:
       e.title,
       e.data === undefined ? null : JSON.stringify(e.data),
       e.link ?? null,
+      e.lines === undefined ? null : JSON.stringify(e.lines),
     );
   const event = toEvent(
     db.prepare('SELECT * FROM events WHERE id = ?').get(info.lastInsertRowid) as unknown as Row,

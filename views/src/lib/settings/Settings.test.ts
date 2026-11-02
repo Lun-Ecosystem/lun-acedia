@@ -150,6 +150,17 @@ describe('Settings', () => {
     expect(client.resume).toHaveBeenCalled();
   });
 
+  it('offers to pause, never to resume, under a pause it did not set', async () => {
+    const { client } = fakeClient();
+    client.health.mockResolvedValue({ status: 'paused', pausedBy: 'core' });
+    render(Settings, { props: { client, onchange: vi.fn() } });
+    await client.health.mock.results[0]!.value; // let the answer land before looking
+    await new Promise((r) => setTimeout(r));
+    const card = screen.getByRole('region', { name: 'Tri en cours' });
+    expect(within(card).getByRole('button', { name: 'Mettre en pause' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Reprendre le tri' })).toBeNull();
+  });
+
   it('chooses the role of a label: Boîte, Étiquette or Ignorée (no role)', async () => {
     const { client, user, go } = await open((c) => {
       c.updateLabel.mockImplementation(async (id, { role }) => ({

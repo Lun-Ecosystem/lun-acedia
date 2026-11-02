@@ -42,12 +42,30 @@ describe('/lun/v1/cards', () => {
         id: String(id),
         action: 'event.create',
         effect: 'write',
+        kind: 'Créer un événement',
         title: expect.any(String),
         lines: expect.arrayContaining([expect.stringContaining('Dentiste')]),
         status: 'pending',
         at: getCard(s.h.db, id)!.createdAt,
       },
     ]);
+  });
+
+  it('gives each card its kind, and sends only on a reply draft', async () => {
+    const s = await setup();
+    const reply = { to: 'paul@example.org', subject: 'Re: Orion', text: 'Jeudi.' };
+    s.card();
+    s.card({ action: 'draft.create', input: { ...reply, replyTo: 'm1' } });
+    s.card({ action: 'draft.create', input: reply });
+    const { cards } = await (await s.get('/cards')).json();
+    const drafts = cards.filter((c: { action: string }) => c.action === 'draft.create');
+    expect(cards.find((c: { action: string }) => c.action === 'event.create')).not.toHaveProperty('sends');
+    expect(drafts.filter((c: { sends?: boolean }) => c.sends)).toHaveLength(1);
+    expect(drafts.find((c: { sends?: boolean }) => c.sends)).toMatchObject({
+      kind: 'Brouillon de réponse',
+      sends: true,
+    });
+    expect(drafts.find((c: { sends?: boolean }) => !c.sends)).not.toHaveProperty('sends');
   });
 
   it('a mail card carries its link', async () => {

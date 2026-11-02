@@ -33,6 +33,18 @@ async function readEvents(
   return frames;
 }
 
+describe('lines', () => {
+  it('keeps the lines of an event', () => {
+    const h = makeHarness();
+    const now = new Date('2026-11-02T08:00:00.000Z');
+    emitEvent(h.db, { type: 't', importance: 'urgent', title: 'x', lines: ['a', 'b'] }, now);
+    emitEvent(h.db, { type: 't', importance: 'urgent', title: 'y' }, now);
+    const [a, b] = eventsSince(h.db);
+    expect(a).toMatchObject({ lines: ['a', 'b'] });
+    expect(b).not.toHaveProperty('lines');
+  });
+});
+
 describe('GET /lun/v1/events', () => {
   it('replays the events after Last-Event-ID, in order', async () => {
     const h = makeHarness();

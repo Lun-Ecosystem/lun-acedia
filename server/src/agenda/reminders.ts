@@ -82,7 +82,10 @@ export function runReminders(db: DatabaseSync, now: Date): number {
     db.prepare('INSERT OR IGNORE INTO reminders_sent (key, at) VALUES (?, ?)').run(r.key, now.toISOString());
     const data: Record<string, unknown> = { kind: r.kind, id: r.itemId, at: r.at };
     data[r.kind === 'event' ? 'calendarId' : 'listId'] = r.containerId;
-    if (r.minutes !== undefined) data.minutes = r.minutes;
+    if (r.minutes !== undefined) {
+      data.minutes = r.minutes;
+      data.due = new Date(Date.parse(r.at) + r.minutes * 60_000).toISOString();
+    }
     emitEvent(
       db,
       { type: 'agenda.reminder', importance: 'urgent', title: phrase(r), data, link: '#/agenda' },
