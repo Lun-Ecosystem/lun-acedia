@@ -226,6 +226,41 @@ describe('triageNew', () => {
     expect(getProposal(s.h.db, 'm2')?.status).toBe('pending');
   });
 
+  it('under a core pause, rules still file and raise urgent, the AI waits', async () => {
+    let box = '';
+    const s = await setup(() => ({ boxId: box, confidence: 90 }));
+    box = s.perso;
+    createRule(s.h.db, {
+      field: 'fromDomain',
+      op: 'equals',
+      value: 'ecole.example.org',
+      boxId: s.ecole,
+      tagIds: [s.urgent],
+    });
+    setPaused(s.h.db, true, 'core');
+    await s.triage(
+      await s.deliver({ id: 'm1', from: 'p@ecole.example.org' }, { id: 'm2', from: 'p@perso.example.org' }),
+    );
+    expect(s.fake.inputs).toHaveLength(0);
+    expect(getStoredMessage(s.h.db, 'm1')?.labels).toContain(s.ecole);
+    expect(eventsSince(s.h.db).find((e) => e.type === 'mail.triaged')?.importance).toBe('urgent');
+    expect(getProposal(s.h.db, 'm2')).toBeUndefined();
+    expect(queuedIds(s.h.db)).toContain('m2');
+    setPaused(s.h.db, false, 'core');
+    await s.triage([]);
+    expect(getProposal(s.h.db, 'm2')?.status).toBe('pending');
+  });
+
+  it('a local pause over a core pause stops the rules too', async () => {
+    const s = await setup(() => ({ boxId: '', confidence: 90 }));
+    createRule(s.h.db, { field: 'fromDomain', op: 'equals', value: 'ecole.example.org', boxId: s.ecole });
+    setPaused(s.h.db, true, 'core');
+    setPaused(s.h.db, true, 'local');
+    await s.triage(await s.deliver({ id: 'm1', from: 'p@ecole.example.org' }));
+    expect(getStoredMessage(s.h.db, 'm1')?.labels).toContain('INBOX');
+    expect(eventsSince(s.h.db).find((e) => e.type === 'mail.triaged')).toBeUndefined();
+  });
+
   it('credit exhausted: degraded, mail left alone, rules still apply', async () => {
     const s = await setup(() => new CreditExhaustedError());
     createRule(s.h.db, { field: 'fromDomain', op: 'equals', value: 'ecole.example.org', boxId: s.ecole });

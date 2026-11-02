@@ -86,4 +86,18 @@ describe('POST /lun/v1/agent', () => {
     expect(await res.json()).toMatchObject({ summary: expect.stringContaining('pause'), cards: [] });
     expect(s.rounds()).toBe(0);
   });
+
+  it('answers a request under a core pause, refuses it under a local pause', async () => {
+    const s = await setup();
+    setPaused(s.h.db, true, 'core');
+    expect(
+      ((await (await s.post({ request: 'Range ce mail' })).json()) as { cards: unknown[] }).cards,
+    ).toHaveLength(1);
+    const ran = s.rounds();
+    expect(ran).toBeGreaterThan(0);
+    setPaused(s.h.db, true);
+    const paused = await (await s.post({ request: 'Range ce mail' })).json();
+    expect(paused).toMatchObject({ cards: [], cost: { amount: 0 } });
+    expect(s.rounds()).toBe(ran); // the refused request did not reach the model
+  });
 });

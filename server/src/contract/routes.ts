@@ -238,7 +238,7 @@ export function contractRoutes(deps: AppDeps, pina: PinaDeps): Hono {
     const cost = (amount: number) => ({ currency: 'USD' as const, amount });
     // shortcut: refs empty until the core shows them, fill from the turn's read tools
     const refs: never[] = [];
-    if (getState(db).paused) return c.json({ summary: PAUSED, cards: [], refs, cost: cost(0) });
+    if (getState(db).pausedBy === 'local') return c.json({ summary: PAUSED, cards: [], refs, cost: cost(0) });
     const before = spentToday(db, 'pina', clock());
     const context = { screen: 'mail', ...parsed.data.context } as ScreenContext;
     const turn = await ask(pina, parsed.data.request, context, { mode: 'validate' });
