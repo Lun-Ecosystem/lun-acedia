@@ -126,7 +126,7 @@ export function contractRoutes(deps: AppDeps, pina: PinaDeps): Hono {
     return c.json(costsSince(db, since, clock()));
   });
 
-  const origin = async (req: Request, schema: typeof PauseBody | typeof ResumeBody) => {
+  const parseBody = async (req: Request, schema: typeof PauseBody | typeof ResumeBody) => {
     try {
       return schema.safeParse(await readJson(req));
     } catch {
@@ -135,7 +135,7 @@ export function contractRoutes(deps: AppDeps, pina: PinaDeps): Hono {
   };
 
   r.post('/pause', async (c) => {
-    const body = await origin(c.req.raw, PauseBody);
+    const body = await parseBody(c.req.raw, PauseBody);
     if (!body?.success) return c.json({ error: 'Corps invalide' }, 400);
     const by = body.data.by ?? 'local';
     if (getState(db)[by]) return c.json({ error: 'Déjà en pause' }, 409);
@@ -144,7 +144,7 @@ export function contractRoutes(deps: AppDeps, pina: PinaDeps): Hono {
   });
 
   r.post('/resume', async (c) => {
-    const body = await origin(c.req.raw, ResumeBody);
+    const body = await parseBody(c.req.raw, ResumeBody);
     if (!body?.success) return c.json({ error: 'Corps invalide' }, 400);
     const by = body.data.by ?? 'local';
     if (!getState(db)[by]) return c.json({ error: 'Déjà actif' }, 409);

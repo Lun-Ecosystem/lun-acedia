@@ -189,17 +189,17 @@ const SettingsPatch = z
   .strict();
 
 /** Defaults are computed, never written. */
-/** The name the user gave the agent; undefined while empty or still the neutral default. */
-export function declaredAgentName(db: DatabaseSync): string | undefined {
-  const name = pinaSettings(db).name.trim();
-  return name && name !== DEFAULTS.name ? name : undefined;
-}
-
 export function pinaSettings(db: DatabaseSync): PinaSettings {
   const s = { ...DEFAULTS };
   for (const k of Object.keys(DEFAULTS) as (keyof PinaSettings)[])
     (s as Record<string, unknown>)[k] = getSetting(db, `pina.${k}`, DEFAULTS[k]);
   return s;
+}
+
+/** The name the user gave the agent; undefined while empty or still the neutral default. */
+export function declaredAgentName(db: DatabaseSync): string | undefined {
+  const name = pinaSettings(db).name.trim();
+  return name && name !== DEFAULTS.name ? name : undefined;
 }
 
 export function putPinaSettings(db: DatabaseSync, patch: Partial<PinaSettings>): void {

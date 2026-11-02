@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { makeHarness } from '../testing/harness.ts';
+import { putSetting } from '../db.ts';
 import { getState } from './state.ts';
 
 describe('POST /lun/v1/pause and /resume', () => {
@@ -61,6 +62,26 @@ describe('POST /lun/v1/pause and /resume', () => {
     await post(h, token, 'resume', { by: 'core' });
     await post(h, token, 'pause', {});
     expect((await post(h, token, 'resume', { by: 'core' })).status).toBe(409);
+    expect((await post(h, token, 'pause', {})).status).toBe(409);
+    await post(h, token, 'resume', {});
+    expect((await post(h, token, 'resume', {})).status).toBe(409);
+  });
+
+  it('does not let a local resume lift a core pause', async () => {
+    const h = makeHarness();
+    const token = await h.pairClient();
+    await post(h, token, 'pause', { by: 'core' });
+    expect((await post(h, token, 'resume', {})).status).toBe(409);
+    expect(getState(h.db)).toMatchObject({ core: true, local: false });
+  });
+
+  it('reads a pause stored before v1.4 as local', async () => {
+    const h = makeHarness();
+    const token = await h.pairClient();
+    putSetting(h.db, 'paused', true);
+    expect(getState(h.db)).toMatchObject({ local: true, core: false, pausedBy: 'local' });
+    const res = await h.app.request('/lun/v1/health', { headers: h.auth(token) });
+    expect(await res.json()).toMatchObject({ status: 'paused', pausedBy: 'local' });
   });
 
   it('refuses an unknown origin', async () => {
