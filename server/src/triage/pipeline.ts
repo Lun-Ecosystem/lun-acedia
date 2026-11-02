@@ -1,6 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite';
 import { recordCost } from '../contract/costs.ts';
-import { emitEvent } from '../contract/events.ts';
+import { emitEvent, mailLink } from '../contract/events.ts';
 import { addDegraded, clearDegraded, getState } from '../contract/state.ts';
 import { getSetting, putSetting } from '../db.ts';
 import {
@@ -210,6 +210,7 @@ async function triageOne(deps: TriageDeps, id: string, useAi: boolean): Promise<
         importance: ruleUrgent ? 'urgent' : 'info',
         title: mail.subject,
         data: { id, boxId: rule.boxId },
+        link: mailLink(id),
       },
       deps.now(),
     );
@@ -263,6 +264,7 @@ async function triageOne(deps: TriageDeps, id: string, useAi: boolean): Promise<
         importance: c.importance === 'urgent' ? 'normal' : auto ? 'info' : 'low',
         title: mail.subject,
         data: { id, boxId: c.boxId, confidence: c.confidence },
+        link: mailLink(id),
       },
       deps.now(),
     );

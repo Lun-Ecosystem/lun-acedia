@@ -35,7 +35,7 @@
     start?: string | undefined;
     /** Something changed in the mails (an action, an undo): counters around can refresh. */
     onchange?: (() => void) | undefined;
-    /** Mail opened once the first view is loaded (coming from « À valider »). */
+    /** Mail opened once the first view is loaded (« À valider », a `#/mail/<id>` address), even out of the first page. */
     opening?: string | undefined;
     /** Draft opened in the composer (« Ouvrir le brouillon » of Pina); a new object opens it again. */
     draft?: { id: string } | undefined;
@@ -83,7 +83,8 @@
         ? items.filter((m) => m.proposal?.status === 'pending')
         : items,
   );
-  const open = $derived(items.find((m) => m.id === openId));
+  // A mail opened by its address may not be in the loaded page: its own detail stands in for the row.
+  const open = $derived(items.find((m) => m.id === openId) ?? (detail?.id === openId ? detail : undefined));
   const narrow = $derived(openId !== null || composing !== null);
   const menuMails = $derived(items.filter((m) => menu.ids.includes(m.id)));
   /** The AI's box for the mail of the menu, on top of it. */
@@ -137,8 +138,17 @@
         // Without it, the proposal card simply says nothing of the threshold.
       });
     void load().then(() => {
+      if (!opening) return;
       const m = items.find((x) => x.id === opening);
-      if (m) void openMail(m);
+      if (m) return void openMail(m);
+      // Filed out of the first page (a triaged mail): read it by its id; failing that, the box shows alone.
+      client
+        .getMail(opening)
+        .then((d) => {
+          openId = current = d.id;
+          detail = d;
+        })
+        .catch(() => {});
     });
     return client.subscribe((e) => {
       // Never reshuffle the list under a mail being read.
