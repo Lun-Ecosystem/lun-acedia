@@ -9,8 +9,8 @@
 - **Rôle** : satellite, inscrit dans `registry.yaml` de lun-docs. Dépôt **public**.
 - **Possède** : la boîte mail et ses gestes, le tri (boîtes, étiquettes, règles, IA, seuil, validation,
   journal), l'agenda, les tâches, les rappels, l'autorisation Google, ses vues (`views/`).
-- **Ne possède pas** : Natsume, les modes, le briefing, la voix (Lun'Anima, qui consomme Acedia par le
-  contrat satellite et intègre ses vues).
+- **Ne possède pas** : Natsume, les modes, le briefing (Lun'Anima, qui consomme Acedia par le contrat
+  satellite et renvoie vers ses écrans) ; la voix (Lun'Luxuria, à venir).
 
 ## Lancer en local
 

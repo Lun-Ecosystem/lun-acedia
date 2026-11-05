@@ -4,10 +4,10 @@ Le satellite « ta journée » de l'écosystème Lun' : il remplace Gmail, Googl
 au quotidien, avec un tri automatique des mails sous ton contrôle.
 
 **Rôle dans l'écosystème** : satellite. Il possède la boîte mail, son tri (boîtes, étiquettes, règles,
-IA avec seuil de confiance et validation), l'agenda, les tâches et l'autorisation Google. Lun'Anima
-s'y branche par le
+IA avec seuil de confiance et validation), l'agenda, les tâches et l'autorisation Google, et il sert
+ses propres écrans. Lun'Anima s'y branche par le
 [contrat satellite](https://github.com/Lun-Ecosystem/lun-docs/blob/main/standards/contrat-satellite.md)
-et intègre ses vues publiées (`@lun-ecosystem/lunacedia-views`) sans les réécrire.
+(v1.4) : il délègue à son agent, relaie ses cartes et renvoie vers ses écrans, sans les intégrer.
 
 ## Démarrer en local
 
@@ -31,7 +31,7 @@ L’agent agit par le catalogue d’actions : les écritures deviennent des cart
 restent toujours, et il n’envoie jamais de mail (brouillon seulement). Neutre par défaut, son nom, son icône,
 son ton et son personnage se règlent dans Réglages › Agent. Voir [docs/pina.md](docs/pina.md).
 
-Contrat v1.1 : le core lui délègue des demandes (`POST /lun/v1/agent`) et relaie ses cartes
+Contrat v1.4 : le core lui délègue des demandes (`POST /lun/v1/agent`) et relaie ses cartes
 (`GET /lun/v1/cards`, `POST /lun/v1/cards/:id/accept`, `POST /lun/v1/cards/:id/refuse`) ; l'action
 `day.digest` résume la journée.
 
@@ -53,9 +53,9 @@ Monorepo à workspaces npm ; l'outillage (format, lint, typage, tests) est à la
 
 | Dossier | Contenu |
 |---|---|
-| `server/` | le serveur : synchro Google, tri, agenda, API du front, contrat `/lun/v1` (v1.1) |
-| `views/` | le paquet de vues Svelte `@lun-ecosystem/lunacedia-views`, publié pour Lun'Anima |
-| `app/` | le front autonome (PWA installable), qui n'utilise que le paquet de vues |
+| `server/` | le serveur : synchro Google, tri, agenda, API du front, contrat `/lun/v1` (v1.4) |
+| `views/` | les vues Svelte du front, en paquet interne (`@lun-ecosystem/lunacedia-views`) |
+| `app/` | le front autonome (PWA installable), dont les composants métier viennent de `views/` |
 
 ## Documentation
 
