@@ -65,6 +65,15 @@ afterEach(() => {
 });
 
 describe('Pina', () => {
+  it('dates each request and reply, and offers no past day', async () => {
+    const { view, user } = await setup(thread([]));
+    await user.click(await screen.findByRole('button', { name: /^Pina/ }));
+    await screen.findByText('Mets-moi une tâche.');
+    const times = [...view.container.querySelectorAll('time')].map((t) => t.getAttribute('datetime'));
+    expect(times).toEqual(['2026-11-02T09:00:00.000Z', '2026-11-02T09:00:02.000Z']);
+    expect(screen.queryByRole('button', { name: 'Historique des jours' })).toBeNull();
+  });
+
   it('the launcher carries the name and icon of the settings, « Agent » on a fresh install', async () => {
     const fake = fakeClient();
     fake.client.pinaToday.mockResolvedValue(thread([]));

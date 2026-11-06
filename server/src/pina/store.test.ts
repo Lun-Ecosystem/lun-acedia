@@ -5,7 +5,6 @@ import {
   appendMessage,
   cardsOf,
   dayOf,
-  days,
   expireOld,
   getCard,
   messagesOf,
@@ -43,10 +42,6 @@ describe('pina store', () => {
     appendMessage(db, '2026-07-02', { role: 'user', text: 'autre jour' }, now);
     expect(messagesOf(db, '2026-07-01').map((m) => m.message.role)).toEqual(['user', 'assistant']);
     expect(messagesOf(db, '2026-07-01')[0]).toMatchObject({ id: a, message: { text: 'salut' } });
-    expect(days(db)).toEqual([
-      { day: '2026-07-02', messages: 1 },
-      { day: '2026-07-01', messages: 2 },
-    ]);
   });
 
   it('setCardStatus from pending twice → second returns false', () => {
@@ -81,16 +76,19 @@ describe('pina store', () => {
     expect(cardsOf(db, '2026-07-01')).toHaveLength(1);
   });
 
-  it('purge drops days older than retentionDays and keeps today', () => {
+  it('purge keeps only today in the thread, and the cards for the digest of a core that was away', () => {
     const db = openDb(':memory:');
     const now = new Date();
-    for (const d of ['2026-05-01', '2026-05-31', '2026-07-01']) {
+    for (const d of ['2026-05-01', '2026-05-31', '2026-06-15', '2026-07-01']) {
       appendMessage(db, d, { role: 'user', text: d }, now);
       addCard(db, card(d));
     }
-    purge(db, '2026-07-01', 30);
-    expect(days(db).map((d) => d.day)).toEqual(['2026-07-01']);
-    expect(cardsOf(db, '2026-05-31')).toHaveLength(0);
+    purge(db, '2026-07-01');
+    expect(messagesOf(db, '2026-05-31')).toEqual([]);
+    expect(messagesOf(db, '2026-07-01')).toHaveLength(1);
+    expect(cardsOf(db, '2026-05-01')).toHaveLength(0);
+    expect(cardsOf(db, '2026-06-30')).toHaveLength(0);
+    expect(cardsOf(db, '2026-06-15')).toHaveLength(1);
     expect(cardsOf(db, '2026-07-01')).toHaveLength(1);
   });
 
@@ -99,7 +97,6 @@ describe('pina store', () => {
     expect(pinaSettings(db)).toEqual({
       mode: 'validate',
       instructions: '',
-      retentionDays: 30,
       dailyCapUsd: 1,
       name: 'Agent',
       icon: 'sparkles',
@@ -108,7 +105,7 @@ describe('pina store', () => {
     });
     expect(db.prepare("SELECT 1 FROM settings WHERE key LIKE 'pina.%'").get()).toBeUndefined();
     putPinaSettings(db, { mode: 'immediate', dailyCapUsd: 2.5 });
-    expect(pinaSettings(db)).toMatchObject({ mode: 'immediate', retentionDays: 30, dailyCapUsd: 2.5 });
+    expect(pinaSettings(db)).toMatchObject({ mode: 'immediate', dailyCapUsd: 2.5 });
   });
 
   it('the identity is a setting: neutral by default, checked whole before any write', () => {
@@ -126,15 +123,6 @@ describe('pina store', () => {
     expect(() => putPinaSettings(db, { name: 'x'.repeat(41) })).toThrow();
     expect(() => putPinaSettings(db, { persona: 'x'.repeat(501) })).toThrow();
     expect(() => putPinaSettings(db, { tone: 'sec' as never })).toThrow();
-  });
-
-  it('retentionDays bounded 1..365', () => {
-    const db = openDb(':memory:');
-    expect(() => putPinaSettings(db, { retentionDays: 0 })).toThrow();
-    expect(() => putPinaSettings(db, { retentionDays: 366 })).toThrow();
-    expect(() => putPinaSettings(db, { retentionDays: 1.5 })).toThrow();
-    putPinaSettings(db, { retentionDays: 365 });
-    expect(pinaSettings(db).retentionDays).toBe(365);
   });
 
   it('dailyCapUsd bounded 0..50', () => {

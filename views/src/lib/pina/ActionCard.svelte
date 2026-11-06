@@ -18,8 +18,6 @@
     card: PinaCard;
     text: CardText;
     busy?: boolean | undefined;
-    /** A past day: shown, never decided. */
-    readonly?: boolean | undefined;
     onaccept: (input?: unknown) => void;
     onrefuse: () => void;
     onundo: () => void;
@@ -37,7 +35,6 @@
     card,
     text,
     busy = false,
-    readonly = false,
     onaccept,
     onrefuse,
     onundo,
@@ -73,16 +70,16 @@
   <div
     class={['carte', { suppression: deletion }]}
     role="group"
-    tabindex={readonly ? undefined : 0}
-    data-attente={readonly ? undefined : ''}
+    tabindex={0}
+    data-attente=""
     aria-label={`${deletion ? 'Suppression : ' : ''}${text.title}, en attente`}
     aria-busy={busy || undefined}
-    {@attach readonly ? undefined : shortcuts}
+    {@attach shortcuts}
   >
     <div class="t">
       <text.icon size={14} strokeWidth={ICON_STROKE} aria-hidden="true" />{text.title}
       {#if deletion}<span class="marque-suppr">Suppression</span>{/if}
-      <span class="etat-c">{readonly ? 'restée en attente' : 'en attente'}</span>
+      <span class="etat-c">en attente</span>
     </div>
     {#if preview}
       {@render preview()}
@@ -102,26 +99,18 @@
           <dd>{f.value}</dd>{/each}
       </dl>
     {/if}
-    {#if !readonly}
-      <div class="act">
-        <Button
-          variant={deletion ? 'danger' : 'doux'}
-          size="petit"
-          icon={Check}
-          loading={busy}
-          onclick={accept}>Valider</Button
-        >
-        {#if editing}
-          <Button variant="fantome" size="petit" onclick={() => (editing = null)}
-            >Garder la proposition</Button
-          >
-        {:else if editable.length || onedit}
-          <Button variant="secondaire" size="petit" icon={Pencil} onclick={startEdit}>Modifier</Button>
-        {/if}
-        <Button variant="fantome" size="petit" disabled={busy} onclick={onrefuse}>Refuser</Button>
-        <span class="touche"><Kbd>Ctrl ↵</Kbd></span>
-      </div>
-    {/if}
+    <div class="act">
+      <Button variant={deletion ? 'danger' : 'doux'} size="petit" icon={Check} loading={busy} onclick={accept}
+        >Valider</Button
+      >
+      {#if editing}
+        <Button variant="fantome" size="petit" onclick={() => (editing = null)}>Garder la proposition</Button>
+      {:else if editable.length || onedit}
+        <Button variant="secondaire" size="petit" icon={Pencil} onclick={startEdit}>Modifier</Button>
+      {/if}
+      <Button variant="fantome" size="petit" disabled={busy} onclick={onrefuse}>Refuser</Button>
+      <span class="touche"><Kbd>Ctrl ↵</Kbd></span>
+    </div>
   </div>
 {:else if card.status === 'done'}
   <div class={['carte', { faite: !preview }]} role="group" aria-label={`${text.done}, fait`}>
@@ -133,7 +122,7 @@
       {@render preview()}
       <div class="act">
         {@render doneActions?.()}
-        {#if card.inverse && !readonly}
+        {#if card.inverse}
           <Button variant="fantome" size="petit" loading={busy} onclick={onundo}>{undoLabel}</Button>
         {/if}
       </div>
@@ -141,7 +130,7 @@
       <div class="ligne">
         <Check size={14} strokeWidth={ICON_STROKE} aria-hidden="true" />
         <span class="quoi">{text.done}{card.decidedAt ? ` · ${timeLabel(card.decidedAt)}` : ''}</span>
-        {#if card.inverse && !readonly}
+        {#if card.inverse}
           <Button variant="fantome" size="petit" class="annuler" icon={Undo} loading={busy} onclick={onundo}
             >{undoLabel}</Button
           >

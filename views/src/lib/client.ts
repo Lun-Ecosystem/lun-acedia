@@ -172,10 +172,6 @@ export interface AcediaClient {
   resume(): Promise<void>;
   /** Today's thread of Pina (a new one each Paris day). */
   pinaToday(): Promise<PinaThread>;
-  /** The days of the thread still kept, the latest first. */
-  pinaDays(): Promise<{ day: string; messages: number }[]>;
-  /** A past day of the thread, to read. */
-  pinaDay(day: string): Promise<PinaThread>;
   /** Asks Pina; answers today's thread once her turn stops (a reply, a card to decide, a bound). */
   pinaAsk(text: string, context: ScreenContext): Promise<PinaThread>;
   /** Accepts (with the input changed by « Modifier », if any) or refuses a card; 409 when already decided or expired. */
@@ -328,9 +324,6 @@ export function httpClient(opts: { baseUrl: string; token: string; fetch?: typeo
       await call('POST', '/lun/v1/resume', {});
     },
     pinaToday: () => call('GET', '/api/pina/today'),
-    pinaDays: async () =>
-      (await call<{ days: { day: string; messages: number }[] }>('GET', '/api/pina/days')).days,
-    pinaDay: (day) => call('GET', `/api/pina/days/${enc(day)}`),
     pinaAsk: (text, context) => call('POST', '/api/pina/messages', { text, context }),
     pinaDecide: (id, decision, input) =>
       call('POST', `/api/pina/cards/${id}`, input === undefined ? { decision } : { decision, input }),

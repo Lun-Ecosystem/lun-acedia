@@ -145,19 +145,16 @@ export function expireOld(db: DatabaseSync, today: string, keep: number[] = []):
   ).run(today, JSON.stringify(keep));
 }
 
-/** Drops the days older than `retentionDays` before `today` (a day string); today is always kept. */
-export function purge(db: DatabaseSync, today: string, retentionDays: number): void {
-  const cutoff = new Date(Date.parse(`${today}T00:00:00Z`) - retentionDays * 86_400_000)
+/** The cards of the day's digest wait this long for a core that was away. */
+const CARDS_KEPT_DAYS = 30;
+
+/** Only today stays in the thread: its words go at the turn of the day, the cards a while later. */
+export function purge(db: DatabaseSync, today: string): void {
+  const cutoff = new Date(Date.parse(`${today}T00:00:00Z`) - CARDS_KEPT_DAYS * 86_400_000)
     .toISOString()
     .slice(0, 10);
-  db.prepare('DELETE FROM pina_messages WHERE day < ?').run(cutoff);
+  db.prepare('DELETE FROM pina_messages WHERE day < ?').run(today);
   db.prepare('DELETE FROM pina_cards WHERE day < ?').run(cutoff);
-}
-
-export function days(db: DatabaseSync): { day: string; messages: number }[] {
-  return db
-    .prepare('SELECT day, COUNT(*) AS messages FROM pina_messages GROUP BY day ORDER BY day DESC')
-    .all() as { day: string; messages: number }[];
 }
 
 export type { PinaSettings };
@@ -165,7 +162,6 @@ export type { PinaSettings };
 const DEFAULTS: PinaSettings = {
   mode: 'validate',
   instructions: '',
-  retentionDays: 30,
   dailyCapUsd: 1,
   name: 'Agent',
   icon: 'sparkles',
@@ -178,7 +174,6 @@ const SettingsPatch = z
   .object({
     mode: z.enum(['validate', 'immediate']),
     instructions: z.string().max(4000),
-    retentionDays: z.number().int().min(1).max(365),
     dailyCapUsd: z.number().min(0).max(50),
     name: z.string().trim().min(1).max(40),
     icon: z.enum(['sparkles', 'mail', 'inbox', 'calendar', 'feather', 'moon', 'gem', 'bell']),

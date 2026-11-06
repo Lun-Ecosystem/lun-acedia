@@ -26,8 +26,6 @@ export const PARITY: Record<string, Parity> = {
   'GET /api/settings': { excluded: SETTINGS },
   'PUT /api/settings': { excluded: SETTINGS },
   'GET /api/pina/today': { excluded: PINA },
-  'GET /api/pina/days': { excluded: PINA },
-  'GET /api/pina/days/:day': { excluded: PINA },
   'POST /api/pina/messages': { excluded: PINA },
   'POST /api/pina/cards/:id': { excluded: PINA },
   'POST /api/pina/cards/:id/undo': { excluded: PINA },

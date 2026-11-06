@@ -14,7 +14,6 @@
     card: PinaCard;
     text: CardText;
     busy?: boolean | undefined;
-    readonly?: boolean | undefined;
     onaccept: (input?: unknown) => void;
     onrefuse: () => void;
     onundo: () => void;
@@ -23,7 +22,7 @@
     onrephrase: () => void;
   }
 
-  let { card, text, busy, readonly, onaccept, onrefuse, onundo, onopen, onrephrase }: Props = $props();
+  let { card, text, busy, onaccept, onrefuse, onundo, onopen, onrephrase }: Props = $props();
 
   const input = $derived(
     (card.input ?? {}) as { id?: string; to?: string; cc?: string; subject?: string; text?: string },
@@ -58,16 +57,13 @@
       >Ouvrir le brouillon</Button
     >
   {/if}
-  {#if !readonly}
-    <Button variant="fantome" size="petit" onclick={onrephrase}>Reformuler</Button>
-  {/if}
+  <Button variant="fantome" size="petit" onclick={onrephrase}>Reformuler</Button>
 {/snippet}
 
 <ActionCard
   {card}
   {text}
   {busy}
-  {readonly}
   {onaccept}
   {onrefuse}
   {onundo}

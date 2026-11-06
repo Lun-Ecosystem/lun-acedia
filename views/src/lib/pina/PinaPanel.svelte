@@ -22,8 +22,7 @@
   } from '../ui/Icon.ts';
   import type { ShownContext } from '../ui/shell.ts';
   import { bindShortcuts } from '../ui/shortcuts.ts';
-  import { dayLabel, targetsOf, type Names } from './cards.ts';
-  import History from './History.svelte';
+  import { targetsOf, type Names } from './cards.ts';
   import { agentIcon, agentIdentity, takeIdentity } from './identity.svelte.ts';
   import Launcher from './Launcher.svelte';
   import { PinaState, type Size } from './pina.svelte.ts';
@@ -74,7 +73,7 @@
   let labels = $state.raw(new Map<string, string>());
 
   const ctx = $derived(context ?? { screen });
-  const shown = $derived(pina.past ?? pina.thread);
+  const shown = $derived(pina.thread);
   const names = $derived.by((): Names => {
     const targets = targetsOf(shown);
     if (ctx.mailId && ctx.label) targets.set(ctx.mailId, { name: ctx.label });
@@ -134,7 +133,6 @@
     const active = document.activeElement;
     const inside = !active || active === document.body || panel?.contains(active);
     open = false;
-    pina.past = null;
     await tick();
     if (inside) (isPhone() ? opener : launcher)?.focus();
   }
@@ -357,12 +355,6 @@
         ><AgentIcon size={16} strokeWidth={ICON_STROKE} aria-hidden="true" />{agentIdentity.name}</span
       >
       <div class="fin">
-        <History
-          days={pina.days}
-          today={pina.thread?.day}
-          onopen={() => void pina.loadAround()}
-          onpick={(day) => void pina.openDay(day)}
-        />
         <span class="large">
           <IconButton
             icon={pina.maximized ? Minimize : Maximize}
@@ -385,20 +377,11 @@
       <button type="button" class="lien" onclick={openSettings}>Réglages</button>
     </div>
 
-    {#if pina.past}
-      <div class="passe">
-        <span>Fil du {dayLabel(pina.past.day)}, en lecture seule</span>
-        <button type="button" class="lien" onclick={() => (pina.past = null)}>Revenir à aujourd’hui</button>
-      </div>
-    {/if}
-
     <div class="fil" bind:this={fil} role="log" aria-label={`Échanges avec ${agentIdentity.name}`}>
-      {#if !pina.past}
-        <span class="contexte">
-          <pill.icon size={14} strokeWidth={ICON_STROKE} aria-hidden="true" />
-          <span>Contexte : {pill.text}</span>
-        </span>
-      {/if}
+      <span class="contexte">
+        <pill.icon size={14} strokeWidth={ICON_STROKE} aria-hidden="true" />
+        <span>Contexte : {pill.text}</span>
+      </span>
       {#if shown}
         {#if !shown.messages.length && !pina.asking}
           <p class="vide">
@@ -410,14 +393,13 @@
           thread={shown}
           {pina}
           {names}
-          readonly={!!pina.past}
           onopendraft={openDraft}
           onsettled={settled}
           onrephrase={() => fill('Reformuler le brouillon : ')}
           onsettings={openSettings}
         />
       {/if}
-      {#if pina.asking && !pina.past}
+      {#if pina.asking}
         <div class="bulle moi">{pina.asking}</div>
         <div class="bulle ia attente" aria-live="polite">
           <span class="sr">{agentIdentity.name} réfléchit</span><i></i><i></i><i></i>
@@ -425,39 +407,37 @@
       {/if}
     </div>
 
-    {#if !pina.past}
-      <div class="saisie">
-        <div class="boite">
-          <textarea
-            bind:this={field}
-            bind:value={text}
-            rows="1"
-            aria-label={`Demande à ${agentIdentity.name}`}
-            placeholder={`Demander à ${agentIdentity.name}…`}
-            maxlength={4000}
-            onkeydown={onfieldkey}
-            {@attach (node) => {
-              // Not on a phone: the keyboard would cover the sheet as it rises.
-              if (window.matchMedia?.('(min-width: 768px)').matches ?? true) node.focus();
-            }}></textarea>
-          <IconButton
-            icon={Send}
-            size="petit"
-            variant="principal"
-            label="Demander"
-            disabled={!text.trim() || !!pina.asking}
-            onclick={ask}
-          />
-        </div>
-        {#if suggestions.length}
-          <div class="aide">
-            {#each suggestions as s (s)}
-              <button type="button" class="sugg" onclick={() => fill(s)}>{s}</button>
-            {/each}
-          </div>
-        {/if}
+    <div class="saisie">
+      <div class="boite">
+        <textarea
+          bind:this={field}
+          bind:value={text}
+          rows="1"
+          aria-label={`Demande à ${agentIdentity.name}`}
+          placeholder={`Demander à ${agentIdentity.name}…`}
+          maxlength={4000}
+          onkeydown={onfieldkey}
+          {@attach (node) => {
+            // Not on a phone: the keyboard would cover the sheet as it rises.
+            if (window.matchMedia?.('(min-width: 768px)').matches ?? true) node.focus();
+          }}></textarea>
+        <IconButton
+          icon={Send}
+          size="petit"
+          variant="principal"
+          label="Demander"
+          disabled={!text.trim() || !!pina.asking}
+          onclick={ask}
+        />
       </div>
-    {/if}
+      {#if suggestions.length}
+        <div class="aide">
+          {#each suggestions as s (s)}
+            <button type="button" class="sugg" onclick={() => fill(s)}>{s}</button>
+          {/each}
+        </div>
+      {/if}
+    </div>
   </div>
 {:else}
   <Launcher bind:element={launcher} pending={pina.pending} onclick={toggle} />
@@ -553,23 +533,8 @@
     margin-left: auto;
   }
   .mode,
-  .passe {
-    display: flex;
-    flex: none;
-    align-items: center;
-    gap: 8px;
-    padding: 7px 14px;
-    border-bottom: 1px solid var(--bordure);
-    background: var(--fond);
-    font-size: 12px;
-    color: var(--texte-3);
-  }
   .mode b {
     font-weight: 400;
-    color: var(--texte-2);
-  }
-  .passe {
-    background: var(--ia-doux);
     color: var(--texte-2);
   }
   .lien {

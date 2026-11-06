@@ -3,12 +3,12 @@
   import Button from '../ui/Button.svelte';
   import { Check, Settings } from '../ui/Icon.ts';
   import ActionCard from './ActionCard.svelte';
-  import { describe, type Names } from './cards.ts';
+  import { describe, timeLabel, type Names } from './cards.ts';
   import DraftCard from './DraftCard.svelte';
   import type { PinaState } from './pina.svelte.ts';
 
   /*
-   * A day of the thread, in order: CrOliX's requests, Pina's replies, and after each reply the cards
+   * Today's thread, in order: CrOliX's requests, Pina's replies, and after each reply the cards
    * of its tool calls. Reads and tool results stay out of sight. Several pending cards of one turn get
    * « Tout valider ».
    */
@@ -17,7 +17,6 @@
     thread: PinaThread;
     pina: PinaState;
     names: Names;
-    readonly?: boolean | undefined;
     onopendraft: (id: string) => void;
     onrephrase: () => void;
     onsettings: () => void;
@@ -25,29 +24,20 @@
     onsettled: () => void;
   }
 
-  let {
-    thread,
-    pina,
-    names,
-    readonly = false,
-    onopendraft,
-    onrephrase,
-    onsettings,
-    onsettled,
-  }: Props = $props();
+  let { thread, pina, names, onopendraft, onrephrase, onsettings, onsettled }: Props = $props();
 
   type Item =
-    | { kind: 'moi'; id: number; text: string }
-    | { kind: 'ia'; id: number; text: string }
+    | { kind: 'moi'; id: number; at: string; text: string }
+    | { kind: 'ia'; id: number; at: string; text: string }
     | { kind: 'cartes'; id: number; cards: PinaCard[] };
 
   const items = $derived.by((): Item[] => {
     const out: Item[] = [];
     const placed = new Set<number>();
-    for (const { id, message: m } of thread.messages) {
-      if (m.role === 'user') out.push({ kind: 'moi', id, text: m.text });
+    for (const { id, at, message: m } of thread.messages) {
+      if (m.role === 'user') out.push({ kind: 'moi', id, at, text: m.text });
       if (m.role !== 'assistant') continue;
-      if (m.text.trim()) out.push({ kind: 'ia', id, text: m.text });
+      if (m.text.trim()) out.push({ kind: 'ia', id, at, text: m.text });
       const calls = new Set(m.toolCalls.map((c) => c.id));
       const cards = thread.cards.filter((c) => !placed.has(c.id) && c.turn === m.turn && calls.has(c.callId));
       cards.forEach((c) => placed.add(c.id));
@@ -65,10 +55,11 @@
 {#each items as item (item.kind + item.id)}
   {#if item.kind === 'moi'}
     <div class="bulle moi">{item.text}</div>
+    <time class="quand moi-a" datetime={item.at}>{timeLabel(item.at)}</time>
   {:else if item.kind === 'ia'}
     <div class="bulle ia">
       {item.text}
-      {#if !readonly && item.text.includes('Réglages ›')}
+      {#if item.text.includes('Réglages ›')}
         <div class="suite">
           <Button variant="fantome" size="petit" icon={Settings} onclick={onsettings}
             >Ouvrir les Réglages</Button
@@ -76,6 +67,7 @@
         </div>
       {/if}
     </div>
+    <time class="quand ia-a" datetime={item.at}>{timeLabel(item.at)}</time>
   {:else}
     {@const waiting = item.cards.filter((c) => c.status === 'pending' && c.effect !== 'delete')}
     {#each item.cards as card (card.id)}
@@ -83,7 +75,6 @@
         card,
         text: describe(card, names),
         busy: pina.busy.has(card.id),
-        readonly,
         onaccept: (input?: unknown) => pina.decide(card.id, 'accept', input).then(onsettled),
         onrefuse: () => pina.decide(card.id, 'refuse').then(onsettled),
         onundo: () => pina.undo(card.id),
@@ -94,7 +85,7 @@
         <ActionCard {...common} />
       {/if}
     {/each}
-    {#if !readonly && waiting.length > 1}
+    {#if waiting.length > 1}
       <div class="groupe">
         <Button
           variant="doux"
@@ -110,6 +101,17 @@
 {/each}
 
 <style>
+  .quand {
+    margin-top: -8px;
+    color: var(--texte-3);
+    font-size: 11.5px;
+  }
+  .moi-a {
+    align-self: flex-end;
+  }
+  .ia-a {
+    align-self: flex-start;
+  }
   .bulle {
     max-width: 86%;
     padding: 9px 12px;
