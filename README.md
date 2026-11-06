@@ -11,6 +11,7 @@ et rien ne quitte la boîte sans ton accord.
 
 [![Version](https://img.shields.io/github/v/release/Lun-Ecosystem/lun-acedia?style=flat-square&color=3A6080)](https://github.com/Lun-Ecosystem/lun-acedia/releases)
 [![CI](https://img.shields.io/github/actions/workflow/status/Lun-Ecosystem/lun-acedia/ci.yml?branch=main&style=flat-square&label=CI)](https://github.com/Lun-Ecosystem/lun-acedia/actions/workflows/ci.yml)
+[![Licence](https://img.shields.io/github/license/Lun-Ecosystem/lun-acedia?style=flat-square&label=licence)](LICENSE)
 [![Node](https://img.shields.io/badge/node-%5E22.13%20%7C%7C%20%3E%3D24-5FA04E?style=flat-square&logo=node.js&logoColor=white)](https://nodejs.org)
 [![Svelte 5](https://img.shields.io/badge/svelte-5-FF3E00?style=flat-square&logo=svelte&logoColor=white)](https://svelte.dev)
 [![Écosystème Lun'](https://img.shields.io/badge/%C3%A9cosyst%C3%A8me-Lun'-3A6080?style=flat-square)](https://crolix-website.vercel.app)
@@ -93,4 +94,4 @@ Une branche, une PR avec critères de fin et preuves, CI verte. Seul CrOliX merg
 
 ## Licence
 
-Pas encore de licence : tous droits réservés tant qu'aucune n'est posée ici.
+[MIT](LICENSE).

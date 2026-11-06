@@ -1,6 +1,7 @@
 {
   "name": "@lun-ecosystem/lunacedia-views",
   "version": "0.1.0",
+  "license": "MIT",
   "description": "Vues de Lun'Acedia (mail, agenda, réglages) en composants Svelte, intégrées par les apps de Lun'Anima.",
   "type": "module",
   "repository": {
