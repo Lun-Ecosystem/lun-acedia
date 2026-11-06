@@ -225,53 +225,55 @@
     {/snippet}
     {#key client}
       {#key screen}
-        {#if screen === 'mail'}
-          {#key openingKey}
-            <Mailbox
+        <div class="lieu">
+          {#if screen === 'mail'}
+            {#key openingKey}
+              <Mailbox
+                {client}
+                {opening}
+                start={mailView}
+                draft={draftOpening}
+                onchange={() => refresh(client)}
+                onjournal={() => (location.hash = HREF.journal)}
+              />
+            {/key}
+          {:else if screen === 'a-valider'}
+            <Pending
               {client}
-              {opening}
-              start={mailView}
-              draft={draftOpening}
               onchange={() => refresh(client)}
+              onopen={(id) => {
+                opening = id;
+                location.hash = HREF.mail;
+              }}
               onjournal={() => (location.hash = HREF.journal)}
+              onview={(view) => {
+                mailView = view;
+                location.hash = HREF.mail;
+              }}
             />
-          {/key}
-        {:else if screen === 'a-valider'}
-          <Pending
-            {client}
-            onchange={() => refresh(client)}
-            onopen={(id) => {
-              opening = id;
-              location.hash = HREF.mail;
-            }}
-            onjournal={() => (location.hash = HREF.journal)}
-            onview={(view) => {
-              mailView = view;
-              location.hash = HREF.mail;
-            }}
-          />
-        {:else if screen === 'agenda'}
-          <Agenda {client} ontasks={() => (location.hash = HREF.taches)} />
-        {:else if screen === 'taches'}
-          <Tasks {client} />
-        {:else if screen === 'journal'}
-          <Journal
-            {client}
-            onchange={() => refresh(client)}
-            onopen={(id) => {
-              opening = id;
-              location.hash = HREF.mail;
-            }}
-            onsettings={() => (location.hash = HREF.reglages)}
-          />
-        {:else}
-          <Settings
-            {client}
-            start={settingsStart}
-            onSelfRevoked={revokedSelf}
-            onchange={() => refresh(client)}
-          />
-        {/if}
+          {:else if screen === 'agenda'}
+            <Agenda {client} ontasks={() => (location.hash = HREF.taches)} />
+          {:else if screen === 'taches'}
+            <Tasks {client} />
+          {:else if screen === 'journal'}
+            <Journal
+              {client}
+              onchange={() => refresh(client)}
+              onopen={(id) => {
+                opening = id;
+                location.hash = HREF.mail;
+              }}
+              onsettings={() => (location.hash = HREF.reglages)}
+            />
+          {:else}
+            <Settings
+              {client}
+              start={settingsStart}
+              onSelfRevoked={revokedSelf}
+              onchange={() => refresh(client)}
+            />
+          {/if}
+        </div>
       {/key}
     {/key}
   </Shell>
@@ -284,6 +286,21 @@
     margin: 0;
     background: var(--fond);
     color-scheme: dark;
+  }
+  /* Each screen comes in softly: going from one to another must not cut. */
+  .lieu {
+    height: 100%;
+    animation: apparait 180ms ease-out;
+  }
+  @keyframes apparait {
+    from {
+      opacity: 0;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .lieu {
+      animation: none;
+    }
   }
   .refused {
     display: grid;
