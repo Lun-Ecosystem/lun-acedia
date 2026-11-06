@@ -80,7 +80,7 @@ export function runReminders(db: DatabaseSync, now: Date): number {
   const due = dueReminders(db, now);
   for (const r of due) {
     db.prepare('INSERT OR IGNORE INTO reminders_sent (key, at) VALUES (?, ?)').run(r.key, now.toISOString());
-    const data: Record<string, unknown> = { kind: r.kind, id: r.itemId, at: r.at };
+    const data: Record<string, unknown> = { kind: r.kind, id: r.itemId, at: r.at, subject: r.title };
     data[r.kind === 'event' ? 'calendarId' : 'listId'] = r.containerId;
     if (r.minutes !== undefined) {
       data.minutes = r.minutes;
