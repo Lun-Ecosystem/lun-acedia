@@ -31,6 +31,22 @@ describe('reminders', () => {
     expect(sent[0]!.data).toMatchObject({ due: '2026-11-02T08:15:00.000Z' });
   });
 
+  it('carries the bare name of what is coming', async () => {
+    const h = await makeAgendaHarness();
+    h.agenda.putEvent('primary', {
+      id: 'e1',
+      summary: 'Dentiste',
+      start: { dateTime: '2026-11-02T09:05:00.000Z' },
+      end: { dateTime: '2026-11-02T10:00:00.000Z' },
+      reminders: { useDefault: false, overrides: [{ method: 'popup', minutes: 60 }] },
+    });
+    await h.syncAgenda();
+    runReminders(h.db, new Date('2026-11-02T08:05:00.000Z'));
+    const [sent] = reminderEvents(h.db);
+    expect(sent!.title).toBe('Dentiste dans 1 h');
+    expect(sent!.data).toMatchObject({ subject: 'Dentiste' });
+  });
+
   it('reminds of a task due today at 09:00 local time', async () => {
     const h = await makeAgendaHarness();
     h.agenda.putTask('list1', {
