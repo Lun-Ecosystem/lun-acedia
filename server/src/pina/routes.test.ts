@@ -178,8 +178,6 @@ describe('Pina routes', () => {
     const s = await setup([]);
     for (const [method, path] of [
       ['GET', '/api/pina/today'],
-      ['GET', '/api/pina/days'],
-      ['GET', '/api/pina/days/2026-11-02'],
       ['POST', '/api/pina/messages'],
       ['POST', '/api/pina/cards/1'],
       ['POST', '/api/pina/cards/1/undo'],
@@ -196,17 +194,17 @@ describe('Pina routes', () => {
     recordCost(s.h.db, item, s.h.clock(), 'triage');
     const res = await s.h.call('GET', '/api/pina/settings');
     expect(res.body).toMatchObject({ dailyCapUsd: 1, spentTodayUsd: 0.12 });
-    const put = await s.h.call('PUT', '/api/pina/settings', { retentionDays: 10 });
-    expect(put.body).toMatchObject({ retentionDays: 10, spentTodayUsd: 0.12 });
+    const put = await s.h.call('PUT', '/api/pina/settings', { dailyCapUsd: 3 });
+    expect(put.body).toMatchObject({ dailyCapUsd: 3, spentTodayUsd: 0.12 });
   });
 
   it('PUT /settings bounds are enforced; messages are bounded', async () => {
     const s = await setup([]);
-    expect((await s.h.call('PUT', '/api/pina/settings', { retentionDays: 0 })).status).toBe(400);
-    expect((await s.h.call('PUT', '/api/pina/settings', { retentionDays: 366 })).status).toBe(400);
+    expect((await s.h.call('PUT', '/api/pina/settings', { dailyCapUsd: -1 })).status).toBe(400);
     expect((await s.h.call('PUT', '/api/pina/settings', { dailyCapUsd: 51 })).status).toBe(400);
-    const ok = await s.h.call('PUT', '/api/pina/settings', { retentionDays: 365, dailyCapUsd: 0 });
-    expect(ok.body).toMatchObject({ retentionDays: 365, dailyCapUsd: 0 });
+    expect((await s.h.call('PUT', '/api/pina/settings', { dailyCapUsd: 51 })).status).toBe(400);
+    const ok = await s.h.call('PUT', '/api/pina/settings', { dailyCapUsd: 0 });
+    expect(ok.body).toMatchObject({ dailyCapUsd: 0 });
     const text = (t: string) => s.h.call('POST', '/api/pina/messages', { text: t, context: CONTEXT });
     expect((await text('')).status).toBe(400);
     expect((await text('x'.repeat(4001))).status).toBe(400);

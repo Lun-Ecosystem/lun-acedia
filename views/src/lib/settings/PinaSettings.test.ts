@@ -11,7 +11,6 @@ async function setup() {
   fake.client.getPinaSettings.mockResolvedValue({
     mode: 'validate',
     instructions: 'Signer Natsume.',
-    retentionDays: 30,
     dailyCapUsd: 1,
     name: 'Pina',
     icon: 'sparkles',
@@ -37,19 +36,6 @@ describe('PinaSettings', () => {
     // Mode: one click on the other option saves it.
     await user.click(screen.getByRole('radio', { name: /Faire tout de suite/ }));
     await waitFor(() => expect(put).toHaveBeenCalledWith({ mode: 'immediate' }));
-
-    // Retention: out of 1..365 says so and saves nothing; a good value saves on leaving the field.
-    const days = screen.getByRole('spinbutton', { name: 'Conservation du fil' });
-    await user.clear(days);
-    await user.type(days, '400');
-    await user.tab();
-    expect(await screen.findByText('Entre 1 et 365 jours.')).toBeInTheDocument();
-    expect(put).not.toHaveBeenCalledWith(expect.objectContaining({ retentionDays: 400 }));
-    await user.clear(days);
-    await user.type(days, '14');
-    await user.tab();
-    await waitFor(() => expect(put).toHaveBeenCalledWith({ retentionDays: 14 }));
-    expect(screen.queryByText('Entre 1 et 365 jours.')).not.toBeInTheDocument();
 
     // Daily cap: 0..50 $.
     const cap = screen.getByRole('spinbutton', { name: 'Plafond quotidien' });

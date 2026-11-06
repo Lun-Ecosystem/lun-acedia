@@ -60,9 +60,7 @@
   const Preview = $derived(agentIcon(settings?.icon ?? 'sparkles'));
   let savingText = $state(false);
   /** Typed values, kept as typed while out of bounds. */
-  let days = $state('');
   let cap = $state('');
-  let daysError = $state<string | null>(null);
   let capError = $state<string | null>(null);
   let error = $state<string | null>(null);
   const uid = $props.id();
@@ -75,7 +73,6 @@
       name = s.name;
       persona = s.persona;
       takeIdentity(s);
-      days = String(s.retentionDays);
       cap = String(s.dailyCapUsd);
     }, fail);
     client.getModels('pina').then((m) => (models = m), fail);
@@ -107,13 +104,7 @@
     void save({ mode: settings.mode });
   }
 
-  /** An integer of 1..365, or a number of 0..50: anything else says so and saves nothing. */
-  function saveDays() {
-    const n = Number(days);
-    daysError = Number.isInteger(n) && n >= 1 && n <= 365 && days !== '' ? null : 'Entre 1 et 365 jours.';
-    if (!daysError && n !== settings?.retentionDays) void save({ retentionDays: n });
-  }
-
+  /** A number of 0..50: anything else says so and saves nothing. */
   function saveCap() {
     const n = Number(String(cap).replace(',', '.'));
     capError = Number.isFinite(n) && n >= 0 && n <= 50 && cap !== '' ? null : 'Entre 0 et 50 $.';
@@ -266,7 +257,10 @@
 {/if}
 
 {#if settings}
-  <SettingsCard title="Dépense et conservation" description="Ce que l’agent peut coûter, et ce qu’il garde.">
+  <SettingsCard
+    title="Dépense"
+    description="Ce que l’agent peut coûter. Son fil ne garde que la journée en cours."
+  >
     <SettingsRow label="Plafond quotidien" hint="Atteint, l’agent s’arrête jusqu’au lendemain.">
       {#snippet children({ labelId })}
         <div class="nombre">
@@ -309,27 +303,6 @@
           </div>
         {/snippet}
       </Meter.Root>
-    </SettingsRow>
-    <SettingsRow label="Conservation du fil" hint="Les jours plus anciens sont effacés.">
-      {#snippet children({ labelId })}
-        <div class="nombre">
-          <TextInput
-            type="number"
-            size="petit"
-            min="1"
-            max="365"
-            step="1"
-            inputmode="numeric"
-            suffix="jours"
-            bind:value={days}
-            invalid={daysError !== null}
-            aria-labelledby={labelId}
-            aria-describedby={daysError ? `${uid}-jours` : undefined}
-            onchange={saveDays}
-          />
-          {#if daysError}<span class="borne" id="{uid}-jours">{daysError}</span>{/if}
-        </div>
-      {/snippet}
     </SettingsRow>
   </SettingsCard>
 

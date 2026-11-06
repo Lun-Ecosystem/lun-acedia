@@ -325,7 +325,6 @@ export type AgentIcon = 'sparkles' | 'mail' | 'inbox' | 'calendar' | 'feather' |
 export interface PinaSettings {
   mode: 'validate' | 'immediate';
   instructions: string;
-  retentionDays: number;
   dailyCapUsd: number;
   /** The agent's identity: neutral by default, the user's to set (the lore is configuration). */
   name: string;

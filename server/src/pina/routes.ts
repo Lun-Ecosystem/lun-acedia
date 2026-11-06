@@ -2,16 +2,7 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import { spentToday } from '../llm/models.ts';
 import { ask, decideCard, undoCard, type PinaDeps } from './agent.ts';
-import {
-  cardsOf,
-  dayOf,
-  days,
-  getCard,
-  messagesOf,
-  pendingCount,
-  pinaSettings,
-  putPinaSettings,
-} from './store.ts';
+import { cardsOf, dayOf, getCard, messagesOf, pendingCount, pinaSettings, putPinaSettings } from './store.ts';
 
 // The ids go into the system prompt: no line break, nothing but an id's characters.
 const ContextId = z
@@ -34,7 +25,6 @@ export const Decision = z.object({
     .optional()
     .refine((v) => v === undefined || JSON.stringify(v).length <= MAX_INPUT, 'Entrée trop longue'),
 });
-const DAY = /^\d{4}-\d{2}-\d{2}$/;
 
 /** Pina over HTTP; mounted under `/api/pina`, behind the device token. */
 export function pinaRoutes(deps: PinaDeps): Hono {
@@ -48,11 +38,6 @@ export function pinaRoutes(deps: PinaDeps): Hono {
   const body = async (c: { req: { json: () => Promise<unknown> } }) => c.req.json().catch(() => undefined);
 
   r.get('/today', (c) => c.json(thread(dayOf(deps.clock()))));
-  r.get('/days', (c) => c.json({ days: days(deps.db) }));
-  r.get('/days/:day', (c) => {
-    const day = c.req.param('day');
-    return DAY.test(day) ? c.json(thread(day)) : c.json({ error: 'Jour attendu : AAAA-MM-JJ' }, 400);
-  });
 
   r.post('/messages', async (c) => {
     const parsed = Message.safeParse(await body(c));

@@ -139,13 +139,10 @@ function fakeServer({ keyRefused = false, startPaused = false, draft = false, ma
         return json({ ...MAIL_42, to: 'moi@example.com', html: '<p>Tu viens ?</p>', attachments: [] });
       case 'GET /api/send-as':
         return json({ addresses: [{ email: 'moi@example.com', primary: true }], default: 'moi@example.com' });
-      case 'GET /api/pina/days':
-        return json({ days: [] });
       case 'GET /api/pina/settings':
         return json({
           mode: 'validate',
           instructions: '',
-          retentionDays: 30,
           dailyCapUsd: 1,
           name: 'Pina',
           icon: 'sparkles',

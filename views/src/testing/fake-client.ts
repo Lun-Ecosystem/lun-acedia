@@ -216,15 +216,12 @@ export function fakeClient(opts: { mails?: MailSummary[]; journal?: JournalEntry
       cards: [],
       pending: 0,
     })),
-    pinaDays: vi.fn<AcediaClient['pinaDays']>(async () => []),
-    pinaDay: vi.fn<AcediaClient['pinaDay']>(notUsed),
     pinaAsk: vi.fn<AcediaClient['pinaAsk']>(notUsed),
     pinaDecide: vi.fn<AcediaClient['pinaDecide']>(notUsed),
     pinaUndo: vi.fn<AcediaClient['pinaUndo']>(notUsed),
     getPinaSettings: vi.fn<AcediaClient['getPinaSettings']>(async () => ({
       mode: 'validate' as const,
       instructions: '',
-      retentionDays: 30,
       dailyCapUsd: 1,
       // The identity a user gave the agent; a fresh install says « Agent ».
       name: 'Pina',
@@ -236,7 +233,6 @@ export function fakeClient(opts: { mails?: MailSummary[]; journal?: JournalEntry
     updatePinaSettings: vi.fn<AcediaClient['updatePinaSettings']>(async (patch) => ({
       mode: 'validate' as const,
       instructions: '',
-      retentionDays: 30,
       dailyCapUsd: 1,
       // The identity a user gave the agent; a fresh install says « Agent ».
       name: 'Pina',

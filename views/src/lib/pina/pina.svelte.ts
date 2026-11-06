@@ -4,7 +4,7 @@ import { takeIdentity } from './identity.svelte.ts';
 import { toast } from '../ui/toasts.svelte.ts';
 
 /*
- * The state of Pina's window: today's thread (or a past day, read only), the request on its way, and
+ * The state of Pina's window: today's thread, the request on its way, and
  * the size of the window, kept in the browser between visits.
  */
 
@@ -46,9 +46,6 @@ const message = (err: unknown) => (err instanceof Error ? err.message : 'Pina ne
 export class PinaState {
   /** Today's thread; `null` until read. */
   thread = $state.raw<PinaThread | null>(null);
-  /** A past day opened from the history, read only. */
-  past = $state.raw<PinaThread | null>(null);
-  days = $state.raw<{ day: string; messages: number }[]>([]);
   mode = $state<PinaSettings['mode'] | null>(null);
   /** The request on its way, shown until Pina's turn stops. */
   asking = $state<string | null>(null);
@@ -81,26 +78,10 @@ export class PinaState {
   }
 
   async loadAround() {
-    const [settings, days] = await Promise.allSettled([
-      this.#client.getPinaSettings(),
-      this.#client.pinaDays(),
-    ]);
-    if (settings.status === 'fulfilled') {
-      this.mode = settings.value.mode;
-      takeIdentity(settings.value);
-    }
-    if (days.status === 'fulfilled') this.days = days.value;
-  }
-
-  async openDay(day: string | null) {
-    if (!day || day === this.thread?.day) {
-      this.past = null;
-      return;
-    }
-    try {
-      this.past = await this.#client.pinaDay(day);
-    } catch (err) {
-      toast(message(err), { tone: 'danger' });
+    const settings = await this.#client.getPinaSettings().catch(() => undefined);
+    if (settings) {
+      this.mode = settings.mode;
+      takeIdentity(settings);
     }
   }
 

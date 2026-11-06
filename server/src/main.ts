@@ -23,7 +23,7 @@ import {
   PROVIDERS,
 } from './llm/keys.ts';
 import { expireCards } from './pina/agent.ts';
-import { dayOf, pinaSettings, purge } from './pina/store.ts';
+import { dayOf, purge } from './pina/store.ts';
 import { triageNew } from './triage/pipeline.ts';
 import { recoverQueue } from './triage/queue.ts';
 import { startLoop } from './util.ts';
@@ -99,14 +99,14 @@ if (google) {
 startReminderLoop(db, clock);
 setInterval(() => pruneEvents(db, clock()), 3600_000).unref();
 
-// Pina's thread: yesterday's pending cards expire and old days go, at start then every day.
+// Pina's thread: yesterday's pending cards expire and past days go, at start then every hour.
 const tidyPina = () => {
   const today = dayOf(clock());
   expireCards(db, today);
-  purge(db, today, pinaSettings(db).retentionDays);
+  purge(db, today);
 };
 tidyPina();
-setInterval(tidyPina, 24 * 3600_000).unref();
+setInterval(tidyPina, 3600_000).unref();
 
 const port = Number(process.env.PORT ?? 8787);
 // Loopback by default: a deployment that must be reachable gives its address explicitly.
