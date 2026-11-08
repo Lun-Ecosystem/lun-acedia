@@ -5,6 +5,8 @@ export interface ShellStatus {
   /** `12+` when the count covers only the first page of the list. */
   counts: { inbox: Count; pending: Count; tasks: Count };
   service: ServiceState;
+  /** First line of the service card, when the state's own does not say it (no provider in service). */
+  title?: string | undefined;
   /** Second line of the service card. */
   detail: string;
   /** Sorting paused by hand: the bar and the palette offer to resume, whatever the card shows. */
@@ -28,6 +30,9 @@ const DEGRADED: Record<string, string> = {
   credit: 'Crédit épuisé · les règles continuent',
   'google-reauth': 'Compte Google à reconnecter',
 };
+
+/** No AI provider in service: the rules alone sort, in the words of Réglages > Tri par l’IA. */
+const RULES_ONLY = 'Tri par les règles';
 
 /**
  * Reads the counters (unread mails of the inbox, proposals to validate, and with `tasks` the open tasks
@@ -59,9 +64,11 @@ export async function readStatus(
   const list = value(all);
   if (list) counts.tasks = list.filter((t) => !t.done && (!t.due || t.due <= today)).length;
 
-  let { service, detail, paused } = last;
+  let { service, title, detail, paused } = last;
   const state = value(health);
   const providers = value(keys);
+  // A list that cannot be read keeps the last word on it.
+  const noProvider = providers ? providers.every((p) => p.state === 'absent') : title === RULES_ONLY;
   const problem = providers?.find((p) => p.state === 'refused' || p.state === 'credit');
   /** « Clé OpenAI refusée », or without the name when the keys could not be read. */
   const refused = (id: string) => {
@@ -75,20 +82,28 @@ export async function readStatus(
   if (state) paused = (state.status === 'paused' || state.paused === true) && state.pausedBy !== 'core';
   if (problem) {
     service = 'cle-refusee';
+    title = undefined;
     detail = problem.state === 'credit' ? DEGRADED.credit! : refused(problem.id);
   } else if (state?.status === 'degraded') {
     // Degraded wins over paused on the server: something is broken and must show.
     service = keyReason || reasons.includes('credit') ? 'cle-refusee' : 'pause';
+    title = undefined;
     detail = keyReason
       ? refused(keyReason.slice(0, -'-key'.length))
       : (DEGRADED[reasons[0] ?? ''] ?? 'Service dégradé');
   } else if (state?.status === 'paused') {
     service = 'pause';
+    title = undefined;
     detail = state.pausedBy === 'core' ? 'Les règles seules rangent' : 'Rien n’est rangé seul';
+  } else if (noProvider) {
+    service = 'pause';
+    title = RULES_ONLY;
+    detail = 'Aucun fournisseur d’IA en service';
   } else if (state) {
     service = 'actif';
+    title = undefined;
     const threshold = value(settings)?.threshold;
     detail = threshold === undefined ? '' : `Seuil d’auto-rangement : ${threshold} %`;
   }
-  return { counts, service, detail, paused };
+  return { counts, service, title, detail, paused };
 }

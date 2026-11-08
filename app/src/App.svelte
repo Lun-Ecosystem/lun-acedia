@@ -194,6 +194,7 @@
   <Shell
     current={screen}
     service={status.service}
+    serviceTitle={status.title}
     serviceDetail={status.detail}
     paused={status.paused}
     counts={status.counts}

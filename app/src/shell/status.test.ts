@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { fakeClient } from '../../../views/src/testing/fake-client.ts';
+import { fakeClient, PROVIDERS } from '../../../views/src/testing/fake-client.ts';
 import { EMPTY_STATUS, parisDay, readStatus, type ShellStatus } from './status.ts';
 
 const start = EMPTY_STATUS;
@@ -105,6 +105,50 @@ describe('readStatus', () => {
       service: 'pause',
       detail: 'Compte Google à reconnecter',
       paused: false,
+    });
+  });
+
+  const noKey = () => PROVIDERS.map(({ id, label }) => ({ id, label, state: 'absent' as const }));
+
+  it('says the rules sort alone when no provider is in service, as Réglages does', async () => {
+    const { client } = fakeClient();
+    client.getProviders.mockResolvedValue(noKey());
+    expect(await readStatus(client, start, { now })).toMatchObject({
+      service: 'pause',
+      title: 'Tri par les règles',
+      detail: 'Aucun fournisseur d’IA en service',
+      paused: false,
+    });
+  });
+
+  it('puts a pause and a degraded service before the missing provider, and drops its title after', async () => {
+    const { client } = fakeClient();
+    client.getProviders.mockResolvedValue(noKey());
+    client.health.mockResolvedValueOnce({ status: 'paused', pausedBy: 'local' });
+    const paused = await readStatus(client, start, { now });
+    expect(paused).toMatchObject({ service: 'pause', detail: 'Rien n’est rangé seul', paused: true });
+    expect(paused.title).toBeUndefined();
+    client.health.mockResolvedValueOnce({ status: 'degraded', reason: 'google-reauth' });
+    const degraded = await readStatus(client, start, { now });
+    expect(degraded).toMatchObject({ service: 'pause', detail: 'Compte Google à reconnecter' });
+    expect(degraded.title).toBeUndefined();
+
+    const rules = await readStatus(client, start, { now });
+    client.getProviders.mockResolvedValue(PROVIDERS.map((p) => ({ ...p })));
+    const active = await readStatus(client, rules, { now });
+    expect(active).toMatchObject({ service: 'actif', detail: 'Seuil d’auto-rangement : 100 %' });
+    expect(active.title).toBeUndefined();
+  });
+
+  it('keeps « Tri par les règles » while the providers cannot be read', async () => {
+    const { client } = fakeClient();
+    client.getProviders.mockResolvedValueOnce(noKey());
+    const rules = await readStatus(client, start, { now });
+    client.getProviders.mockRejectedValueOnce(new Error('hors ligne'));
+    expect(await readStatus(client, rules, { now })).toMatchObject({
+      service: 'pause',
+      title: 'Tri par les règles',
+      detail: 'Aucun fournisseur d’IA en service',
     });
   });
 

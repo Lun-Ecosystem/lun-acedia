@@ -43,6 +43,8 @@
   type Props = {
     current: Screen;
     service: ServiceState;
+    /** First line of the service card, when the state's own does not say it. */
+    serviceTitle?: string | undefined;
     /** Second line of the service card. */
     serviceDetail?: string | undefined;
     /** Sorting paused by hand (apart from the card: a refused key may show there instead). */
@@ -64,6 +66,7 @@
   let {
     current,
     service,
+    serviceTitle,
     serviceDetail = '',
     paused,
     counts,
@@ -201,7 +204,7 @@
     {#snippet footer()}
       <NavLink href={HREF.journal} label="Journal" icon={icons.Clock} current={current === 'journal'} />
       <NavLink href={HREF.reglages} label="Réglages" icon={icons.Settings} current={current === 'reglages'} />
-      <ServiceCard state={service} detail={serviceDetail} />
+      <ServiceCard state={service} title={serviceTitle} detail={serviceDetail} />
     {/snippet}
   </Rail>
 
