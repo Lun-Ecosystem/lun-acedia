@@ -1,10 +1,11 @@
 import { existsSync, readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { serve } from '@hono/node-server';
 import { startReminderLoop } from './agenda/reminders.ts';
 import { syncAgenda } from './agenda/unified.ts';
 import { createApp } from './app.ts';
+import { backupIfMissing } from './backup.ts';
 import { ActionRegistry } from './contract/actions.ts';
 import { bootstrapPairing } from './contract/auth.ts';
 import { pruneEvents } from './contract/events.ts';
@@ -36,7 +37,8 @@ if (existsSync(envFile)) process.loadEnvFile(envFile);
 const { version } = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as {
   version: string;
 };
-const db = openDb(resolve(root, process.env.DB_PATH ?? 'data/acedia.db'));
+const dbPath = resolve(root, process.env.DB_PATH ?? 'data/acedia.db');
+const db = openDb(dbPath);
 const clock = () => new Date();
 const actions = new ActionRegistry();
 const google = googleFromEnv(process.env);
@@ -108,7 +110,15 @@ const tidyPina = () => {
 tidyPina();
 setInterval(tidyPina, 3600_000).unref();
 
+// The base is copied next to itself, in backups/: once listening, then every hour if the day's copy is missing.
+const backup = () =>
+  backupIfMissing(db, resolve(dirname(dbPath), 'backups'), clock(), (line) => console.log(line));
+setInterval(backup, 3600_000).unref();
+
 const port = Number(process.env.PORT ?? 8787);
 // Loopback by default: a deployment that must be reachable gives its address explicitly.
 const hostname = process.env.HOST?.trim() || '127.0.0.1';
-serve({ fetch: app.fetch, port, hostname }, () => console.log(`Lun'Acedia écoute sur ${hostname}:${port}`));
+serve({ fetch: app.fetch, port, hostname }, () => {
+  console.log(`Lun'Acedia écoute sur ${hostname}:${port}`);
+  backup();
+});
