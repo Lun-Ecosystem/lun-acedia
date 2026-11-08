@@ -1,5 +1,5 @@
 import { existsSync, readFileSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
+import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { serve } from '@hono/node-server';
 import { startReminderLoop } from './agenda/reminders.ts';
@@ -111,8 +111,7 @@ tidyPina();
 setInterval(tidyPina, 3600_000).unref();
 
 // The base is copied next to itself, in backups/: once listening, then every hour if the day's copy is missing.
-const backup = () =>
-  backupIfMissing(db, resolve(dirname(dbPath), 'backups'), clock(), (line) => console.log(line));
+const backup = () => backupIfMissing(db, dbPath, clock(), (line) => console.log(line));
 setInterval(backup, 3600_000).unref();
 
 const port = Number(process.env.PORT ?? 8787);
