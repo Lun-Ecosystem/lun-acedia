@@ -31,7 +31,7 @@ const DEGRADED: Record<string, string> = {
   'google-reauth': 'Compte Google à reconnecter',
 };
 
-/** No AI provider in service: the rules alone sort, in the words of Réglages > Tri par l’IA. */
+/** No model to sort with (no provider in service, or none chosen): the rules alone sort, as Réglages > Tri par l’IA says. */
 const RULES_ONLY = 'Tri par les règles';
 
 /**
@@ -44,13 +44,14 @@ export async function readStatus(
   { tasks = true, now = new Date() }: { tasks?: boolean; now?: Date } = {},
 ): Promise<ShellStatus> {
   const today = parisDay(now);
-  const [inbox, pending, all, health, keys, settings] = await Promise.allSettled([
+  const [inbox, pending, all, health, keys, settings, chosen] = await Promise.allSettled([
     client.listMail('inbox'),
     client.listMail('pending'),
     tasks ? client.allTasks() : Promise.reject(),
     client.health(),
     client.getProviders(),
     client.getSettings(),
+    client.getModelChoice(),
   ]);
   const value = <T>(r: PromiseSettledResult<T>) => (r.status === 'fulfilled' ? r.value : undefined);
 
@@ -67,8 +68,9 @@ export async function readStatus(
   let { service, title, detail, paused } = last;
   const state = value(health);
   const providers = value(keys);
-  // A list that cannot be read keeps the last word on it.
-  const noProvider = providers ? providers.every((p) => p.state === 'absent') : title === RULES_ONLY;
+  const choice = value(chosen);
+  // The server sorts by AI only with a model for the sort (choiceFor); a choice not read keeps the last word.
+  const rulesOnly = choice ? choice.triage === null : title === RULES_ONLY;
   const problem = providers?.find((p) => p.state === 'refused' || p.state === 'credit');
   /** « Clé OpenAI refusée », or without the name when the keys could not be read. */
   const refused = (id: string) => {
@@ -95,10 +97,15 @@ export async function readStatus(
     service = 'pause';
     title = undefined;
     detail = state.pausedBy === 'core' ? 'Les règles seules rangent' : 'Rien n’est rangé seul';
-  } else if (noProvider) {
+  } else if (state && rulesOnly) {
     service = 'pause';
+    // The words of Réglages > Tri par l’IA; keys not read keep the last detail.
+    if (providers)
+      detail = providers.every((p) => p.state === 'absent')
+        ? 'Aucun fournisseur d’IA en service'
+        : 'Aucun modèle choisi';
+    else if (title !== RULES_ONLY) detail = 'Aucun modèle choisi';
     title = RULES_ONLY;
-    detail = 'Aucun fournisseur d’IA en service';
   } else if (state) {
     service = 'actif';
     title = undefined;

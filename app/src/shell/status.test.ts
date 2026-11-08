@@ -109,11 +109,17 @@ describe('readStatus', () => {
   });
 
   const noKey = () => PROVIDERS.map(({ id, label }) => ({ id, label, state: 'absent' as const }));
-
-  it('says the rules sort alone when no provider is in service, as Réglages does', async () => {
+  const noModel = { triage: null, pina: null };
+  /** No provider in service: the server has no model to sort with (choiceFor), the rules alone sort. */
+  const rulesOnly = () => {
     const { client } = fakeClient();
     client.getProviders.mockResolvedValue(noKey());
-    expect(await readStatus(client, start, { now })).toMatchObject({
+    client.getModelChoice.mockResolvedValue(noModel);
+    return client;
+  };
+
+  it('says the rules sort alone when no provider is in service, as Réglages does', async () => {
+    expect(await readStatus(rulesOnly(), start, { now })).toMatchObject({
       service: 'pause',
       title: 'Tri par les règles',
       detail: 'Aucun fournisseur d’IA en service',
@@ -121,34 +127,74 @@ describe('readStatus', () => {
     });
   });
 
-  it('puts a pause and a degraded service before the missing provider, and drops its title after', async () => {
+  it('says the rules sort alone while no model is chosen for the sort, whatever the keys', async () => {
     const { client } = fakeClient();
-    client.getProviders.mockResolvedValue(noKey());
+    client.getModelChoice.mockResolvedValue(noModel);
+    expect(await readStatus(client, start, { now })).toMatchObject({
+      service: 'pause',
+      title: 'Tri par les règles',
+      detail: 'Aucun modèle choisi',
+    });
+  });
+
+  it('puts a pause, a degraded service and a refused key before the rules alone, and drops its title', async () => {
+    const client = rulesOnly();
+    const rules = await readStatus(client, start, { now });
+    expect(rules.title).toBe('Tri par les règles');
+
     client.health.mockResolvedValueOnce({ status: 'paused', pausedBy: 'local' });
-    const paused = await readStatus(client, start, { now });
+    const paused = await readStatus(client, rules, { now });
     expect(paused).toMatchObject({ service: 'pause', detail: 'Rien n’est rangé seul', paused: true });
     expect(paused.title).toBeUndefined();
     client.health.mockResolvedValueOnce({ status: 'degraded', reason: 'google-reauth' });
-    const degraded = await readStatus(client, start, { now });
+    const degraded = await readStatus(client, rules, { now });
     expect(degraded).toMatchObject({ service: 'pause', detail: 'Compte Google à reconnecter' });
     expect(degraded.title).toBeUndefined();
+    client.getProviders.mockResolvedValueOnce([{ id: 'openai', label: 'OpenAI', state: 'refused' }]);
+    const refused = await readStatus(client, rules, { now });
+    expect(refused).toMatchObject({
+      service: 'cle-refusee',
+      detail: 'Clé OpenAI refusée · les règles continuent',
+    });
+    expect(refused.title).toBeUndefined();
 
-    const rules = await readStatus(client, start, { now });
     client.getProviders.mockResolvedValue(PROVIDERS.map((p) => ({ ...p })));
+    client.getModelChoice.mockResolvedValue({
+      triage: { provider: 'anthropic', model: 'claude-haiku-5-5' },
+      pina: null,
+    });
     const active = await readStatus(client, rules, { now });
     expect(active).toMatchObject({ service: 'actif', detail: 'Seuil d’auto-rangement : 100 %' });
     expect(active.title).toBeUndefined();
   });
 
-  it('keeps « Tri par les règles » while the providers cannot be read', async () => {
-    const { client } = fakeClient();
-    client.getProviders.mockResolvedValueOnce(noKey());
+  it('keeps « Tri par les règles » while the choice and the keys cannot be read', async () => {
+    const client = rulesOnly();
     const rules = await readStatus(client, start, { now });
     client.getProviders.mockRejectedValueOnce(new Error('hors ligne'));
+    client.getModelChoice.mockRejectedValueOnce(new Error('hors ligne'));
     expect(await readStatus(client, rules, { now })).toMatchObject({
       service: 'pause',
       title: 'Tri par les règles',
       detail: 'Aucun fournisseur d’IA en service',
+    });
+  });
+
+  it('keeps the last card while the health cannot be read, even with no model to sort with', async () => {
+    const client = rulesOnly();
+    client.health.mockRejectedValueOnce(new Error('hors ligne'));
+    expect(await readStatus(client, start, { now })).toMatchObject({ service: 'actif', detail: '' });
+  });
+
+  it('never says the threshold under « Tri par les règles » when the keys cannot be read', async () => {
+    const { client } = fakeClient();
+    const active = await readStatus(client, start, { now });
+    expect(active.detail).toBe('Seuil d’auto-rangement : 100 %');
+    client.getModelChoice.mockResolvedValueOnce(noModel);
+    client.getProviders.mockRejectedValueOnce(new Error('hors ligne'));
+    expect(await readStatus(client, active, { now })).toMatchObject({
+      title: 'Tri par les règles',
+      detail: 'Aucun modèle choisi',
     });
   });
 

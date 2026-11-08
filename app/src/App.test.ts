@@ -115,8 +115,10 @@ function fakeServer({
         });
       case 'GET /api/llm/models':
         return json({ models: [] });
-      case 'GET /api/llm/choice':
-        return json({ triage: null, pina: null });
+      case 'GET /api/llm/choice': {
+        const model = noProvider ? null : { provider: 'anthropic', model: 'claude-haiku-5-5' };
+        return json({ triage: model, pina: model });
+      }
       case 'POST /lun/v1/resume':
         paused = false;
         return json({ status: 'ok' });
