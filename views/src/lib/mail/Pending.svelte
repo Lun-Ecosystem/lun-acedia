@@ -23,7 +23,7 @@
   /*
    * The queue of the AI's proposals under the threshold (plate 04), grouped by proposed box: validated
    * one by one from the keyboard (J, K, V, C, Maj+V), by group, or all above the « Tout valider »
-   * threshold. Each action leaves the queue at once and offers to undo (6 s, or Z). Emptied, the
+   * threshold. Each action leaves the queue at once and offers to undo (5 s, or Ctrl Z). Emptied, the
    * screen says what the sorting did today.
    */
 
