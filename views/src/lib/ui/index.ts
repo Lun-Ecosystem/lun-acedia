@@ -53,7 +53,15 @@ export {
   type ShellRegister,
   type ShownContext,
 } from './shell.ts';
-export { dismiss, dismissAll, toast, TOAST_DURATION, type ToastOptions } from './toasts.svelte.ts';
+export {
+  dismiss,
+  dismissAll,
+  toast,
+  DANGER_DURATION,
+  INFO_DURATION,
+  UNDO_DURATION,
+  type ToastOptions,
+} from './toasts.svelte.ts';
 export type {
   ButtonVariant,
   DemoState,

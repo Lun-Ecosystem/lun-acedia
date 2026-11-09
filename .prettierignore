@@ -4,3 +4,5 @@ coverage
 package-lock.json
 *.md
 views/src/lib/tokens.css
+views/src/lib/ui/Toaster.svelte
+views/src/lib/ui/toasts.svelte.ts

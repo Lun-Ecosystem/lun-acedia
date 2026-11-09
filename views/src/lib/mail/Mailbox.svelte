@@ -214,7 +214,7 @@
   type Journaled = { journalId?: number | undefined };
 
   /**
-   * Removes the mails from the list at once and goes back to it, then offers to undo (6 s, or Z). Puts
+   * Removes the mails from the list at once and goes back to it, then offers to undo (5 s, or Ctrl Z). Puts
    * them back and says so if the server refuses.
    */
   async function act(
