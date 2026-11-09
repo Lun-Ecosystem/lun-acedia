@@ -5,6 +5,8 @@ export interface ShellStatus {
   /** `12+` when the count covers only the first page of the list. */
   counts: { inbox: Count; pending: Count; tasks: Count };
   service: ServiceState;
+  /** First line of the service card, when the state's own does not say it (no provider in service). */
+  title?: string | undefined;
   /** Second line of the service card. */
   detail: string;
   /** Sorting paused by hand: the bar and the palette offer to resume, whatever the card shows. */
@@ -29,6 +31,9 @@ const DEGRADED: Record<string, string> = {
   'google-reauth': 'Compte Google à reconnecter',
 };
 
+/** No model to sort with (no provider in service, or none chosen): the rules alone sort, as Réglages > Tri par l’IA says. */
+const RULES_ONLY = 'Tri par les règles';
+
 /**
  * Reads the counters (unread mails of the inbox, proposals to validate, and with `tasks` the open tasks
  * due by today or undated) and the service state. A part that fails keeps its last value: they are hints.
@@ -39,13 +44,14 @@ export async function readStatus(
   { tasks = true, now = new Date() }: { tasks?: boolean; now?: Date } = {},
 ): Promise<ShellStatus> {
   const today = parisDay(now);
-  const [inbox, pending, all, health, keys, settings] = await Promise.allSettled([
+  const [inbox, pending, all, health, keys, settings, chosen] = await Promise.allSettled([
     client.listMail('inbox'),
     client.listMail('pending'),
     tasks ? client.allTasks() : Promise.reject(),
     client.health(),
     client.getProviders(),
     client.getSettings(),
+    client.getModelChoice(),
   ]);
   const value = <T>(r: PromiseSettledResult<T>) => (r.status === 'fulfilled' ? r.value : undefined);
 
@@ -59,9 +65,12 @@ export async function readStatus(
   const list = value(all);
   if (list) counts.tasks = list.filter((t) => !t.done && (!t.due || t.due <= today)).length;
 
-  let { service, detail, paused } = last;
+  let { service, title, detail, paused } = last;
   const state = value(health);
   const providers = value(keys);
+  const choice = value(chosen);
+  // The server sorts by AI only with a model for the sort (choiceFor); a choice not read keeps the last word.
+  const rulesOnly = choice ? choice.triage === null : title === RULES_ONLY;
   const problem = providers?.find((p) => p.state === 'refused' || p.state === 'credit');
   /** « Clé OpenAI refusée », or without the name when the keys could not be read. */
   const refused = (id: string) => {
@@ -75,20 +84,33 @@ export async function readStatus(
   if (state) paused = (state.status === 'paused' || state.paused === true) && state.pausedBy !== 'core';
   if (problem) {
     service = 'cle-refusee';
+    title = undefined;
     detail = problem.state === 'credit' ? DEGRADED.credit! : refused(problem.id);
   } else if (state?.status === 'degraded') {
     // Degraded wins over paused on the server: something is broken and must show.
     service = keyReason || reasons.includes('credit') ? 'cle-refusee' : 'pause';
+    title = undefined;
     detail = keyReason
       ? refused(keyReason.slice(0, -'-key'.length))
       : (DEGRADED[reasons[0] ?? ''] ?? 'Service dégradé');
   } else if (state?.status === 'paused') {
     service = 'pause';
+    title = undefined;
     detail = state.pausedBy === 'core' ? 'Les règles seules rangent' : 'Rien n’est rangé seul';
+  } else if (state && rulesOnly) {
+    service = 'pause';
+    // The words of Réglages > Tri par l’IA; keys not read keep the last detail.
+    if (providers)
+      detail = providers.every((p) => p.state === 'absent')
+        ? 'Aucun fournisseur d’IA en service'
+        : 'Aucun modèle choisi';
+    else if (title !== RULES_ONLY) detail = 'Aucun modèle choisi';
+    title = RULES_ONLY;
   } else if (state) {
     service = 'actif';
+    title = undefined;
     const threshold = value(settings)?.threshold;
     detail = threshold === undefined ? '' : `Seuil d’auto-rangement : ${threshold} %`;
   }
-  return { counts, service, detail, paused };
+  return { counts, service, title, detail, paused };
 }

@@ -14,7 +14,7 @@ et rien ne quitte la boîte sans ton accord.
 [![Licence](https://img.shields.io/github/license/Lun-Ecosystem/lun-acedia?style=flat-square&label=licence)](LICENSE)
 [![Node](https://img.shields.io/badge/node-%5E22.13%20%7C%7C%20%3E%3D24-5FA04E?style=flat-square&logo=node.js&logoColor=white)](https://nodejs.org)
 [![Svelte 5](https://img.shields.io/badge/svelte-5-FF3E00?style=flat-square&logo=svelte&logoColor=white)](https://svelte.dev)
-[![Écosystème Lun'](https://img.shields.io/badge/%C3%A9cosyst%C3%A8me-Lun'-3A6080?style=flat-square)](https://crolix-website.vercel.app)
+[![Écosystème Lun'](https://img.shields.io/badge/%C3%A9cosyst%C3%A8me-Lun'-3A6080?style=flat-square)](https://github.com/Lun-Ecosystem)
 
 <img src="docs/images/apercu.jpg" alt="La boîte de réception de Lun'Acedia, sur les données fictives de la démo" width="860">
 

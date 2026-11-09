@@ -58,7 +58,13 @@ const MAIL_42 = {
   labels: [],
 };
 
-function fakeServer({ keyRefused = false, startPaused = false, draft = false, mails = false } = {}) {
+function fakeServer({
+  keyRefused = false,
+  startPaused = false,
+  draft = false,
+  mails = false,
+  noProvider = false,
+} = {}) {
   const calls: string[] = [];
   let paused = startPaused;
   const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status });
@@ -102,13 +108,17 @@ function fakeServer({ keyRefused = false, startPaused = false, draft = false, ma
       case 'GET /api/llm/providers':
         return json({
           providers: [
-            { id: 'anthropic', label: 'Anthropic', state: keyRefused ? 'refused' : 'ok', last4: '7f3a' },
+            noProvider
+              ? { id: 'anthropic', label: 'Anthropic', state: 'absent' }
+              : { id: 'anthropic', label: 'Anthropic', state: keyRefused ? 'refused' : 'ok', last4: '7f3a' },
           ],
         });
       case 'GET /api/llm/models':
         return json({ models: [] });
-      case 'GET /api/llm/choice':
-        return json({ triage: null, pina: null });
+      case 'GET /api/llm/choice': {
+        const model = noProvider ? null : { provider: 'anthropic', model: 'claude-haiku-5-5' };
+        return json({ triage: model, pina: model });
+      }
       case 'POST /lun/v1/resume':
         paused = false;
         return json({ status: 'ok' });
@@ -306,6 +316,17 @@ describe('Shell', () => {
     expect(calls).toContain('POST /lun/v1/pause');
     expect(await within(rail).findByText('Tri en pause')).toBeInTheDocument();
     expect(await screen.findByRole('button', { name: 'Reprendre le tri' })).toBeInTheDocument();
+  });
+
+  it('says in the rail that the rules sort alone when no provider is in service', async () => {
+    fakeServer({ noProvider: true });
+    localStorage.setItem(TOKEN_KEY, 'tok-1');
+    render(App);
+    const rail = await screen.findByRole('navigation', { name: 'Sections' });
+    const card = await within(rail).findByRole('status');
+    await waitFor(() => expect(card).toHaveTextContent('Tri par les règles'));
+    expect(card).toHaveTextContent('Aucun fournisseur d’IA en service');
+    expect(card).not.toHaveTextContent('Tri par l’IA actif');
   });
 
   it('offers to resume a pause even while the key is refused', async () => {
