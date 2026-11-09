@@ -2,6 +2,7 @@ import type { Context } from 'hono';
 import { Hono } from 'hono';
 import OpenAI from 'openai';
 import type { AppDeps } from '../app.ts';
+import { clearDegraded } from '../contract/state.ts';
 import { checkExpiry, isValidDate } from '../keys/expiry.ts';
 import {
   checkWithProvider,
@@ -9,6 +10,7 @@ import {
   configuredProviders,
   credentials,
   currentKey,
+  keyReason,
   keyWorks,
   LABELS,
   PROVIDERS,
@@ -156,7 +158,11 @@ export function llmRoutes(deps: AppDeps): Hono {
     if (!offered.some((m) => m.provider === provider && m.id === model))
       return c.json({ error: 'Modèle non disponible pour cet usage' }, 400);
     const choice = { provider: provider as ProviderId, model: model as string };
+    const sorter =
+      use === 'triage' ? choiceFor(deps.db, deps.secretKey, env(), 'triage')?.provider : undefined;
     saveChoice(deps.db, use, choice);
+    // Only the sort's key pauses the sort: leaving a refused one lifts its pause (the next call sets it again).
+    if (sorter && sorter !== choice.provider) clearDegraded(deps.db, keyReason(sorter));
     return c.json(choice);
   });
   return r;

@@ -4,10 +4,10 @@
   import type { AcediaClient } from '../client.ts';
   import { errorText } from '../mail/format.ts';
   import { AGENT_ICONS, agentIcon, agentIdentity, takeIdentity } from '../pina/identity.svelte.ts';
-  import type { ModelChoice, ModelOffer, PinaSettings, PinaSettingsView } from '../types.ts';
+  import type { ModelChoice, ModelOffer, PinaSettings, PinaSettingsView, ProviderView } from '../types.ts';
   import Button from '../ui/Button.svelte';
   import Field from '../ui/Field.svelte';
-  import { ICON_STROKE, Plus, Shield } from '../ui/Icon.ts';
+  import { CircleAlert, ICON_STROKE, Plus, Shield } from '../ui/Icon.ts';
   import SettingsCard from '../ui/SettingsCard.svelte';
   import Segmented from '../ui/Segmented.svelte';
   import Select from '../ui/Select.svelte';
@@ -23,8 +23,8 @@
 
   interface Props {
     client: AcediaClient;
-    /** Opens the providers' page (no provider in service yet). */
-    onproviders?: (() => void) | undefined;
+    /** Opens the providers' page (no provider in service yet), or with a provider, the replacing of its key. */
+    onproviders?: ((replace?: ProviderView['id']) => void) | undefined;
   }
   let { client, onproviders }: Props = $props();
 
@@ -46,6 +46,9 @@
   let settings = $state<PinaSettingsView | null>(null);
   let models = $state.raw<ModelOffer[] | null>(null);
   let choice = $state.raw<ModelChoice | null>(null);
+  let providers = $state.raw<ProviderView[] | null>(null);
+  /** The sort's provider: a key it shares with the agent has its gesture on Réglages' banner. */
+  let sorter = $state.raw<ProviderView['id'] | null>(null);
   let choosing = $state(false);
   let instructions = $state('');
   let name = $state('');
@@ -76,8 +79,17 @@
       cap = String(s.dailyCapUsd);
     }, fail);
     client.getModels('pina').then((m) => (models = m), fail);
-    client.getModelChoice().then((c) => (choice = c.pina), fail);
+    client.getModelChoice().then((c) => {
+      choice = c.pina;
+      sorter = c.triage?.provider ?? null;
+    }, fail);
+    client.getProviders().then((p) => (providers = p), fail);
   });
+
+  /** The agent's own provider, when its key fails: the sort goes on, only the agent stops. */
+  const keyProblem = $derived(
+    providers?.find((p) => p.id === choice?.provider && (p.state === 'refused' || p.state === 'credit')),
+  );
 
   const selected = $derived(
     choice ? models?.find((m) => m.provider === choice!.provider && m.id === choice!.model) : undefined,
@@ -234,10 +246,36 @@
     title="Modèle de l’agent"
     description="Le modèle qui lit les demandes et appelle les actions d’Acedia. Seuls les modèles capables d’appeler des outils sont proposés."
   >
+    {#if keyProblem}
+      <SettingsRow
+        label={keyProblem.state === 'credit'
+          ? `Crédit ${keyProblem.label} épuisé`
+          : `Clé ${keyProblem.label} refusée`}
+        hint={`${settings?.name.trim() || 'L’agent'} ne répond plus.`}
+      >
+        {#snippet start()}
+          <span class={['alerte', keyProblem.state]}>
+            <CircleAlert size={16} strokeWidth={ICON_STROKE} aria-hidden="true" />
+          </span>
+        {/snippet}
+        {#snippet children({ labelId })}
+          {#if onproviders && keyProblem.id !== sorter}
+            <Button
+              variant="principal"
+              size="petit"
+              aria-describedby={labelId}
+              onclick={() => onproviders(keyProblem.id)}>Remplacer la clé</Button
+            >
+          {/if}
+        {/snippet}
+      </SettingsRow>
+    {/if}
     {#if models.length === 0}
       <SettingsRow label="Aucun fournisseur d’IA en service" hint="L’agent ne répond pas sans modèle.">
         {#if onproviders}
-          <Button variant="principal" size="petit" icon={Plus} onclick={onproviders}>Ajouter une clé</Button>
+          <Button variant="principal" size="petit" icon={Plus} onclick={() => onproviders()}
+            >Ajouter une clé</Button
+          >
         {/if}
       </SettingsRow>
     {:else}
@@ -333,6 +371,13 @@
 {/if}
 
 <style>
+  .alerte {
+    display: flex;
+    color: var(--danger);
+  }
+  .alerte.credit {
+    color: var(--attention);
+  }
   .bloc {
     position: relative;
     padding: 14px 18px;

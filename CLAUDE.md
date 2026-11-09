@@ -25,7 +25,8 @@ jamais le vrai compte).
 
 - Google est la source de vérité : la base SQLite n'est qu'un cache plus les données propres
   d'Acedia. Jamais de suppression définitive (corbeille seulement).
-- Tout ce qui est automatique s'arrête en pause ; tout ce que fait l'agente se fait aussi à la main.
+- Tout ce qui est automatique s'arrête en pause, ce qui est demandé à la main passe ; tout ce que fait l'agente se
+  fait aussi à la main.
 - Une vue, un exemplaire : `app/` n'a aucun composant métier, tout vient de `views/`.
 - Dépôt public : aucun secret, aucune adresse mail réelle, aucune adresse interne.
 - Cahier des attendus : `docs/specs/2026-10-19-j1-acedia-design.md` dans lun-docs.

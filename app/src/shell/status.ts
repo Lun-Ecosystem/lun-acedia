@@ -71,7 +71,9 @@ export async function readStatus(
   const choice = value(chosen);
   // The server sorts by AI only with a model for the sort (choiceFor); a choice not read keeps the last word.
   const rulesOnly = choice ? choice.triage === null : title === RULES_ONLY;
-  const problem = providers?.find((p) => p.state === 'refused' || p.state === 'credit');
+  // Only the sort's own key pauses the sort (server keyRefused); the agent's says itself in Réglages › Agent.
+  const sorter = choice?.triage?.provider;
+  const problem = providers?.find((p) => p.id === sorter && (p.state === 'refused' || p.state === 'credit'));
   /** « Clé OpenAI refusée », or without the name when the keys could not be read. */
   const refused = (id: string) => {
     const label = providers?.find((p) => p.id === id)?.label;

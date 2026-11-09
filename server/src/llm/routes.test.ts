@@ -1,9 +1,10 @@
 import { randomBytes } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import { eventsSince } from '../contract/events.ts';
+import { getState } from '../contract/state.ts';
 import { getSetting } from '../db.ts';
 import { makeHarness } from '../testing/harness.ts';
-import { saveKey } from './keys.ts';
+import { keyRefused, saveKey } from './keys.ts';
 import { MODELS } from './models.ts';
 
 const secretKey = randomBytes(32).toString('base64');
@@ -174,6 +175,21 @@ describe('/api/llm', () => {
     expect(
       (await call('PUT', '/choice', { use: 'other', provider: 'openai', model: 'gpt-6-luna' })).status,
     ).toBe(400);
+  });
+
+  it('PUT /choice moving the sort off a refused key lifts the pause that key set, and only that one', async () => {
+    const h = makeHarness({ secretKey });
+    saveKey(h.db, secretKey, 'anthropic', 'sk-ant-test-0000');
+    saveKey(h.db, secretKey, 'openai', 'sk-test-openai-5678');
+    const call = await api(h);
+    await call('PUT', '/choice', { use: 'triage', provider: 'anthropic', model: 'claude-haiku-5-5' });
+    keyRefused(h.db, 'anthropic', h.clock());
+    expect(getState(h.db).degraded).toEqual(['anthropic-key']);
+    // The agent stays on Anthropic: its refused key no longer pauses anything once the sort leaves it.
+    await call('PUT', '/choice', { use: 'pina', provider: 'anthropic', model: 'claude-haiku-5-5' });
+    expect(getState(h.db).degraded).toEqual(['anthropic-key']);
+    await call('PUT', '/choice', { use: 'triage', provider: 'openai', model: 'gpt-6-luna' });
+    expect(getState(h.db).degraded).toEqual([]);
   });
 
   it('GET /choice computes the default without writing it', async () => {

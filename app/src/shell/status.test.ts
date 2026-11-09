@@ -33,11 +33,27 @@ describe('readStatus', () => {
     client.health.mockResolvedValue({ status: 'paused' });
     expect((await readStatus(client, start, { now })).service).toBe('pause');
     client.getProviders.mockResolvedValueOnce([
-      { id: 'mistral', label: 'Mistral', state: 'refused', last4: '7f3a' },
+      { id: 'anthropic', label: 'Anthropic', state: 'refused', last4: '7f3a' },
     ]);
     expect(await readStatus(client, start, { now })).toMatchObject({
       service: 'cle-refusee',
-      detail: 'Clé Mistral refusée · les règles continuent',
+      detail: 'Clé Anthropic refusée · les règles continuent',
+    });
+  });
+
+  it('counts only the key of the sort: the agent’s refused key leaves the sort as it is', async () => {
+    const { client } = fakeClient();
+    client.getModelChoice.mockResolvedValue({
+      triage: { provider: 'anthropic', model: 'claude-haiku-5-5' },
+      pina: { provider: 'openai', model: 'gpt-5-mini' },
+    });
+    client.getProviders.mockResolvedValue([
+      { id: 'anthropic', label: 'Anthropic', state: 'ok', last4: '1a2b' },
+      { id: 'openai', label: 'OpenAI', state: 'refused', last4: '7f3a' },
+    ]);
+    expect(await readStatus(client, start, { now })).toMatchObject({
+      service: 'actif',
+      detail: 'Seuil d’auto-rangement : 100 %',
     });
   });
 
@@ -150,7 +166,7 @@ describe('readStatus', () => {
     const degraded = await readStatus(client, rules, { now });
     expect(degraded).toMatchObject({ service: 'pause', detail: 'Compte Google à reconnecter' });
     expect(degraded.title).toBeUndefined();
-    client.getProviders.mockResolvedValueOnce([{ id: 'openai', label: 'OpenAI', state: 'refused' }]);
+    client.health.mockResolvedValueOnce({ status: 'degraded', reason: 'openai-key' });
     const refused = await readStatus(client, rules, { now });
     expect(refused).toMatchObject({
       service: 'cle-refusee',

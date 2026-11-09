@@ -412,6 +412,40 @@ describe('Settings', () => {
     expect(screen.getByRole('heading', { name: 'Fournisseurs d’IA', level: 2 })).toBeInTheDocument();
   });
 
+  it('the agent’s refused key pauses nothing: no banner, the theme link still says it', async () => {
+    const { go, themes } = await open((c) => {
+      c.getProviders.mockResolvedValue([
+        { id: 'anthropic', label: 'Anthropic', state: 'ok', last4: '7f3a', source: 'saved' },
+        { id: 'openai', label: 'OpenAI', state: 'refused', last4: '9876', source: 'saved' },
+      ]);
+      c.getModelChoice.mockResolvedValue({
+        triage: { provider: 'anthropic', model: 'claude-haiku-5-5' },
+        pina: { provider: 'openai', model: 'gpt-5-mini' },
+      });
+    });
+    const link = within(themes).getByRole('link', { name: 'Fournisseurs d’IA' });
+    await waitFor(() => expect(link).toHaveAccessibleDescription('Clé refusée'));
+    await go('Boîtes et règles');
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('the agent’s « Remplacer la clé » opens the replacing of its provider’s key', async () => {
+    const { user, go } = await open((c) => {
+      c.getProviders.mockResolvedValue([
+        { id: 'anthropic', label: 'Anthropic', state: 'ok', last4: '7f3a', source: 'saved' },
+        { id: 'openai', label: 'OpenAI', state: 'refused', last4: '9876', source: 'saved' },
+      ]);
+      c.getModelChoice.mockResolvedValue({
+        triage: { provider: 'anthropic', model: 'claude-haiku-5-5' },
+        pina: { provider: 'openai', model: 'gpt-5-mini' },
+      });
+    });
+    await go('Agent');
+    await user.click(await screen.findByRole('button', { name: 'Remplacer la clé' }));
+    const window = await screen.findByRole('dialog', { name: 'Remplacer la clé' });
+    expect(window).toHaveTextContent('OpenAI');
+  });
+
   it('no banner while the key works', async () => {
     const { go } = await open();
     await screen.findByRole('combobox', { name: 'Modèle du tri' });
