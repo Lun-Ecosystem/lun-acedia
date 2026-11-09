@@ -106,10 +106,31 @@ describe('backupIfMissing', () => {
     const closed = new DatabaseSync(':memory:');
     closed.close();
     expect(() => backupIfMissing(closed, path, day(7), (l) => lines.push(l))).not.toThrow();
-    expect(lines).toHaveLength(1);
     expect(lines[0]).toMatch(/^Copie de la base ratée : /);
+    // A closed base cannot keep the event either: that is said too, still without throwing.
+    expect(lines[1]).toMatch(/^Copie ratée non signalée : /);
+    expect(lines).toHaveLength(2);
     backupIfMissing(db, path, day(7, 6), (l) => lines.push(l));
     expect(readdirSync(backups)).toEqual(['acedia-2026-11-07.db']);
+  });
+
+  it('tells the core of a failed copy once a day, and says nothing of a good one', () => {
+    const { db, path, backups } = base();
+    const failures = () =>
+      db.prepare("SELECT title, importance FROM events WHERE type = 'backup.failed' ORDER BY id").all();
+    backupIfMissing(db, path, day(6), () => {});
+    expect(failures()).toEqual([]);
+    // A folder in the way of the temporary file: the copy fails, the base stays open.
+    mkdirSync(join(backups, TMP, 'occupé'), { recursive: true });
+    backupIfMissing(db, path, day(7, 5), () => {});
+    backupIfMissing(db, path, day(7, 6), () => {});
+    expect(failures()).toHaveLength(1);
+    expect(failures()[0]).toMatchObject({
+      importance: 'normal',
+      title: expect.stringMatching(/^La copie de la base a échoué : /),
+    });
+    backupIfMissing(db, path, day(8), () => {});
+    expect(failures()).toHaveLength(2);
   });
 
   it('says an old copy it could not remove apart from the copy, which is made', () => {
