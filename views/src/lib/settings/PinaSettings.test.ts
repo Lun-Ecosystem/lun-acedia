@@ -60,7 +60,8 @@ describe('PinaSettings', () => {
     await waitFor(() => expect(put).toHaveBeenCalledWith({ instructions: 'x'.repeat(2000) }));
   });
 
-  it('the agent’s refused key says itself on its model, by the agent’s name, with a way to replace it', async () => {
+  /** OpenAI's key refused, the sort and the agent on the providers given. */
+  async function refusedOpenAi(triage: 'anthropic' | 'openai', pina: 'anthropic' | 'openai') {
     const fake = fakeClient();
     fake.client.getPinaSettings.mockResolvedValue({
       mode: 'validate',
@@ -76,21 +77,36 @@ describe('PinaSettings', () => {
       { id: 'anthropic', label: 'Anthropic', state: 'ok', last4: '7f3a', source: 'saved' },
       { id: 'openai', label: 'OpenAI', state: 'refused', last4: '9876', source: 'saved' },
     ]);
-    fake.client.getModelChoice.mockResolvedValue({
-      triage: { provider: 'anthropic', model: 'claude-haiku-5-5' },
-      pina: { provider: 'openai', model: 'gpt-5-mini' },
-    });
+    const model = (provider: 'anthropic' | 'openai') =>
+      provider === 'openai' ? { provider, model: 'gpt-5-mini' } : { provider, model: 'claude-haiku-5-5' };
+    fake.client.getModelChoice.mockResolvedValue({ triage: model(triage), pina: model(pina) });
     const onproviders = vi.fn();
-    const user = userEvent.setup();
     render(PinaSettings, { props: { client: fake.client, onproviders } });
-    expect(await screen.findByText('Clé OpenAI refusée')).toBeInTheDocument();
+    await screen.findByRole('radiogroup', { name: 'Mode de l’agent' });
+    // Every read answered: what is not shown by now will not be.
+    await waitFor(() => expect(fake.client.getProviders).toHaveBeenCalled());
+    await new Promise((r) => setTimeout(r));
+    return { onproviders, user: userEvent.setup() };
+  }
+
+  it('the agent’s refused key says itself on its model, by the agent’s name, with a way to replace it', async () => {
+    const { onproviders, user } = await refusedOpenAi('anthropic', 'openai');
+    expect(screen.getByText('Clé OpenAI refusée')).toBeInTheDocument();
     expect(screen.getByText('Pina ne répond plus.')).toBeInTheDocument();
-    await user.click(screen.getByRole('button', { name: 'Remplacer la clé' }));
+    const replace = screen.getByRole('button', { name: 'Remplacer la clé' });
+    expect(replace).toHaveAccessibleDescription('Clé OpenAI refusée');
+    await user.click(replace);
     expect(onproviders).toHaveBeenCalledWith('openai');
   });
 
+  it('a key the sort shares with the agent says itself here without a second button: the banner has it', async () => {
+    await refusedOpenAi('openai', 'openai');
+    expect(screen.getByText('Clé OpenAI refusée')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Remplacer la clé' })).toBeNull();
+  });
+
   it('a refused key of another provider says nothing on the agent’s model', async () => {
-    await setup();
+    await refusedOpenAi('openai', 'anthropic');
     expect(screen.queryByText(/refusée/)).toBeNull();
   });
 

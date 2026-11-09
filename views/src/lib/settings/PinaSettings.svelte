@@ -7,7 +7,7 @@
   import type { ModelChoice, ModelOffer, PinaSettings, PinaSettingsView, ProviderView } from '../types.ts';
   import Button from '../ui/Button.svelte';
   import Field from '../ui/Field.svelte';
-  import { ICON_STROKE, Plus, Shield } from '../ui/Icon.ts';
+  import { CircleAlert, ICON_STROKE, Plus, Shield } from '../ui/Icon.ts';
   import SettingsCard from '../ui/SettingsCard.svelte';
   import Segmented from '../ui/Segmented.svelte';
   import Select from '../ui/Select.svelte';
@@ -47,6 +47,8 @@
   let models = $state.raw<ModelOffer[] | null>(null);
   let choice = $state.raw<ModelChoice | null>(null);
   let providers = $state.raw<ProviderView[] | null>(null);
+  /** The sort's provider: a key it shares with the agent has its gesture on Réglages' banner. */
+  let sorter = $state.raw<ProviderView['id'] | null>(null);
   let choosing = $state(false);
   let instructions = $state('');
   let name = $state('');
@@ -77,7 +79,10 @@
       cap = String(s.dailyCapUsd);
     }, fail);
     client.getModels('pina').then((m) => (models = m), fail);
-    client.getModelChoice().then((c) => (choice = c.pina), fail);
+    client.getModelChoice().then((c) => {
+      choice = c.pina;
+      sorter = c.triage?.provider ?? null;
+    }, fail);
     client.getProviders().then((p) => (providers = p), fail);
   });
 
@@ -248,11 +253,21 @@
           : `Clé ${keyProblem.label} refusée`}
         hint={`${settings?.name.trim() || 'L’agent'} ne répond plus.`}
       >
-        {#if onproviders}
-          <Button variant="principal" size="petit" onclick={() => onproviders(keyProblem.id)}
-            >Remplacer la clé</Button
-          >
-        {/if}
+        {#snippet start()}
+          <span class={['alerte', keyProblem.state]}>
+            <CircleAlert size={16} strokeWidth={ICON_STROKE} aria-hidden="true" />
+          </span>
+        {/snippet}
+        {#snippet children({ labelId })}
+          {#if onproviders && keyProblem.id !== sorter}
+            <Button
+              variant="principal"
+              size="petit"
+              aria-describedby={labelId}
+              onclick={() => onproviders(keyProblem.id)}>Remplacer la clé</Button
+            >
+          {/if}
+        {/snippet}
       </SettingsRow>
     {/if}
     {#if models.length === 0}
@@ -356,6 +371,13 @@
 {/if}
 
 <style>
+  .alerte {
+    display: flex;
+    color: var(--danger);
+  }
+  .alerte.credit {
+    color: var(--attention);
+  }
   .bloc {
     position: relative;
     padding: 14px 18px;
