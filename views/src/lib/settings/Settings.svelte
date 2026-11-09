@@ -188,8 +188,11 @@
     }
   }
 
-  /** The first provider whose key is refused or out of credit. */
-  const problem = $derived(providers?.find((p) => p.state === 'refused' || p.state === 'credit'));
+  const failing = (p: ProviderView) => p.state === 'refused' || p.state === 'credit';
+  /** The first provider whose key is refused or out of credit: the providers' link says it. */
+  const refusedKey = $derived(providers?.find(failing));
+  /** The sort's own provider, when its key fails: only that one pauses the sort (server keyRefused). */
+  const problem = $derived(providers?.find((p) => p.id === choice?.provider && failing(p)));
   const KEY_BADGE: Record<ProviderView['state'], { text: string; tone: Tone }> = {
     ok: { text: 'En service', tone: 'ok' },
     refused: { text: 'Clé refusée', tone: 'danger' },
@@ -224,10 +227,10 @@
     nav?.querySelector<HTMLElement>('[aria-current="page"]')?.focus();
   }
 
-  function replaceKey() {
+  function replaceKey(id = problem?.id) {
     theme = 'fournisseurs';
     opened = true;
-    editing = problem?.id ?? null;
+    editing = id ?? null;
   }
 
   async function goProviders() {
@@ -267,15 +270,15 @@
                 icon={p.icon}
                 current={theme === p.id}
                 onclick={open(p.id)}
-                aria-describedby={p.id === 'fournisseurs' && problem ? `${uid}-cle` : undefined}
+                aria-describedby={p.id === 'fournisseurs' && refusedKey ? `${uid}-cle` : undefined}
               />
-              {#if p.id === 'fournisseurs' && problem}
+              {#if p.id === 'fournisseurs' && refusedKey}
                 <span class="alerte" aria-hidden="true"></span>
-                <span class="sr" id="{uid}-cle">{KEY_BADGE[problem.state].text}</span>
+                <span class="sr" id="{uid}-cle">{KEY_BADGE[refusedKey.state].text}</span>
               {/if}
               <span class="resume" aria-hidden="true">
-                {#if p.id === 'fournisseurs' && problem}
-                  <Badge tone={KEY_BADGE[problem.state].tone}>{KEY_BADGE[problem.state].text}</Badge>
+                {#if p.id === 'fournisseurs' && refusedKey}
+                  <Badge tone={KEY_BADGE[refusedKey.state].tone}>{KEY_BADGE[refusedKey.state].text}</Badge>
                 {:else}
                   {summary[p.id]}
                 {/if}
@@ -299,7 +302,7 @@
         >
           Les règles continuent de s’appliquer. Les nouveaux mails restent en réception.
           {#snippet action()}
-            <Button variant="principal" size="petit" onclick={replaceKey}>Remplacer la clé</Button>
+            <Button variant="principal" size="petit" onclick={() => replaceKey()}>Remplacer la clé</Button>
           {/snippet}
         </Banner>
       {/if}
@@ -333,7 +336,7 @@
           />
         {/if}
       {:else if theme === 'pina'}
-        <PinaSettings {client} onproviders={goProviders} />
+        <PinaSettings {client} onproviders={(id) => (id ? replaceKey(id) : goProviders())} />
       {:else if theme === 'tri'}
         {#if models}
           <SettingsCard

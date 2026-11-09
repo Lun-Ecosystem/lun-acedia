@@ -1,6 +1,6 @@
 import { render, screen, waitFor } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { fakeClient } from '../../testing/fake-client.ts';
 import { agentIdentity } from '../pina/identity.svelte.ts';
 import { dismissAll } from '../ui/toasts.svelte.ts';
@@ -58,6 +58,40 @@ describe('PinaSettings', () => {
     expect(screen.getByText('2000 / 2000')).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Enregistrer les consignes' }));
     await waitFor(() => expect(put).toHaveBeenCalledWith({ instructions: 'x'.repeat(2000) }));
+  });
+
+  it('the agent’s refused key says itself on its model, by the agent’s name, with a way to replace it', async () => {
+    const fake = fakeClient();
+    fake.client.getPinaSettings.mockResolvedValue({
+      mode: 'validate',
+      instructions: '',
+      dailyCapUsd: 1,
+      name: 'Pina',
+      icon: 'sparkles',
+      tone: 'neutre',
+      persona: '',
+      spentTodayUsd: 0,
+    });
+    fake.client.getProviders.mockResolvedValue([
+      { id: 'anthropic', label: 'Anthropic', state: 'ok', last4: '7f3a', source: 'saved' },
+      { id: 'openai', label: 'OpenAI', state: 'refused', last4: '9876', source: 'saved' },
+    ]);
+    fake.client.getModelChoice.mockResolvedValue({
+      triage: { provider: 'anthropic', model: 'claude-haiku-5-5' },
+      pina: { provider: 'openai', model: 'gpt-5-mini' },
+    });
+    const onproviders = vi.fn();
+    const user = userEvent.setup();
+    render(PinaSettings, { props: { client: fake.client, onproviders } });
+    expect(await screen.findByText('Clé OpenAI refusée')).toBeInTheDocument();
+    expect(screen.getByText('Pina ne répond plus.')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Remplacer la clé' }));
+    expect(onproviders).toHaveBeenCalledWith('openai');
+  });
+
+  it('a refused key of another provider says nothing on the agent’s model', async () => {
+    await setup();
+    expect(screen.queryByText(/refusée/)).toBeNull();
   });
 
   it('a model without a known price says the daily cap cannot count it', async () => {
