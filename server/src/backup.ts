@@ -77,9 +77,10 @@ export function backupIfMissing(
     log(`Copie de la base ratée : ${reason}`);
     try {
       if (getSetting<string>(db, FAILED_DAY, '') === ymd(now)) return;
-      putSetting(db, FAILED_DAY, ymd(now));
       const title = `La copie de la base a échoué : ${reason}`;
       emitEvent(db, { type: 'backup.failed', importance: 'normal', title }, now);
+      // Marked once told: a failure the core could not be told of is told the next hour.
+      putSetting(db, FAILED_DAY, ymd(now));
     } catch (e) {
       log(`Copie ratée non signalée : ${String(e)}`);
     }

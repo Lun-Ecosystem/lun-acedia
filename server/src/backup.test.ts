@@ -133,6 +133,20 @@ describe('backupIfMissing', () => {
     expect(failures()).toHaveLength(2);
   });
 
+  it('a failure the core could not be told of is told the next hour', () => {
+    const { db, path, backups } = base();
+    const lines: string[] = [];
+    mkdirSync(join(backups, TMP, 'occupé'), { recursive: true });
+    db.exec('ALTER TABLE events RENAME TO events_hors');
+    backupIfMissing(db, path, day(7, 5), (l) => lines.push(l));
+    expect(lines.at(-1)).toMatch(/^Copie ratée non signalée : /);
+    db.exec('ALTER TABLE events_hors RENAME TO events');
+    backupIfMissing(db, path, day(7, 6), () => {});
+    expect(db.prepare("SELECT count(*) AS n FROM events WHERE type = 'backup.failed'").get()).toEqual({
+      n: 1,
+    });
+  });
+
   it('says an old copy it could not remove apart from the copy, which is made', () => {
     const { db, path, backups } = base();
     // A folder of that name stands for a copy held open on Windows: it cannot be removed.
