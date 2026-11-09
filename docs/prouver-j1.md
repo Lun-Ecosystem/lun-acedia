@@ -31,7 +31,7 @@ d'adresse interne, de nom de machine ni de jeton.
 | 12 | Agenda jour, semaine, mois avec événements et tâches mêlés ; un événement avec rappel émet `agenda.reminder` sur le flux. |
 | 13 | Client de test en `curl`, ci-dessous. |
 | 14 | [Installer sur le téléphone](installer-sur-le-telephone.md), puis lire et ranger un mail depuis la PWA. |
-| 15 | Après publication par CrOliX : dans un projet vide, `npm install @lun-ecosystem/lunacedia-views` puis importer `Mailbox`. |
+| 15 | Retiré : le paquet de vues n'est plus publié ([ADR 0004](https://github.com/Lun-Ecosystem/lun-docs/blob/main/adr/0004-delegation-aux-agents.md)). `views/package.json` est privé, l'app l'importe par l'espace de travail npm. |
 | 16 | Dépôt dans l'organisation, CI verte sur `main`, ruleset actif, entrée à jour dans `registry.yaml` de lun-docs. |
 
 ## Critère 13 en `curl`
@@ -49,8 +49,3 @@ curl -sN -H "$H" -H "last-event-id: <id>" $B/events # reprend après cet événe
 curl -s -H "$H" -H 'content-type: application/json' -X POST $B/actions/mail.search \
   -d '{"q":"newer_than:1d"}'
 ```
-
-## Publier le paquet de vues (CrOliX)
-
-Après le merge sur `main`, Actions → « Publish views » → Run workflow. La version publiée est celle de
-`views/package.json` ; la changer avant chaque nouvelle publication.

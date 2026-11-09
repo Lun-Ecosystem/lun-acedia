@@ -1,16 +1,14 @@
 {
   "name": "@lun-ecosystem/lunacedia-views",
   "version": "0.1.0",
+  "private": true,
   "license": "MIT",
-  "description": "Vues de Lun'Acedia (mail, agenda, réglages) en composants Svelte, intégrées par les apps de Lun'Anima.",
+  "description": "Vues de Lun'Acedia (mail, agenda, réglages) en composants Svelte, importées par l'app de ce dépôt.",
   "type": "module",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/Lun-Ecosystem/lun-acedia.git",
     "directory": "views"
-  },
-  "publishConfig": {
-    "registry": "https://npm.pkg.github.com"
   },
   "files": [
     "dist",
