@@ -59,6 +59,14 @@ npm run pair-code       # dans un autre terminal, le code à saisir dans le fron
 Aucune dépendance au NAS : tout tourne sur le poste. Le serveur écoute sur `127.0.0.1` par défaut (`HOST` dans `.env`
 pour une autre adresse). Le code d'appareil est à usage unique et vaut 10 minutes.
 
+La base est copiée une fois par jour dans `backups/`, à côté d'elle (`data/backups/acedia-AAAA-MM-JJ.db` par défaut) :
+dès que le serveur écoute, puis chaque heure si la copie du jour manque, ce qui rattrape un poste éteint la nuit. Les
+sept dernières restent ; une copie ratée laisse une ligne au journal du serveur et se retente l'heure suivante. Une
+copie s'ouvre sans clé, comme la base : seuls les jetons Google et les clés d'IA saisies y restent chiffrés, et seule
+la même `ACEDIA_SECRET_KEY` les relit. Restaurer une copie :
+[Mettre le desktop en service](https://github.com/Lun-Ecosystem/lun-docs/blob/main/docs/mise-en-service-desktop.md#restaurer-une-copie),
+dans lun-docs.
+
 ## Si ça coince
 
 | Ce que tu vois | Quoi faire |
