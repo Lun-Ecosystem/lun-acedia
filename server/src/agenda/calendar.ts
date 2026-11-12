@@ -2,7 +2,7 @@ import type { DatabaseSync } from 'node:sqlite';
 import { NotFoundError } from '../gmail/actions.ts';
 import { getSyncState, setSyncState } from '../gmail/store.ts';
 import type { SyncDeps } from '../gmail/sync.ts';
-import { GoogleApiError } from '../google/client.ts';
+import { GoogleApiError, GoogleNotConnectedError, GoogleReauthError } from '../google/client.ts';
 import type { AgendaEvent } from '../types.ts';
 import { isDay, toMs } from './time.ts';
 
@@ -190,8 +190,11 @@ async function pullCalendar(deps: SyncDeps, calendarId: string, token: string | 
   return changes;
 }
 
-/** Syncs the calendars shown in Google Agenda; returns how many cached events changed. */
-export async function syncCalendars(deps: SyncDeps): Promise<number> {
+/**
+ * Syncs the calendars shown in Google Agenda; returns how many cached events changed, and the failure of each
+ * calendar that could not be read, by its name. Only an account-wide failure (consent, no account) throws.
+ */
+export async function syncCalendars(deps: SyncDeps): Promise<{ changes: number; failed: Error[] }> {
   const entries: CalendarListEntry[] = [];
   let pageToken: string | undefined;
   do {
@@ -207,12 +210,14 @@ export async function syncCalendars(deps: SyncDeps): Promise<number> {
   const main = entries.find((c) => c.primary) ?? selected[0];
   if (main) setSyncState(deps.db, 'calendar:main', main.id);
   let changes = 0;
+  const failed: Error[] = [];
   const known = (deps.db.prepare('SELECT id FROM calendars').all() as { id: string }[]).map((r) => r.id);
   for (const id of known.filter((id) => !selected.some((c) => c.id === id))) {
     deps.db.prepare('DELETE FROM calendars WHERE id = ?').run(id);
     changes += forgetCalendar(deps.db, id);
   }
   for (const c of selected) {
+    const title = c.summaryOverride ?? c.summary ?? c.id;
     deps.db
       .prepare(
         `INSERT INTO calendars (id, title, default_reminders, writable) VALUES (?, ?, ?, ?)
@@ -221,21 +226,28 @@ export async function syncCalendars(deps: SyncDeps): Promise<number> {
       )
       .run(
         c.id,
-        c.summaryOverride ?? c.summary ?? c.id,
+        title,
         JSON.stringify(popups(c.defaultReminders)),
         c.accessRole === 'owner' || c.accessRole === 'writer' ? 1 : 0,
       );
     const token = getSyncState(deps.db, `cal:${c.id}`);
     try {
-      changes += await pullCalendar(deps, c.id, token);
+      changes += await pullCalendar(deps, c.id, token).catch((err: unknown) => {
+        // 410: Google forgot the sync token; start again from the full window.
+        if (!(err instanceof GoogleApiError && err.status === 410) || !token) throw err;
+        deps.db.prepare('DELETE FROM sync_state WHERE key = ?').run(`cal:${c.id}`);
+        return pullCalendar(deps, c.id, undefined);
+      });
     } catch (err) {
-      // 410: Google forgot the sync token; start again from the full window.
-      if (!(err instanceof GoogleApiError && err.status === 410) || !token) throw err;
-      deps.db.prepare('DELETE FROM sync_state WHERE key = ?').run(`cal:${c.id}`);
-      changes += await pullCalendar(deps, c.id, undefined);
+      if (err instanceof GoogleReauthError || err instanceof GoogleNotConnectedError) throw err;
+      failed.push(
+        new Error(`Calendrier « ${title} » : ${err instanceof Error ? err.message : String(err)}`, {
+          cause: err,
+        }),
+      );
     }
   }
-  return changes;
+  return { changes, failed };
 }
 
 /** The account's main calendar (Google's `primary`, by its real id). */
