@@ -4,7 +4,7 @@ import { getState, setPaused } from '../contract/state.ts';
 import { putSetting } from '../db.ts';
 import { getStoredMessage, upsertMessage } from '../gmail/store.ts';
 import { GoogleApiError, type GoogleClient } from '../google/client.ts';
-import { ProviderError } from '../llm/types.ts';
+import { ProviderError, toProviderError } from '../llm/types.ts';
 import { message } from '../testing/fake-gmail.ts';
 import { makeGmailHarness } from '../testing/gmail-harness.ts';
 import {
@@ -63,6 +63,10 @@ async function setup(answer: Parameters<typeof fakeClassifier>[0]) {
   const triage = (ids: string[]) => triageNew({ ...h.deps, classifier: fake.classifier, log }, ids);
   return { h, ecole, perso, urgent, fake, deliver, triage, lines, log };
 }
+
+/** What an SDK error with this HTTP status becomes, as the providers map it. */
+const aiError = (status: number, message: string) =>
+  toProviderError(Object.assign(new Error(message), { status }));
 
 const attempts = (h: Awaited<ReturnType<typeof makeGmailHarness>>) =>
   h.db.prepare('SELECT message_id AS id, attempts FROM triage_queue ORDER BY rowid').all();
@@ -593,7 +597,8 @@ describe('triage queue', () => {
   });
 
   it.each([
-    ['the AI out for a while', new ProviderError('unavailable', 'Anthropic 529 overloaded')],
+    ['the AI unreachable', new ProviderError('unavailable', 'Connection error.')],
+    ['the AI answering 503', aiError(503, '503 overloaded')],
     ['Google out for a while', new GoogleApiError(503, 'Backend Error')],
     [
       'the base held by another writer',
@@ -608,6 +613,18 @@ describe('triage queue', () => {
     await s.deliver({ id: 'm1' });
     for (let pass = 0; pass < 3; pass++) await expect(s.triage([])).rejects.toThrow(error.message);
     expect(attempts(s.h)).toEqual([{ id: 'm1', attempts: 0 }]);
+  });
+
+  it('a mail the AI answers 400 leaves the queue at its third attempt, with its line, then the next is triaged', async () => {
+    const s = await setup((input) =>
+      input.mail.subject === 'Sujet m1' ? aiError(400, '400 invalid_request_error') : { confidence: 50 },
+    );
+    await s.deliver({ id: 'm1' }, { id: 'm2' });
+    for (let pass = 0; pass < 3; pass++) await expect(s.triage([])).rejects.toThrow('400');
+    expect(queuedIds(s.h.db)).toEqual(['m2']);
+    expect(s.lines).toEqual([expect.stringMatching(/m1.*400 invalid_request_error/)]);
+    await s.triage([]);
+    expect(getProposal(s.h.db, 'm2')?.status).toBe('pending');
   });
 
   it('a mail gone from Gmail does not stop the next ones', async () => {

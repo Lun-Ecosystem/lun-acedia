@@ -320,7 +320,10 @@ const transientError = (err: unknown) =>
   (err instanceof GoogleApiError && (err.status === 429 || err.status >= 500)) ||
   err instanceof GoogleReauthError ||
   err instanceof GoogleNotConnectedError ||
-  (err instanceof ProviderError && err.kind === 'unavailable') ||
+  // The AI unreachable or out for a while; another 4xx of the AI (a cut emoji, a bad setting) is no transient.
+  (err instanceof ProviderError &&
+    err.kind === 'unavailable' &&
+    (err.status === undefined || err.status === 408 || err.status === 429 || err.status >= 500)) ||
   // node:sqlite: `code` is always ERR_SQLITE_ERROR, `errcode` the extended result code; SQLITE_BUSY is 5.
   ((err as { code?: unknown } | null)?.code === 'ERR_SQLITE_ERROR' &&
     ((err as { errcode: number }).errcode & 0xff) === 5);
