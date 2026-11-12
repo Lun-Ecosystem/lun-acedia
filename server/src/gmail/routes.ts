@@ -96,10 +96,7 @@ export function gmailRoutes(deps: AppDeps, google: GoogleClient | undefined, hoo
     const parsed = BatchBody.safeParse(await c.req.json().catch(() => undefined));
     if (!parsed.success) return c.json({ error: parsed.error.message }, 400);
     const op = parsed.data.op as BatchOp;
-    return guard(c, async () => {
-      const changes = await batch(actionDeps(), parsed.data.ids, op);
-      return changes.map((change) => journaled(change, op));
-    });
+    return guard(c, () => batch(actionDeps(), parsed.data.ids, op, (change) => journaled(change, op)));
   });
 
   r.post('/send', async (c) => {

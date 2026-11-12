@@ -120,9 +120,17 @@ export function applyOp(deps: ActionDeps, id: string, op: BatchOp): Promise<Labe
   }
 }
 
-/** One message at a time, so that each change can be journaled and undone on its own. */
-export async function batch(deps: ActionDeps, ids: string[], op: BatchOp): Promise<LabelChange[]> {
-  const changes: LabelChange[] = [];
-  for (const id of ids) changes.push(await applyOp(deps, id, op));
-  return changes;
+/**
+ * One message at a time, so that each change can be journaled and undone on its own: `done` gets each change as
+ * soon as Gmail made it, so a failure midway leaves the mails already done journaled.
+ */
+export async function batch<T>(
+  deps: ActionDeps,
+  ids: string[],
+  op: BatchOp,
+  done: (change: LabelChange) => T,
+): Promise<T[]> {
+  const results: T[] = [];
+  for (const id of ids) results.push(done(await applyOp(deps, id, op)));
+  return results;
 }
