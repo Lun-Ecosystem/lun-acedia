@@ -18,8 +18,10 @@ import {
 import { plainText } from '../gmail/body.ts';
 import { getStoredMessage, header, type StoredMessage } from '../gmail/store.ts';
 import { fetchFull } from '../gmail/read.ts';
+import { GoogleApiError, GoogleNotConnectedError, GoogleReauthError } from '../google/client.ts';
 import { costOf, priceOf } from '../llm/models.ts';
 import { keyRefused, keyWorks } from '../llm/keys.ts';
+import { ProviderError } from '../llm/types.ts';
 import {
   ClassifierError,
   CreditExhaustedError,
@@ -39,7 +41,7 @@ import {
   setProposalStatus,
   type Proposal,
 } from './proposals.ts';
-import { dequeue, enqueue, failedAttempt, queuedIds } from './queue.ts';
+import { dequeue, enqueue, failedAttempt, MAX_ATTEMPTS, queuedIds } from './queue.ts';
 import { createRule, listRules, matchRule } from './rules.ts';
 import type { Rule } from '../types.ts';
 
@@ -48,6 +50,8 @@ export { getProposal };
 export interface TriageDeps extends ActionDeps {
   /** Absent without an Anthropic key (saved or in `.env`): only the rules run. */
   classifier?: Classifier | undefined;
+  /** The server log; `console.log` when absent. */
+  log?: ((line: string) => void) | undefined;
 }
 
 /** Confidence the AI needs to file a mail on its own; 100 means every AI proposal waits. */
@@ -179,8 +183,32 @@ async function classify(
  */
 type Outcome = 'done' | 'wait' | 'unusable';
 
+/** What one pass of the triage keeps from mail to mail. */
+interface Pass {
+  useAi: boolean;
+  /** The rules already said to be skipped in this pass. */
+  skipped: Set<number>;
+  log: (line: string) => void;
+}
+
+/** The first rule that matches and still leads to a box: one whose box was removed since is skipped, and said so. */
+function ruleFor(db: DatabaseSync, mail: StoredMessage, pass: Pass): Rule | null {
+  const boxes = boxIds(db);
+  let rules = listRules(db);
+  for (let rule = matchRule(rules, mail); rule; rule = matchRule(rules, mail)) {
+    if (boxes.includes(rule.boxId)) return rule;
+    if (!pass.skipped.has(rule.id)) {
+      pass.skipped.add(rule.id);
+      pass.log(`Tri : règle ${rule.id} sautée, « ${rule.boxId} » n’est plus une boîte`);
+    }
+    const stale = rule;
+    rules = rules.filter((r) => r !== stale);
+  }
+  return null;
+}
+
 /** Triages one claimed mail; `ai-off` when the AI just ran out of credit or refused the key. */
-async function triageOne(deps: TriageDeps, id: string, useAi: boolean): Promise<Outcome | 'ai-off'> {
+async function triageOne(deps: TriageDeps, id: string, pass: Pass): Promise<Outcome | 'ai-off'> {
   const mail = getStoredMessage(deps.db, id);
   // A mail already out of the inbox (a Gmail filter, a gesture) is left where it is.
   if (!mail?.labels.includes('INBOX')) {
@@ -188,7 +216,7 @@ async function triageOne(deps: TriageDeps, id: string, useAi: boolean): Promise<
     return 'done';
   }
 
-  const rule = matchRule(listRules(deps.db), mail);
+  const rule = ruleFor(deps.db, mail, pass);
   if (rule) {
     const change = await applyTarget(deps, id, rule.boxId, rule.tagIds);
     if (change) logAuto(deps.db, change, 'rule', 'file', deps.now());
@@ -231,7 +259,7 @@ async function triageOne(deps: TriageDeps, id: string, useAi: boolean): Promise<
     release(deps.db, id);
     return 'done';
   }
-  if (!useAi) {
+  if (!pass.useAi) {
     release(deps.db, id);
     return 'wait';
   }
@@ -280,15 +308,41 @@ async function triageOne(deps: TriageDeps, id: string, useAi: boolean): Promise<
   return 'done';
 }
 
+/** A failure of this mail alone: gone from Gmail, refused by Google, a target that is no longer a box. */
+const mailError = (err: unknown) =>
+  err instanceof NotFoundError ||
+  err instanceof BadRequestError ||
+  (err instanceof GoogleApiError && (err.status === 404 || err.status === 400));
+
+/** A failure that says nothing of the mail: the network, Google or the AI out for a while, the base held. */
+const transientError = (err: unknown) =>
+  (err instanceof TypeError && err.message === 'fetch failed') ||
+  (err instanceof GoogleApiError && (err.status === 429 || err.status >= 500)) ||
+  err instanceof GoogleReauthError ||
+  err instanceof GoogleNotConnectedError ||
+  (err instanceof ProviderError && err.kind === 'unavailable') ||
+  // node:sqlite: `code` is always ERR_SQLITE_ERROR, `errcode` the extended result code; SQLITE_BUSY is 5.
+  ((err as { code?: unknown } | null)?.code === 'ERR_SQLITE_ERROR' &&
+    ((err as { errcode: number }).errcode & 0xff) === 5);
+
 /**
  * Triages the queued mails (the sync queues each new one; `ids` are queued too): rules first, then
  * the AI. Each mail is treated once (claimed before anything else); nothing happens under a local pause
- * (the queue waits); under a core pause only the rules run, the rest waits for the AI. After a credit error or a refused key, the rest only gets the rules and waits
- * for the AI; the next pass tries again. A failure stops the pass and leaves the mail queued.
+ * (the queue waits); under a core pause only the rules run, the rest waits for the AI. After a credit error or a
+ * refused key, the rest only gets the rules and waits for the AI; the next pass tries again.
+ * A failure of the mail alone counts an attempt and the pass goes on; a transient one (network, Google, the AI, the
+ * base held) gives the mail back without an attempt and stops the pass; any other counts an attempt and stops it.
+ * At its third attempt a mail leaves the queue, to be filed by hand, and a line of the server log says so.
  */
 export async function triageNew(deps: TriageDeps, ids: string[] = []): Promise<void> {
   enqueue(deps.db, ids, deps.now());
-  let useAi = true;
+  const pass: Pass = { useAi: true, skipped: new Set(), log: deps.log ?? ((line) => console.log(line)) };
+  const failed = (id: string, reason: string) => {
+    if (failedAttempt(deps.db, id))
+      pass.log(
+        `Tri : mail ${id} sorti de la file après ${MAX_ATTEMPTS} essais, à trier à la main : ${reason}`,
+      );
+  };
   for (const id of queuedIds(deps.db)) {
     const { pausedBy } = getState(deps.db);
     if (pausedBy === 'local') return;
@@ -299,14 +353,16 @@ export async function triageNew(deps: TriageDeps, ids: string[] = []): Promise<v
     }
     let outcome: Outcome | 'ai-off';
     try {
-      outcome = await triageOne(deps, id, useAi && pausedBy !== 'core');
+      outcome = await triageOne(deps, id, { ...pass, useAi: pass.useAi && pausedBy !== 'core' });
     } catch (err) {
       release(deps.db, id);
-      failedAttempt(deps.db, id);
+      if (transientError(err)) throw err;
+      failed(id, err instanceof Error ? err.message : String(err));
+      if (mailError(err)) continue;
       throw err;
     }
-    if (outcome === 'ai-off') useAi = false;
-    else if (outcome === 'unusable') failedAttempt(deps.db, id);
+    if (outcome === 'ai-off') pass.useAi = false;
+    else if (outcome === 'unusable') failed(id, 'réponse inutilisable de l’IA');
     else if (outcome === 'done') dequeue(deps.db, id);
   }
 }
