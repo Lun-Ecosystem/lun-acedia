@@ -72,9 +72,10 @@ for (const id of PROVIDERS) {
     console.log(`${expiresEnvName(id)} ignorée : date attendue au format AAAA-MM-JJ.`);
 }
 // The declared expiry of each key in service: checked at start, then every hour.
-const checkKeyExpiry = () => checkKeyExpiries(db, secretKey, llmEnv, clock());
-checkKeyExpiry();
-setInterval(checkKeyExpiry, 3600_000).unref();
+startLoop(async () => checkKeyExpiries(db, secretKey, llmEnv, clock()), {
+  intervalMs: 3600_000,
+  onError: logError('Échéance des clés'),
+});
 function logError(what: string) {
   return (err: unknown) => {
     // Not connected yet, or waiting for a new consent: health already says so.
@@ -98,17 +99,21 @@ if (google) {
     onError: logError('Synchro Agenda'),
   });
 }
-startReminderLoop(db, clock);
-setInterval(() => pruneEvents(db, clock()), 3600_000).unref();
+startReminderLoop(db, clock, logError('Rappels'));
+startLoop(async () => pruneEvents(db, clock()), {
+  intervalMs: 3600_000,
+  onError: logError('Purge des événements'),
+});
 
 // Pina's thread: yesterday's pending cards expire and past days go, at start then every hour.
-const tidyPina = () => {
-  const today = dayOf(clock());
-  expireCards(db, today);
-  purge(db, today);
-};
-tidyPina();
-setInterval(tidyPina, 3600_000).unref();
+startLoop(
+  async () => {
+    const today = dayOf(clock());
+    expireCards(db, today);
+    purge(db, today);
+  },
+  { intervalMs: 3600_000, onError: logError('Fil de Pina') },
+);
 
 // The base is copied next to itself, in backups/: once listening, then every hour if the day's copy is missing.
 // Even in pause, like the other hourly tasks: a copy acts on nothing, and a paused week still needs its copies.

@@ -1,7 +1,7 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { eventsSince } from '../contract/events.ts';
 import { local, makeAgendaHarness } from '../testing/agenda-harness.ts';
-import { dueReminders, runReminders } from './reminders.ts';
+import { dueReminders, runReminders, startReminderLoop } from './reminders.ts';
 
 const reminderEvents = (db: Parameters<typeof eventsSince>[0]) =>
   eventsSince(db).filter((e) => e.type === 'agenda.reminder');
@@ -93,5 +93,46 @@ describe('reminders', () => {
     });
     await h.syncAgenda();
     expect(dueReminders(h.db, new Date('2026-11-02T08:30:00.000Z'))).toEqual([]);
+  });
+
+  describe('the loop', () => {
+    afterEach(() => vi.useRealTimers());
+
+    it('passes at start, logs a failed write and goes on the next minute, without doubling a reminder', async () => {
+      const h = await makeAgendaHarness();
+      h.agenda.putEvent('primary', {
+        id: 'e1',
+        summary: 'Oral',
+        start: { dateTime: '2026-11-02T08:15:00.000Z' },
+        end: { dateTime: '2026-11-02T09:00:00.000Z' },
+        reminders: { useDefault: false, overrides: [{ method: 'popup', minutes: 10 }] },
+      });
+      await h.syncAgenda();
+      vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
+      let now = new Date('2026-11-02T08:05:00.000Z');
+      const onError = vi.fn();
+      // A write that fails (a base held too long, a full disk), then works again.
+      h.db.exec(
+        "CREATE TEMP TRIGGER fail BEFORE INSERT ON reminders_sent BEGIN SELECT RAISE(ABORT, 'disque plein'); END",
+      );
+      const loop = startReminderLoop(h.db, () => now, onError);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(onError).toHaveBeenCalledTimes(1);
+      expect(onError).toHaveBeenCalledWith(expect.objectContaining({ message: 'disque plein' }));
+      expect(reminderEvents(h.db)).toHaveLength(0);
+
+      h.db.exec('DROP TRIGGER fail');
+      now = new Date('2026-11-02T08:06:00.000Z');
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(reminderEvents(h.db)).toHaveLength(1);
+      loop.stop();
+
+      // A restart passes at once: what was already emitted stays emitted once.
+      const again = startReminderLoop(h.db, () => now, onError);
+      await vi.advanceTimersByTimeAsync(60_000);
+      again.stop();
+      expect(reminderEvents(h.db)).toHaveLength(1);
+      expect(onError).toHaveBeenCalledTimes(1);
+    });
   });
 });
