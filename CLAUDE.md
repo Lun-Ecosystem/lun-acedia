@@ -28,6 +28,6 @@ jamais le vrai compte).
 - En pause, le tri s'arrête : rien n'est rangé seul. Ce qui est demandé à la main passe, et ce qui n'agit sur rien
   continue (synchro, rappels, copie de la base). Tout ce que fait l'agente se fait aussi à la main.
 - Une vue, un exemplaire : `app/` n'a aucun composant métier, tout vient de `views/`.
-- Dépôt public : aucun secret, aucune adresse mail réelle, aucune adresse interne, aucun son ni modèle non tracé.
+- Dépôt public : aucun secret, aucune adresse mail réelle, aucune adresse interne, aucun son, aucun modèle non tracé.
   Le contrôle, lun-docs cloné à côté : `node ../lun-docs/tools/check-repo.mjs --public .`.
 - Cahier des attendus : `docs/specs/2026-10-19-j1-acedia-design.md` dans lun-docs.
