@@ -53,5 +53,6 @@ describe('the server', () => {
     await vi.advanceTimersByTimeAsync(3_600_000);
     for (const what of ['Échéance des clés', 'Purge des événements', 'Fil de Pina'])
       expect(seen(what)).toHaveLength(2);
-  });
+    // Importing the whole server takes seconds, more on a small CI machine.
+  }, 30_000);
 });
