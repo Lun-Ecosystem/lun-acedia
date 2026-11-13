@@ -1,5 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite';
 import { emitEvent } from '../contract/events.ts';
+import { startLoop } from '../util.ts';
 import { eventsStartingBetween } from './calendar.ts';
 import { tasksDueBetween } from './tasks.ts';
 import { dayOf, toMs } from './time.ts';
@@ -95,15 +96,24 @@ export function runReminders(db: DatabaseSync, now: Date): number {
   return due.length;
 }
 
-/** Checks the reminders every minute; forgets the emitted ones after 30 days. */
-export function startReminderLoop(db: DatabaseSync, clock: () => Date): { stop: () => void } {
-  const timer = setInterval(() => {
-    const now = clock();
-    runReminders(db, now);
-    db.prepare('DELETE FROM reminders_sent WHERE at < ?').run(
-      new Date(now.getTime() - 30 * 86_400_000).toISOString(),
-    );
-  }, 60_000);
-  timer.unref();
-  return { stop: () => clearInterval(timer) };
+/**
+ * Checks the reminders at start then every minute; forgets the emitted ones after 30 days. A failed pass goes to
+ * `onError` and the next minute tries again: an emitted reminder is never emitted twice (`reminders_sent`).
+ */
+export function startReminderLoop(
+  db: DatabaseSync,
+  clock: () => Date,
+  onError: (err: unknown) => void,
+): { stop: () => void } {
+  const { stop } = startLoop(
+    async () => {
+      const now = clock();
+      runReminders(db, now);
+      db.prepare('DELETE FROM reminders_sent WHERE at < ?').run(
+        new Date(now.getTime() - 30 * 86_400_000).toISOString(),
+      );
+    },
+    { intervalMs: 60_000, onError },
+  );
+  return { stop };
 }

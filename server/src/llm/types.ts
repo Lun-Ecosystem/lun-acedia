@@ -72,9 +72,12 @@ export interface LlmProvider {
  */
 export class ProviderError extends Error {
   readonly kind: 'key' | 'credit' | 'unavailable' | 'format';
-  constructor(kind: ProviderError['kind'], message: string) {
+  /** The provider's HTTP answer, when there was one (none for the network or a delay). */
+  readonly status: number | undefined;
+  constructor(kind: ProviderError['kind'], message: string, status?: number) {
     super(message);
     this.kind = kind;
+    this.status = status;
     this.name = 'ProviderError';
   }
 }
@@ -84,10 +87,11 @@ export function toProviderError(err: unknown): ProviderError {
   if (err instanceof ProviderError) return err;
   const e = err as { status?: number; code?: string | null; message?: string };
   const message = e?.message ?? String(err);
-  if (e?.status === 401 || e?.status === 403) return new ProviderError('key', message);
-  if (e?.status === 402 || e?.code === 'insufficient_quota' || /credit balance/i.test(message))
-    return new ProviderError('credit', message);
-  return new ProviderError('unavailable', message);
+  const status = typeof e?.status === 'number' ? e.status : undefined;
+  if (status === 401 || status === 403) return new ProviderError('key', message, status);
+  if (status === 402 || e?.code === 'insufficient_quota' || /credit balance/i.test(message))
+    return new ProviderError('credit', message, status);
+  return new ProviderError('unavailable', message, status);
 }
 
 /** Parses a JSON answer, or fails as `format`. */

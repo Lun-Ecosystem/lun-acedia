@@ -3,6 +3,8 @@ import { eventsSince } from '../contract/events.ts';
 import { getState, setPaused } from '../contract/state.ts';
 import { putSetting } from '../db.ts';
 import { getStoredMessage, upsertMessage } from '../gmail/store.ts';
+import { GoogleApiError, type GoogleClient } from '../google/client.ts';
+import { ProviderError, toProviderError } from '../llm/types.ts';
 import { message } from '../testing/fake-gmail.ts';
 import { makeGmailHarness } from '../testing/gmail-harness.ts';
 import {
@@ -18,6 +20,7 @@ import { getProposal, triageNew } from './pipeline.ts';
 import { getSetting } from '../db.ts';
 import { claim } from './proposals.ts';
 import { queuedIds, recoverQueue } from './queue.ts';
+import { setRole } from './labels.ts';
 import { createRule, listRules, updateRule } from './rules.ts';
 
 /** A classifier that answers what the test decides and counts its calls. */
@@ -54,9 +57,19 @@ async function setup(answer: Parameters<typeof fakeClassifier>[0]) {
     for (const m of msgs) h.gmail.deliver(message({ date: '2026-11-02T08:30:00.000Z', ...m }));
     return (await h.sync()).added;
   };
-  const triage = (ids: string[]) => triageNew({ ...h.deps, classifier: fake.classifier }, ids);
-  return { h, ecole, perso, urgent, fake, deliver, triage };
+  // What the triage writes to the server log.
+  const lines: string[] = [];
+  const log = (line: string) => lines.push(line);
+  const triage = (ids: string[]) => triageNew({ ...h.deps, classifier: fake.classifier, log }, ids);
+  return { h, ecole, perso, urgent, fake, deliver, triage, lines, log };
 }
+
+/** What an SDK error with this HTTP status becomes, as the providers map it. */
+const aiError = (status: number, message: string) =>
+  toProviderError(Object.assign(new Error(message), { status }));
+
+const attempts = (h: Awaited<ReturnType<typeof makeGmailHarness>>) =>
+  h.db.prepare('SELECT message_id AS id, attempts FROM triage_queue ORDER BY rowid').all();
 
 const journalCount = (h: Awaited<ReturnType<typeof makeGmailHarness>>) =>
   (h.db.prepare('SELECT COUNT(*) AS n FROM journal').get() as { n: number }).n;
@@ -562,6 +575,101 @@ describe('triage queue', () => {
     await s.triage([]);
     expect(queuedIds(s.h.db)).toEqual([]);
     expect(s.fake.inputs).toHaveLength(3);
+  });
+
+  it('a network cut takes no mail out of the queue: five queued, three passes, the five stay', async () => {
+    let box = '';
+    const s = await setup(() => ({ boxId: box, confidence: 50 }));
+    box = s.ecole;
+    const ids = await s.deliver({ id: 'm1' }, { id: 'm2' }, { id: 'm3' }, { id: 'm4' }, { id: 'm5' });
+    // The network is cut: fetch itself throws, as Node's does.
+    const offline: GoogleClient = {
+      request: () => Promise.reject(new TypeError('fetch failed')),
+    };
+    for (let pass = 0; pass < 3; pass++)
+      await expect(
+        triageNew({ ...s.h.deps, google: offline, classifier: s.fake.classifier, log: s.log }, ids),
+      ).rejects.toThrow('fetch failed');
+    expect(attempts(s.h)).toEqual(ids.map((id) => ({ id, attempts: 0 })));
+    expect(s.lines).toEqual([]);
+    await s.triage([]);
+    expect(ids.map((id) => getProposal(s.h.db, id)?.status)).toEqual(Array(5).fill('pending'));
+  });
+
+  it.each([
+    ['the AI unreachable', new ProviderError('unavailable', 'Connection error.')],
+    ['the AI answering 503', aiError(503, '503 overloaded')],
+    ['Google out for a while', new GoogleApiError(503, 'Backend Error')],
+    [
+      'the base held by another writer',
+      Object.assign(new Error('database is locked'), {
+        code: 'ERR_SQLITE_ERROR',
+        errcode: 5,
+        errstr: 'database is locked',
+      }),
+    ],
+  ])('%s counts no attempt', async (_, error) => {
+    const s = await setup(() => error);
+    await s.deliver({ id: 'm1' });
+    for (let pass = 0; pass < 3; pass++) await expect(s.triage([])).rejects.toThrow(error.message);
+    expect(attempts(s.h)).toEqual([{ id: 'm1', attempts: 0 }]);
+  });
+
+  it('a mail the AI answers 400 leaves the queue at its third attempt, with its line, then the next is triaged', async () => {
+    const s = await setup((input) =>
+      input.mail.subject === 'Sujet m1' ? aiError(400, '400 invalid_request_error') : { confidence: 50 },
+    );
+    await s.deliver({ id: 'm1' }, { id: 'm2' });
+    for (let pass = 0; pass < 3; pass++) await expect(s.triage([])).rejects.toThrow('400');
+    expect(queuedIds(s.h.db)).toEqual(['m2']);
+    expect(s.lines).toEqual([expect.stringMatching(/m1.*400 invalid_request_error/)]);
+    await s.triage([]);
+    expect(getProposal(s.h.db, 'm2')?.status).toBe('pending');
+  });
+
+  it('a mail gone from Gmail does not stop the next ones', async () => {
+    const s = await setup(() => ({ confidence: 50 }));
+    createRule(s.h.db, { field: 'fromDomain', op: 'equals', value: 'ecole.example.org', boxId: s.ecole });
+    const from = 'p@ecole.example.org';
+    const ids = await s.deliver({ id: 'm1', from }, { id: 'm2', from }, { id: 'm3', from });
+    s.h.gmail.purge('m1'); // deleted for good in Gmail, still in the cache: Google answers 404
+    await s.triage(ids);
+    expect(getStoredMessage(s.h.db, 'm2')?.labels).toContain(s.ecole);
+    expect(getStoredMessage(s.h.db, 'm3')?.labels).toContain(s.ecole);
+    expect(attempts(s.h)).toEqual([{ id: 'm1', attempts: 1 }]);
+  });
+
+  it('a mail that leaves the queue at its third attempt leaves a line, on an error or an unusable answer', async () => {
+    let answer: Error = new Error('Google 403 : quota');
+    const s = await setup(() => answer);
+    await s.deliver({ id: 'm1' });
+    for (let pass = 0; pass < 3; pass++) await expect(s.triage([])).rejects.toThrow('403');
+    expect(queuedIds(s.h.db)).toEqual([]);
+    expect(s.lines).toEqual([expect.stringMatching(/m1.*Google 403 : quota/)]);
+
+    answer = new ClassifierError('réponse illisible');
+    await s.deliver({ id: 'm2' });
+    for (let pass = 0; pass < 3; pass++) await s.triage([]);
+    expect(queuedIds(s.h.db)).toEqual([]);
+    expect(s.lines).toHaveLength(2);
+    expect(s.lines[1]).toMatch(/m2/);
+  });
+
+  it('a rule to a box that is no longer one is skipped: the next rule or the AI decides, one line says so', async () => {
+    const s = await setup(() => ({ boxId: null, confidence: 50 }));
+    const stale = createRule(s.h.db, { field: 'subject', op: 'contains', value: 'devoir', boxId: s.ecole });
+    createRule(s.h.db, { field: 'fromDomain', op: 'equals', value: 'ecole.example.org', boxId: s.perso });
+    setRole(s.h.db, s.ecole, null); // École is no longer a box; its rule stays
+    await s.triage(
+      await s.deliver(
+        { id: 'm1', from: 'p@ecole.example.org', subject: 'Devoir de maths' },
+        { id: 'm2', from: 'x@ailleurs.example.org', subject: 'Devoir de français' },
+      ),
+    );
+    expect(getStoredMessage(s.h.db, 'm1')?.labels).toContain(s.perso);
+    expect(getProposal(s.h.db, 'm2')).toMatchObject({ source: 'ai', status: 'pending' });
+    expect(queuedIds(s.h.db)).toEqual([]);
+    expect(s.lines).toEqual([expect.stringContaining(`règle ${stale.id}`)]);
   });
 
   it('triages a new mail even when it was cached before the sync saw it arrive', async () => {

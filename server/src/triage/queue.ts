@@ -26,10 +26,13 @@ export function dequeue(db: DatabaseSync, id: string): void {
   db.prepare('DELETE FROM triage_queue WHERE message_id = ?').run(id);
 }
 
-/** Counts a failed attempt; past `MAX_ATTEMPTS` the mail leaves the queue. */
-export function failedAttempt(db: DatabaseSync, id: string): void {
+/** Counts a failed attempt; past `MAX_ATTEMPTS` the mail leaves the queue. True when it left. */
+export function failedAttempt(db: DatabaseSync, id: string): boolean {
   db.prepare('UPDATE triage_queue SET attempts = attempts + 1 WHERE message_id = ?').run(id);
-  db.prepare('DELETE FROM triage_queue WHERE message_id = ? AND attempts >= ?').run(id, MAX_ATTEMPTS);
+  const { changes } = db
+    .prepare('DELETE FROM triage_queue WHERE message_id = ? AND attempts >= ?')
+    .run(id, MAX_ATTEMPTS);
+  return Number(changes) > 0;
 }
 
 /** At start-up: claims left by a process that died mid-triage are given back. */

@@ -3,7 +3,7 @@ import { emitEvent } from '../contract/events.ts';
 import { NotFoundError } from '../gmail/actions.ts';
 import { getSyncState, setSyncState } from '../gmail/store.ts';
 import type { SyncDeps } from '../gmail/sync.ts';
-import { GoogleApiError } from '../google/client.ts';
+import { GoogleApiError, GoogleNotConnectedError, GoogleReauthError } from '../google/client.ts';
 import type { AgendaTask } from '../types.ts';
 
 export const TASKS_API = 'https://tasks.googleapis.com/tasks/v1';
@@ -115,8 +115,11 @@ async function pullList(deps: SyncDeps, listId: string): Promise<number> {
   return changes;
 }
 
-/** Syncs every task list; returns how many cached tasks changed. */
-export async function syncTasks(deps: SyncDeps): Promise<number> {
+/**
+ * Syncs every task list; returns how many cached tasks changed, and the failure of each list that could not be
+ * read, by its name. Only an account-wide failure (consent, no account) throws.
+ */
+export async function syncTasks(deps: SyncDeps): Promise<{ changes: number; failed: Error[] }> {
   const lists: { id: string; title?: string }[] = [];
   let pageToken: string | undefined;
   do {
@@ -133,6 +136,7 @@ export async function syncTasks(deps: SyncDeps): Promise<number> {
 
   if (lists[0]) setSyncState(deps.db, 'tasks:main', lists[0].id);
   let changes = 0;
+  const failed: Error[] = [];
   const known = (deps.db.prepare('SELECT id FROM task_lists').all() as { id: string }[]).map((r) => r.id);
   for (const id of known.filter((id) => !lists.some((l) => l.id === id))) {
     deps.db.prepare('DELETE FROM task_lists WHERE id = ?').run(id);
@@ -145,9 +149,18 @@ export async function syncTasks(deps: SyncDeps): Promise<number> {
         'INSERT INTO task_lists (id, title) VALUES (?, ?) ON CONFLICT(id) DO UPDATE SET title = excluded.title',
       )
       .run(l.id, l.title ?? '');
-    changes += await pullList(deps, l.id);
+    try {
+      changes += await pullList(deps, l.id);
+    } catch (err) {
+      if (err instanceof GoogleReauthError || err instanceof GoogleNotConnectedError) throw err;
+      failed.push(
+        new Error(`Liste « ${l.title ?? l.id} » : ${err instanceof Error ? err.message : String(err)}`, {
+          cause: err,
+        }),
+      );
+    }
   }
-  return changes;
+  return { changes, failed };
 }
 
 /** The default task list (the first one Google returns). */

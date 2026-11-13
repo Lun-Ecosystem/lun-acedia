@@ -231,6 +231,45 @@ describe('user actions', () => {
   });
 });
 
+describe('a batch action', () => {
+  async function batchSetup(count: number) {
+    const ids = Array.from({ length: count }, (_, i) => `m${i + 1}`);
+    const h = await makeGmailHarness(ids.map((id) => message({ id, labelIds: ['INBOX', 'UNREAD'] })));
+    const ecole = (await h.call('POST', '/api/labels', { name: 'École', role: 'box' })).body.id as string;
+    return { h, ids, ecole };
+  }
+
+  it('that fails midway leaves the mails already done in the journal, each undoable and learnt', async () => {
+    const { h, ids, ecole } = await batchSetup(20);
+    h.gmail.purge('m12'); // gone from Gmail, still in the cache: Google answers 404
+    const res = await h.call('POST', '/api/mail/batch', { ids, op: { kind: 'file', boxId: ecole } });
+    expect(res).toEqual({ status: 404, body: { error: 'Mail introuvable' } });
+    const done = ids.slice(0, 11);
+    const items = (await h.call('GET', '/api/journal')).body.items as { id: number; messageId: string }[];
+    expect(items.map((e) => e.messageId).reverse()).toEqual(done);
+    for (const id of done) expect(getExample(h.db, id)?.boxId).toBe(ecole);
+    for (const e of items) expect((await h.call('POST', `/api/journal/${e.id}/undo`)).status).toBe(200);
+    for (const id of done) expect(h.gmail.messages.get(id)!.labelIds.sort()).toEqual(['INBOX', 'UNREAD']);
+  });
+
+  it('that passes whole answers each change with its journal id', async () => {
+    const { h, ecole } = await batchSetup(2);
+    const res = await h.call('POST', '/api/mail/batch', {
+      ids: ['m1', 'm2'],
+      op: { kind: 'file', boxId: ecole },
+    });
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual(
+      ['m1', 'm2'].map((id) => ({
+        id,
+        before: ['INBOX', 'UNREAD'],
+        after: ['UNREAD', ecole],
+        journalId: expect.any(Number),
+      })),
+    );
+  });
+});
+
 describe('stats/today', () => {
   const change = { id: 'm1', before: ['INBOX'], after: ['X'] };
   const log = (h: Awaited<ReturnType<typeof setup>>['h'], origin: 'rule' | 'ai', at: string) =>

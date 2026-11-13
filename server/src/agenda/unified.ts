@@ -29,9 +29,14 @@ export function agendaRange(db: DatabaseSync, from: string, to: string): AgendaI
   );
 }
 
-/** Syncs Google Agenda and Google Tasks; emits `agenda.changed` when the cache changed. */
+/**
+ * Syncs Google Agenda and Google Tasks; emits `agenda.changed` when the cache changed. A calendar or a list that
+ * could not be read lets the others pass, then throws, by its name, for the loop to log.
+ */
 export async function syncAgenda(deps: SyncDeps): Promise<number> {
-  const changes = (await syncCalendars(deps)) + (await syncTasks(deps));
+  const calendars = await syncCalendars(deps);
+  const tasks = await syncTasks(deps);
+  const changes = calendars.changes + tasks.changes;
   if (changes > 0) {
     emitEvent(
       deps.db,
@@ -39,5 +44,7 @@ export async function syncAgenda(deps: SyncDeps): Promise<number> {
       deps.now(),
     );
   }
+  const failed = [...calendars.failed, ...tasks.failed];
+  if (failed.length) throw new AggregateError(failed, failed.map((e) => e.message).join(' ; '));
   return changes;
 }
