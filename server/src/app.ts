@@ -14,6 +14,7 @@ import {
   revokeClient,
 } from './contract/auth.ts';
 import { allowAuthorization, denyAuthorization, readAuthorizationRequest } from './contract/authorize.ts';
+import { firstCodeRoutes } from './contract/first-code.ts';
 import { contractRoutes } from './contract/routes.ts';
 import { draftRoutes, gmailRoutes, sendAsRoutes } from './gmail/routes.ts';
 import { createGoogleClient, type GoogleClient, type GoogleDeps } from './google/client.ts';
@@ -48,6 +49,8 @@ export interface AppDeps {
   listCustomModels?: ModelLister | undefined;
   /** Pina's model, looked up at each use; the chosen provider (real factory) by default. */
   pinaProvider?: PinaDeps['provider'] | undefined;
+  /** Acedia's own address, set only when it listens on loopback: `POST /first-code` answers nowhere else. */
+  localOrigin?: string | undefined;
 }
 
 export function createApp(deps: AppDeps): Hono {
@@ -129,6 +132,8 @@ export function createApp(deps: AppDeps): Hono {
   app.route('/api/send-as', sendAsRoutes(deps, google));
   app.route('/api', triageRoutes(deps, google));
   app.route('/api', agendaRoutes(deps, google));
+  // Outside /api (devices only) and the /lun/v1 contract: the first device has no token yet.
+  app.route('/first-code', firstCodeRoutes(deps));
   if (deps.staticDir) serveApp(app, deps.staticDir);
 
   app.onError((err, c) => c.json({ error: err.message }, 500));

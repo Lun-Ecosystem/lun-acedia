@@ -9,6 +9,7 @@ import { backupIfMissing } from './backup.ts';
 import { ActionRegistry } from './contract/actions.ts';
 import { bootstrapPairing } from './contract/auth.ts';
 import { pruneEvents } from './contract/events.ts';
+import { localOriginFor } from './contract/first-code.ts';
 import { openDb } from './db.ts';
 import { startSyncLoop } from './gmail/sync.ts';
 import { createGoogleClient, GoogleNotConnectedError, GoogleReauthError } from './google/client.ts';
@@ -51,6 +52,9 @@ const staticDir = existsSync(resolve(appDist, 'index.html')) ? appDist : undefin
 if (!staticDir) console.log('Front autonome absent : lancer « npm run build -w @lun-acedia/app ».');
 const secretKey = process.env.ACEDIA_SECRET_KEY || undefined;
 const llmEnv = llmEnvFrom(process.env);
+const port = Number(process.env.PORT ?? 8787);
+// Loopback by default: a deployment that must be reachable gives its address explicitly.
+const hostname = process.env.HOST?.trim() || '127.0.0.1';
 const app = createApp({
   db,
   clock,
@@ -61,6 +65,8 @@ const app = createApp({
   secretKey,
   llmEnv,
   checkKey: checkWithProvider,
+  // Listening elsewhere than loopback, no page gets the first code.
+  localOrigin: localOriginFor(hostname, port),
 });
 
 bootstrapPairing(db, clock(), (line) => console.log(line));
@@ -120,9 +126,6 @@ startLoop(
 const backup = () => backupIfMissing(db, dbPath, clock(), (line) => console.log(line));
 setInterval(backup, 3600_000).unref();
 
-const port = Number(process.env.PORT ?? 8787);
-// Loopback by default: a deployment that must be reachable gives its address explicitly.
-const hostname = process.env.HOST?.trim() || '127.0.0.1';
 serve({ fetch: app.fetch, port, hostname }, () => {
   console.log(`Lun'Acedia écoute sur ${hostname}:${port}`);
   backup();

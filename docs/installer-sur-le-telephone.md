@@ -28,10 +28,11 @@ Ne jamais écrire cette adresse dans le dépôt, une PR ou une issue (dépôt pu
 ## 3. Installer
 
 1. Sur le téléphone Android (dans le même tailnet), ouvrir l'adresse dans Chrome.
-2. Écran d'appairage : entrer un code à 6 chiffres, donné à tout moment par `npm run pair-code` sur
-   le poste qui fait tourner Acedia. Au tout premier lancement, il est aussi dans les journaux du
-   serveur ; ensuite, sur un appareil déjà relié, Réglages → Appareils et applications →
-   « Relier un appareil » affiche un code.
+2. Écran d'appairage : entrer un code à 6 chiffres, affiché sur un appareil déjà relié par Réglages →
+   Appareils et applications → « Relier un appareil ». En recours, `npm run pair-code` sur le poste
+   qui fait tourner Acedia en donne un. Le code que la page d'Acedia affiche sur ce poste, au tout
+   premier lancement, est pour le navigateur du poste : le relier d'abord, puis demander le code du
+   téléphone dans ses Réglages.
 3. Menu de Chrome → « Installer l'application ». Lun'Acedia apparaît avec son icône de lune.
 
 Le jeton de l'appareil reste dans le navigateur du téléphone. S'il est révoqué, l'app revient à

@@ -59,6 +59,10 @@ npm run pair-code       # dans un autre terminal, le code à saisir dans le fron
 Aucune dépendance au NAS : tout tourne sur le poste. Le serveur écoute sur `127.0.0.1` par défaut (`HOST` dans `.env`
 pour une autre adresse). Le code d'appareil est à usage unique et vaut 10 minutes.
 
+Le premier appareil : tant que rien n'est relié, la page ouverte à `http://localhost:8787` sur la machine qui héberge
+affiche son code, déjà saisi. Elle le demande par `POST /first-code`, hors de `/api` et du contrat, qui ne répond que
+depuis la boucle locale, à cet hôte et à cette origine, sans en-tête de relais ; sinon un 404, sans créer de code.
+
 La base est copiée une fois par jour dans `backups/`, à côté d'elle (`data/backups/acedia-AAAA-MM-JJ.db` par défaut) :
 dès que le serveur écoute, puis chaque heure si la copie du jour manque, ce qui rattrape un poste éteint la nuit. Les
 sept dernières restent ; une copie ratée laisse une ligne au journal du serveur et se retente l'heure suivante.
@@ -75,7 +79,7 @@ dans lun-docs.
 | Le serveur dit qu'il démarre sans Google | Renseigner `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` et `ACEDIA_SECRET_KEY` dans `.env` : [Brancher Google](docs/brancher-google.md). |
 | Il faut reconnecter Google chaque semaine | L'écran de consentement est resté en statut « Test » : le publier en « Production », sans vérification. |
 | Le serveur ne trouve pas le front | Lancer `npm run build`, qui construit `app/dist`. |
-| Le code d'appareil est refusé | Après 5 codes faux en 10 minutes, ceux en cours sont annulés : en redemander un avec `npm run pair-code`. |
+| Le code d'appareil est refusé | Il a expiré, ou 5 codes faux en 10 minutes ont annulé ceux en cours. Sur une installation neuve, « Nouveau code », sur la page ouverte sur la machine qui héberge Acedia, en remet un ; sinon, un appareil relié en donne un (Réglages › Appareils et applications › Relier un appareil). En recours : `npm run pair-code`. |
 | Le téléphone ne propose pas d'installer l'app | Un navigateur n'installe une PWA qu'en HTTPS : [Installer sur le téléphone](docs/installer-sur-le-telephone.md). |
 
 ## Dans l'écosystème
