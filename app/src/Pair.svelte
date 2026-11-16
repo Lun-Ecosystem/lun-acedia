@@ -38,13 +38,17 @@
 
   /** The first device's code, shown only on the hosting machine while nothing is paired. */
   let first = $state<{ code: string; expiresAt: string } | null>(null);
+  /** The field still holds the first code: the page says so, and when it expires. */
+  const holding = $derived(first !== null && code === first.code);
+  const expiresId = `${uid}-expire`;
   const time = (iso: string) =>
     new Date(iso).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
 
   // Once at display, then once per « Nouveau code »: never on a timer.
   async function ask() {
     first = await firstCode(baseUrl);
-    if (first) code = first.code;
+    // The answer may come while digits are being typed: they stay.
+    if (first && !code) code = first.code;
   }
   void ask();
 
@@ -99,7 +103,7 @@
 <div class="page lun-acedia" data-monde="acedia">
   <StandaloneCard
     title="Relier ce navigateur"
-    lead={first
+    lead={holding
       ? "Aucun appareil n'est encore appairé à Lun'Acedia. Le code du premier appareil est déjà saisi : seule cette page, ouverte sur la machine qui l'héberge, l'affiche."
       : authorizing
         ? "Lun'Acedia ne connaît pas ce navigateur. Saisir le code à 6 chiffres pour continuer."
@@ -112,7 +116,7 @@
         <CodeInput
           bind:value={code}
           error={error !== null}
-          aria-describedby={error ? errorId : undefined}
+          aria-describedby={error ? errorId : holding ? expiresId : undefined}
           oncomplete={send}
         />
       </div>
@@ -120,12 +124,13 @@
         <p class="erreur" id={errorId} role="alert">
           <icons.Ban size={14} strokeWidth={ICON_STROKE} aria-hidden="true" />{error}
         </p>
-      {:else if first && code === first.code}
-        <p class="aide">Code du premier appareil. Il expire à {time(first.expiresAt)}.</p>
+      {:else if holding && first}
+        <p class="aide" id={expiresId}>Code du premier appareil. Il expire à {time(first.expiresAt)}.</p>
       {:else}
         <p class="aide">Le code peut être collé tel quel.</p>
       {/if}
-      {#if first}
+      <!-- While an app waits for its authorization here, no sentence sends elsewhere. -->
+      {#if first && !authorizing}
         <!-- Pasted in an app's linking form, this code would leave the browser without one. -->
         <Banner tone="info" title="Ce code est pour ce navigateur." class="avis">
           Pour relier une application : entrer, puis Réglages › Appareils et applications › Relier un
@@ -142,7 +147,8 @@
       >
         {error ? 'Réessayer' : 'Relier'}
       </Button>
-      {#if first && error === REFUSED_CODE}
+      <!-- Offered as long as the field lost the first code: refused, cleared, or typed over. -->
+      {#if first && (error === REFUSED_CODE || !holding)}
         <Button variant="secondaire" size="grand" class="plein nouveau" onclick={renew}>Nouveau code</Button>
       {/if}
     </form>

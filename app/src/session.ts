@@ -55,7 +55,8 @@ export async function firstCode(baseUrl: string): Promise<{ code: string; expire
     return res.status === 200 &&
       typeof body.code === 'string' &&
       /^\d{6}$/.test(body.code) &&
-      typeof body.expiresAt === 'string'
+      typeof body.expiresAt === 'string' &&
+      !Number.isNaN(Date.parse(body.expiresAt))
       ? { code: body.code, expiresAt: body.expiresAt }
       : null;
   } catch {

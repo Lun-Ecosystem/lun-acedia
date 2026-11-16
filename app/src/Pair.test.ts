@@ -16,14 +16,14 @@ const firstCodeOf = (code: string): Answer => ({
 });
 
 /**
- * The fake server: `/first-code` answers apart, in order, then 404; the `pair` mock sees only
- * `/pair`, whose answers come in order, then a token.
+ * The fake server: `/first-code` answers apart, in order (a promise answers once settled), then
+ * 404; the `pair` mock sees only `/pair`, whose answers come in order, then a token.
  */
-function fakeServer(firsts: Array<Answer | Error>, answers: Answer[] = []) {
+function fakeServer(firsts: Array<Answer | Error | Promise<Answer>>, answers: Answer[] = []) {
   const respond = (a: Answer) => new Response(JSON.stringify(a.body), { status: a.status });
   const pair = vi.fn<typeof globalThis.fetch>(async () => respond(answers.shift() ?? TOKEN));
   const firstCode = vi.fn<typeof globalThis.fetch>(async () => {
-    const a = firsts.shift() ?? NO_CODE;
+    const a = await (firsts.shift() ?? NO_CODE);
     if (a instanceof Error) throw a;
     return respond(a);
   });
@@ -170,6 +170,7 @@ describe('Pair', () => {
     const { onPaired, user, code } = setup();
     expect(await screen.findByText(EXPIRES)).toBeInTheDocument();
     expect(code).toHaveValue('135790');
+    expect(code).toHaveAccessibleDescription(EXPIRES);
     expect(screen.getByRole('heading', { level: 1, name: 'Relier ce navigateur' })).toBeInTheDocument();
     expect(
       screen.getByText(
@@ -193,13 +194,28 @@ describe('Pair', () => {
     expect(localStorage.length + sessionStorage.length).toBe(0);
   });
 
-  it('holds the first device’s code the same way while an app waits for an authorization', async () => {
+  it('holds the first device’s code the same way while an app waits for an authorization, without the other path', async () => {
     fakeServer([firstCodeOf('135790')]);
     const { code } = setup({ authorizing: true });
     expect(await screen.findByText(EXPIRES)).toBeInTheDocument();
     expect(code).toHaveValue('135790');
-    expect(screen.getByText('Ce code est pour ce navigateur.')).toBeInTheDocument();
+    expect(screen.getByText(/Le code du premier appareil est déjà saisi/)).toBeInTheDocument();
     expect(screen.getByRole('list', { name: 'Étapes' })).toHaveTextContent(/Relier le navigateur.*Autoriser/);
+    // The app already waits on this page: no sentence sending elsewhere.
+    expect(screen.queryByText('Ce code est pour ce navigateur.')).toBeNull();
+  });
+
+  it('keeps digits typed before the first code arrives, and offers it again', async () => {
+    let answer!: (a: Answer) => void;
+    const { firstCode } = fakeServer([new Promise<Answer>((resolve) => (answer = resolve))]);
+    const { user, code } = setup();
+    await user.type(code, '48');
+    answer(firstCodeOf('135790'));
+    await vi.waitFor(() => expect(firstCode).toHaveBeenCalledOnce());
+    await settled();
+    expect(code).toHaveValue('48');
+    expect(screen.queryByText(/déjà saisi/)).toBeNull();
+    expect(screen.getByRole('button', { name: 'Nouveau code' })).toBeInTheDocument();
   });
 
   it.each<[string, Answer | Error]>([
@@ -241,9 +257,34 @@ describe('Pair', () => {
     expect(screen.queryByRole('alert')).toBeNull();
     expect(screen.getByText(EXPIRES)).toBeInTheDocument();
     expect(code).toHaveFocus();
+    // The new code does not leave by itself either.
+    expect(pair).toHaveBeenCalledOnce();
     await user.click(screen.getByRole('button', { name: 'Relier' }));
     await vi.waitFor(() => expect(onPaired).toHaveBeenCalledExactlyOnceWith('tok-1'));
     expect(sent(pair, 1).code).toBe('246802');
+  });
+
+  it.each<[string, Answer]>([
+    [
+      'refused first code',
+      { status: 401, body: { error: 'Code d’appairage invalide, déjà utilisé ou expiré' } },
+    ],
+    ['first code lost to a failure', { status: 500, body: { error: 'Erreur interne' } }],
+  ])('still offers « Nouveau code » once « Réessayer » clears a %s', async (_, answer) => {
+    const { firstCode } = fakeServer([firstCodeOf('135790'), firstCodeOf('246802')], [answer]);
+    const { user, code } = setup();
+    await screen.findByText(EXPIRES);
+    await user.click(screen.getByRole('button', { name: 'Relier' }));
+    await screen.findByRole('alert');
+    await user.click(screen.getByRole('button', { name: 'Réessayer' }));
+    expect(code).toHaveValue('');
+    expect(screen.queryByText(/déjà saisi/)).toBeNull();
+    expect(screen.getByText('Saisir le code à 6 chiffres. Il ne sert qu’une fois.')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Nouveau code' }));
+    await vi.waitFor(() => expect(code).toHaveValue('246802'));
+    expect(firstCode).toHaveBeenCalledTimes(2);
+    expect(screen.getByText(/Le code du premier appareil est déjà saisi/)).toBeInTheDocument();
   });
 
   it('asks the route once at display and once per « Nouveau code », never by itself', async () => {
