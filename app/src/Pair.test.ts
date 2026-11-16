@@ -280,11 +280,34 @@ describe('Pair', () => {
     expect(code).toHaveValue('');
     expect(screen.queryByText(/déjà saisi/)).toBeNull();
     expect(screen.getByText('Saisir le code à 6 chiffres. Il ne sert qu’une fois.')).toBeInTheDocument();
+    // « Ce code » is gone from the field: the banner goes with it.
+    expect(screen.queryByText('Ce code est pour ce navigateur.')).toBeNull();
 
     await user.click(screen.getByRole('button', { name: 'Nouveau code' }));
     await vi.waitFor(() => expect(code).toHaveValue('246802'));
     expect(firstCode).toHaveBeenCalledTimes(2);
     expect(screen.getByText(/Le code du premier appareil est déjà saisi/)).toBeInTheDocument();
+    expect(screen.getByText('Ce code est pour ce navigateur.')).toBeInTheDocument();
+  });
+
+  it('asks once for a « Nouveau code » clicked twice while its answer is awaited', async () => {
+    let answer!: (a: Answer) => void;
+    const { firstCode } = fakeServer(
+      [firstCodeOf('135790'), new Promise<Answer>((resolve) => (answer = resolve))],
+      [{ status: 401, body: { error: 'refusé' } }],
+    );
+    const { user, code } = setup();
+    await screen.findByText(EXPIRES);
+    await user.click(screen.getByRole('button', { name: 'Relier' }));
+    const renew = await screen.findByRole('button', { name: 'Nouveau code' });
+    await user.click(renew);
+    expect(renew).toHaveAttribute('aria-busy', 'true');
+    await user.click(renew);
+    expect(firstCode).toHaveBeenCalledTimes(2);
+
+    answer(firstCodeOf('246802'));
+    await vi.waitFor(() => expect(code).toHaveValue('246802'));
+    expect(firstCode).toHaveBeenCalledTimes(2);
   });
 
   it('asks the route once at display and once per « Nouveau code », never by itself', async () => {

@@ -52,10 +52,13 @@
   }
   void ask();
 
+  let renewing = $state(false);
   async function renew() {
+    renewing = true;
     code = '';
     error = null;
     await ask();
+    renewing = false;
     field()?.focus();
   }
 
@@ -130,7 +133,7 @@
         <p class="aide">Le code peut être collé tel quel.</p>
       {/if}
       <!-- While an app waits for its authorization here, no sentence sends elsewhere. -->
-      {#if first && !authorizing}
+      {#if holding && !authorizing}
         <!-- Pasted in an app's linking form, this code would leave the browser without one. -->
         <Banner tone="info" title="Ce code est pour ce navigateur." class="avis">
           Pour relier une application : entrer, puis Réglages › Appareils et applications › Relier un
@@ -149,7 +152,9 @@
       </Button>
       <!-- Offered as long as the field lost the first code: refused, cleared, or typed over. -->
       {#if first && (error === REFUSED_CODE || !holding)}
-        <Button variant="secondaire" size="grand" class="plein nouveau" onclick={renew}>Nouveau code</Button>
+        <Button variant="secondaire" size="grand" class="plein nouveau" loading={renewing} onclick={renew}
+          >Nouveau code</Button
+        >
       {/if}
     </form>
     {#if !first}
