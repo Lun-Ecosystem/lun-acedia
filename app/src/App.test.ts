@@ -263,7 +263,8 @@ describe('App', () => {
     ).toBeInTheDocument();
     expect(localStorage.getItem(TOKEN_KEY)).toBeNull();
     await new Promise((r) => setTimeout(r, 50));
-    expect(calls.at(-1)).toBe('DELETE /api/clients/1');
+    // Nothing more with the dead token: only the pairing page's one ask for a first code.
+    expect(calls.slice(calls.indexOf('DELETE /api/clients/1') + 1)).toEqual(['POST /first-code']);
     expect(calls.filter((c) => c === 'DELETE /api/clients/1')).toHaveLength(1);
     expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1);
     expect(screen.getByRole('status')).toHaveTextContent("Ce navigateur n’a plus accès à Lun'Acedia.");
