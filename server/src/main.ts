@@ -9,7 +9,7 @@ import { backupIfMissing } from './backup.ts';
 import { ActionRegistry } from './contract/actions.ts';
 import { bootstrapPairing } from './contract/auth.ts';
 import { pruneEvents } from './contract/events.ts';
-import { isLoopback } from './contract/first-code.ts';
+import { localOriginFor } from './contract/first-code.ts';
 import { openDb } from './db.ts';
 import { startSyncLoop } from './gmail/sync.ts';
 import { createGoogleClient, GoogleNotConnectedError, GoogleReauthError } from './google/client.ts';
@@ -65,8 +65,8 @@ const app = createApp({
   secretKey,
   llmEnv,
   checkKey: checkWithProvider,
-  // Acedia's address (lun-docs, environnements.md); listening elsewhere, no page gets the first code.
-  localOrigin: isLoopback(hostname) || hostname === 'localhost' ? `http://localhost:${port}` : undefined,
+  // Listening elsewhere than loopback, no page gets the first code.
+  localOrigin: localOriginFor(hostname, port),
 });
 
 bootstrapPairing(db, clock(), (line) => console.log(line));
