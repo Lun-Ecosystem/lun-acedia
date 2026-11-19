@@ -539,3 +539,244 @@ describe('the event sent to the contract', () => {
     expect(overlapEvents(h.db)).toMatchObject([{ importance: 'log' }]);
   });
 });
+
+/** Google answers 403 to the reading of the main calendar's events. */
+function breakPrimary(h: Harness) {
+  const real = h.agenda.handler;
+  h.agenda.handler = (call) =>
+    call.method === 'GET' && call.url.includes('/calendars/primary/events')
+      ? { status: 403, json: { error: { message: 'Forbidden' } } }
+      : real(call);
+}
+
+describe('only an event of the main calendar is offered to move', () => {
+  it('a shared calendar open for writing, an event organized by self with no guest: the card signals', async () => {
+    const h = await makeAgendaHarness();
+    h.agenda.addCalendar('shared', 'Partagé', { accessRole: 'writer' });
+    h.agenda.putEvent('shared', A());
+    h.agenda.putEvent('primary', B());
+    await h.syncAgenda();
+    expect(overlapCards(h.db)).toMatchObject([
+      { action: 'agenda.list', input: { conflit: { reason: 'not-mine' } } },
+    ]);
+  });
+
+  it('a read-only calendar: the card signals, and accepting it sends no PATCH', async () => {
+    const h = await makeAgendaHarness();
+    h.agenda.addCalendar('abonne', 'Abonné', { accessRole: 'reader' });
+    h.agenda.putEvent('abonne', A());
+    h.agenda.putEvent('abonne', B());
+    await h.syncAgenda();
+    const [card] = overlapCards(h.db);
+    expect(card).toMatchObject({ action: 'agenda.list' });
+    const { runCard } = await import('../pina/agent.ts');
+    await runCard({ db: h.db, actions: h.actions, clock: h.clock }, card!.id);
+    expect(h.calls.filter((c) => c.method === 'PATCH')).toEqual([]);
+  });
+
+  it('the main calendar: the card proposes', async () => {
+    const h = await makeAgendaHarness();
+    h.agenda.addCalendar('shared', 'Partagé', { accessRole: 'writer' });
+    h.agenda.putEvent('primary', A());
+    h.agenda.putEvent('shared', B());
+    await h.syncAgenda();
+    expect(overlapCards(h.db)).toMatchObject([
+      { action: 'event.update', input: { calendarId: 'primary', id: 'a' } },
+    ]);
+  });
+
+  it('the same event in the main calendar and in a shared one is offered from the main one', async () => {
+    const h = await makeAgendaHarness();
+    h.agenda.addCalendar('zzz', 'Partagé', { accessRole: 'writer' });
+    h.agenda.putEvent('zzz', A());
+    h.agenda.putEvent('primary', A());
+    h.agenda.putEvent('primary', B());
+    await h.syncAgenda();
+    expect(overlapCards(h.db)).toMatchObject([
+      { action: 'event.update', input: { calendarId: 'primary', id: 'a' } },
+    ]);
+  });
+});
+
+describe('one reminder, on the eve', () => {
+  // A conflict on Thursday Nov 5; the harness starts on Monday Nov 2.
+  const C = () => soloEvent('a', paris(5, 10), paris(5, 11), { summary: 'Dentiste' });
+  const D = () => guestEvent('b', paris(5, 10, 30), paris(5, 11, 30), { summary: 'Réunion client' });
+  async function nextDay(h: Harness) {
+    h.advance(24 * HOUR);
+    expireCards(h.db, dayOf(h.clock()));
+    await h.syncAgenda();
+  }
+
+  it('an ignored card comes back once, on the Paris eve of the conflict, with its event', async () => {
+    const h = await run([C(), D()]);
+    await nextDay(h); // Nov 3: not the eve.
+    expect(overlapCards(h.db)).toHaveLength(1);
+    await nextDay(h); // Nov 4: the eve.
+    const cards = overlapCards(h.db);
+    expect(cards.map((c) => [c.status, c.day])).toEqual([
+      ['expired', '2026-11-02'],
+      ['pending', '2026-11-04'],
+    ]);
+    expect(cards[1]!.callId).toBe(cards[0]!.callId);
+    expect(overlapEvents(h.db)).toHaveLength(2);
+  });
+
+  it('the eve is a day of Paris: at 00:30 in Paris, 23:30 UTC the day before, it is the eve', async () => {
+    const h = await run([C(), D()]);
+    h.advance(39.5 * HOUR); // Wednesday Nov 4, 00:30 in Paris.
+    expireCards(h.db, dayOf(h.clock()));
+    await h.syncAgenda();
+    expect(overlapCards(h.db).map((c) => c.day)).toEqual(['2026-11-02', '2026-11-04']);
+  });
+
+  it('the reminder counts in the cap of three a day', async () => {
+    const others = [6, 7, 8].flatMap((d) => [
+      soloEvent(`x${d}`, paris(d, 15), paris(d, 16)),
+      guestEvent(`y${d}`, paris(d, 15, 30), paris(d, 16, 30)),
+    ]);
+    const h = await run([C(), D()]);
+    await nextDay(h);
+    // Three new conflicts found on the eve: the reminder, first, leaves room for two of them.
+    for (const e of others) h.agenda.putEvent('primary', e);
+    await nextDay(h);
+    const eve = overlapCards(h.db).filter((c) => c.day === '2026-11-04');
+    expect(eve.map((c) => (c.input as { id: string }).id)).toEqual(['a', 'x6', 'x7']);
+  });
+
+  it('an ignored reminder never comes back', async () => {
+    const h = await run([C(), D()]);
+    await nextDay(h);
+    await nextDay(h);
+    await nextDay(h); // Nov 5, the day itself.
+    expect(overlapCards(h.db).map((c) => c.status)).toEqual(['expired', 'expired']);
+  });
+
+  it('a conflict found on its eve or on its day has one card only', async () => {
+    const eve = await run([A(), B()]); // Nov 3, found on Nov 2.
+    await nextDay(eve);
+    expect(overlapCards(eve.db)).toHaveLength(1);
+    const today = await run([
+      soloEvent('a', paris(2, 15), paris(2, 16)),
+      guestEvent('b', paris(2, 15, 30), paris(2, 16, 30)),
+    ]);
+    expect(overlapCards(today.db)).toHaveLength(1);
+  });
+
+  it.each(['done', 'refused', 'failed'] as const)('a %s pair has no reminder', async (status) => {
+    const h = await run([C(), D()]);
+    setCardStatus(h.db, overlapCards(h.db)[0]!.id, 'pending', status, { at: h.clock() });
+    await nextDay(h);
+    await nextDay(h);
+    expect(overlapCards(h.db)).toHaveLength(1);
+  });
+
+  it('no reminder when the conflict is gone', async () => {
+    const h = await run([C(), D()]);
+    await nextDay(h);
+    h.agenda.cancelEvent('primary', 'b');
+    await nextDay(h);
+    expect(overlapCards(h.db)).toHaveLength(1);
+  });
+
+  it('the reminder of two series is for their next occurrence', async () => {
+    const pair = (d: number) => [
+      soloEvent(`s_${d}`, paris(d, 10), paris(d, 11), { recurringEventId: 's' }),
+      soloEvent(`t_${d}`, paris(d, 10, 30), paris(d, 11, 30), { recurringEventId: 't' }),
+    ];
+    // Found on Nov 2, the eve of Nov 3: no reminder for that one.
+    const h = await run([...pair(3), ...pair(10)]);
+    for (let day = 3; day <= 8; day++) await nextDay(h);
+    expect(overlapCards(h.db)).toHaveLength(1);
+    await nextDay(h); // Nov 9, the eve of Nov 10.
+    expect(overlapCards(h.db).map((c) => c.day)).toEqual(['2026-11-02', '2026-11-09']);
+  });
+});
+
+describe('what the next pass finds', () => {
+  it('a pending card whose slot got busy goes, and a new one offers the next free slot', async () => {
+    const h = await run([A(), B()]);
+    const [card] = overlapCards(h.db);
+    h.agenda.putEvent('primary', guestEvent('c', paris(3, 11, 30), paris(3, 12)));
+    await h.syncAgenda();
+    expect(getCard(h.db, card!.id)).toBeUndefined();
+    expect(overlapCards(h.db)).toMatchObject([
+      { status: 'pending', action: 'event.update', input: { id: 'a', start: paris(3, 12) } },
+    ]);
+  });
+
+  it('an event already offered to move by a pending card is not offered a second time', async () => {
+    const h = await run([
+      A(),
+      B(),
+      guestEvent('c', paris(3, 10, 45), paris(3, 11, 15), { summary: 'Appel' }),
+    ]);
+    const cards = overlapCards(h.db);
+    expect(cards).toHaveLength(3);
+    expect(
+      cards.filter((c) => c.action === 'event.update' && (c.input as { id: string }).id === 'a'),
+    ).toHaveLength(1);
+  });
+
+  it('an event of no duration makes no pair', async () => {
+    const h = await run([A(), soloEvent('b', paris(3, 10, 30), paris(3, 10, 30))]);
+    expect(overlapCards(h.db)).toEqual([]);
+  });
+
+  it('a calendar whose sync fails takes no card away', async () => {
+    const h = await run([A(), B()]);
+    const [card] = overlapCards(h.db);
+    breakPrimary(h);
+    await expect(h.syncAgenda()).rejects.toThrow(/Personnel.*403/);
+    expect(getCard(h.db, card!.id)).toMatchObject({ status: 'pending' });
+  });
+
+  it('a failing detection is said, and does not hide the error of a calendar', async () => {
+    const h = await makeAgendaHarness();
+    breakPrimary(h);
+    h.db.exec('DROP TABLE pina_cards');
+    const err = await h.syncAgenda().then(
+      () => undefined,
+      (e: unknown) => e as AggregateError,
+    );
+    expect(err).toBeInstanceOf(AggregateError);
+    expect(err!.message).toMatch(/Personnel.*403/);
+    expect(err!.message).toMatch(/Conflits de l’agenda/);
+  });
+});
+
+describe('the day the clocks change', () => {
+  // Sunday 2027-03-28: Paris goes from UTC+1 to UTC+2 at 2:00, so 8:00 is 06:00 UTC and 22:00 is 20:00 UTC.
+  async function on28(events: FakeEvent[]) {
+    const h = await makeAgendaHarness();
+    h.advance(Date.parse('2027-03-27T08:00:00Z') - h.clock().getTime());
+    for (const e of events) h.agenda.putEvent('primary', e);
+    await h.syncAgenda();
+    return overlapCards(h.db);
+  }
+
+  it('the slot starts at 8:00 summer time', async () => {
+    const cards = await on28([
+      soloEvent('a', '2027-03-28T04:00:00.000Z', '2027-03-28T05:00:00.000Z'),
+      guestEvent('b', '2027-03-28T04:30:00.000Z', '2027-03-28T05:30:00.000Z'),
+    ]);
+    expect(cards).toMatchObject([
+      { input: { start: '2027-03-28T06:00:00.000Z', end: '2027-03-28T07:00:00.000Z' } },
+    ]);
+  });
+
+  it('the slot ends by 22:00 summer time', async () => {
+    const fits = await on28([
+      soloEvent('a', '2027-03-28T18:00:00.000Z', '2027-03-28T19:00:00.000Z'),
+      guestEvent('b', '2027-03-28T18:30:00.000Z', '2027-03-28T19:00:00.000Z'),
+    ]);
+    expect(fits).toMatchObject([
+      { input: { start: '2027-03-28T19:00:00.000Z', end: '2027-03-28T20:00:00.000Z' } },
+    ]);
+    const late = await on28([
+      soloEvent('a', '2027-03-28T18:30:00.000Z', '2027-03-28T19:30:00.000Z'),
+      guestEvent('b', '2027-03-28T19:00:00.000Z', '2027-03-28T19:30:00.000Z'),
+    ]);
+    expect(late).toMatchObject([{ action: 'agenda.list', input: { conflit: { reason: 'no-slot' } } }]);
+  });
+});
