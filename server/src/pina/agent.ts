@@ -20,6 +20,7 @@ import {
   appendMessage,
   cardsOf,
   dayOf,
+  deletePendingCard,
   expireOld,
   getCard,
   messagesOf,
@@ -200,6 +201,11 @@ export function expireCards(db: DatabaseSync, today: string): void {
   expireOld(db, today, [...running]);
 }
 
+/** Takes back a pending card (a conflict settled by hand): `false` when decided or being run. */
+export function withdrawCard(db: DatabaseSync, cardId: number): boolean {
+  return !running.has(cardId) && deletePendingCard(db, cardId);
+}
+
 /** A stored message knows its turn (a request is its own turn); the providers never see it. */
 type Stored = ChatMessage & { turn?: number };
 
@@ -308,7 +314,8 @@ export async function ask(
 /** After a decision: once no card of the turn is pending, their outcomes go to the model and it goes on. */
 export async function resume(deps: PinaDeps, cardId: number): Promise<void> {
   const card = getCard(deps.db, cardId);
-  if (!card) return;
+  // Turn 0 is the overlap detection's: no model asked for the card, so its decision wakes none.
+  if (!card || card.turn === 0) return;
   await serial(card.day, async () => {
     if (pendingInTurn(deps.db, card.turn) > 0) return;
     const thread = messagesOf(deps.db, card.day);

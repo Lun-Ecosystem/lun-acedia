@@ -178,6 +178,28 @@ describe('which event the card offers to move', () => {
     expect(['a', 'b']).toContain((card!.input as { id: string }).id);
   });
 
+  it('with two events of their own, the later one moves; the earlier one when the later has no slot', async () => {
+    const later = await run([A(), soloEvent('b', paris(3, 10, 30), paris(3, 11, 30))]);
+    expect(overlapCards(later.db)[0]).toMatchObject({ input: { id: 'b', start: paris(3, 11, 30) } });
+    // Busy until 21:00: `b` (1 h 30) would end after 22:00, `a` (1 h) fits from 21:00.
+    const h = await run([
+      soloEvent('a', paris(3, 10), paris(3, 11)),
+      soloEvent('b', paris(3, 10, 30), paris(3, 12)),
+      soloEvent('c', paris(3, 12), paris(3, 21)),
+    ]);
+    expect(overlapCards(h.db)[0]).toMatchObject({ input: { id: 'a', start: paris(3, 21) } });
+  });
+
+  it('the key of a pair is sorted: the same whichever event starts first', async () => {
+    const first = await run([A(), B()]);
+    const swapped = await run([
+      soloEvent('a', paris(3, 10, 30), paris(3, 11, 30)),
+      guestEvent('b', paris(3, 10), paris(3, 11)),
+    ]);
+    expect(overlapCards(first.db)[0]!.callId).toBe('chevauchement:primary/a|primary/b');
+    expect(overlapCards(swapped.db)[0]!.callId).toBe('chevauchement:primary/a|primary/b');
+  });
+
   const signals: [string, () => FakeEvent[]][] = [
     [
       'a guest more on one, the other not theirs either',

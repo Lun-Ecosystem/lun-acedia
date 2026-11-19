@@ -25,8 +25,9 @@ jamais le vrai compte).
 
 - Google est la source de vérité : la base SQLite n'est qu'un cache plus les données propres
   d'Acedia. Jamais de suppression définitive (corbeille seulement).
-- En pause, le tri s'arrête : rien n'est rangé seul. Ce qui est demandé à la main passe, et ce qui n'agit sur rien
-  continue (synchro, rappels, copie de la base). Tout ce que fait l'agente se fait aussi à la main.
+- En pause, le tri s'arrête : rien n'est rangé seul, et la détection des conflits de l'agenda ne crée aucune carte.
+  Ce qui est demandé à la main passe, et ce qui n'agit sur rien continue (synchro, rappels, copie de la base). Tout
+  ce que fait l'agente se fait aussi à la main.
 - Une vue, un exemplaire : `app/` n'a aucun composant métier, tout vient de `views/`.
 - Dépôt public : aucun secret, aucune adresse mail réelle, aucune adresse interne, aucun son, aucun modèle non tracé.
   Le contrôle, lun-docs cloné à côté : `node ../lun-docs/tools/check-repo.mjs --public .`.

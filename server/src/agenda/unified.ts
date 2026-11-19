@@ -3,6 +3,7 @@ import { emitEvent } from '../contract/events.ts';
 import type { SyncDeps } from '../gmail/sync.ts';
 import type { AgendaItem } from '../types.ts';
 import { eventsBetween, syncCalendars } from './calendar.ts';
+import { proposeOverlaps } from './overlaps.ts';
 import { syncTasks, tasksDueBetween } from './tasks.ts';
 import { dayOf, toMs } from './time.ts';
 
@@ -44,6 +45,8 @@ export async function syncAgenda(deps: SyncDeps): Promise<number> {
       deps.now(),
     );
   }
+  // Even when a calendar failed: the others' conflicts still count.
+  proposeOverlaps(deps.db, deps.now());
   const failed = [...calendars.failed, ...tasks.failed];
   if (failed.length) throw new AggregateError(failed, failed.map((e) => e.message).join(' ; '));
   return changes;
