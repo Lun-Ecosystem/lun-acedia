@@ -80,6 +80,26 @@ describe('a reload that ends after an action', () => {
   });
 });
 
+describe('a reload dropped for a decision that then fails', () => {
+  it('reads the thread again in silence: the withdrawn card is gone, one message', async () => {
+    render(Toaster);
+    const { client } = fakeClient();
+    const withdrawn = { day: '2026-11-02', messages: [], cards: [], pending: 0 };
+    const pina = new PinaState(client);
+    pina.thread = { ...withdrawn, pending: 1 };
+    let late!: (t: typeof withdrawn) => void;
+    client.pinaToday.mockReturnValueOnce(new Promise((r) => (late = r)));
+    client.pinaToday.mockResolvedValue(withdrawn);
+    client.pinaDecide.mockRejectedValueOnce(new ApiError(500, 'Erreur du serveur'));
+    const reading = pina.load(true);
+    const deciding = pina.decide(11, 'accept');
+    late(withdrawn);
+    await Promise.all([reading, deciding]);
+    expect(pina.thread?.pending).toBe(0);
+    expect(await screen.findAllByText('Erreur du serveur')).toHaveLength(1);
+  });
+});
+
 describe('the fake client', () => {
   it('carries a name of settings that is not « Pina »', async () => {
     const { client } = fakeClient();
