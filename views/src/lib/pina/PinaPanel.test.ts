@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { fakeClient } from '../../testing/fake-client.ts';
 import { ApiError } from '../client.ts';
-import type { PinaCard, PinaThread } from '../types.ts';
+import type { LunEvent, PinaCard, PinaThread } from '../types.ts';
 import Toaster from '../ui/Toaster.svelte';
 import { dismissAll } from '../ui/toasts.svelte.ts';
 import PinaPanel from './PinaPanel.svelte';
@@ -56,7 +56,7 @@ async function setup(t: PinaThread = thread([card(10)]), props: Record<string, u
   return { ...fake, user, view };
 }
 
-const panel = () => screen.queryByRole('dialog', { name: 'Pina' });
+const panel = () => screen.queryByRole('dialog', { name: 'Iris' });
 
 afterEach(() => {
   dismissAll();
@@ -67,7 +67,7 @@ afterEach(() => {
 describe('Pina', () => {
   it('dates each request and reply, and offers no past day', async () => {
     const { view, user } = await setup(thread([]));
-    await user.click(await screen.findByRole('button', { name: /^Pina/ }));
+    await user.click(await screen.findByRole('button', { name: /^Iris/ }));
     await screen.findByText('Mets-moi une tâche.');
     const times = [...view.container.querySelectorAll('time')].map((t) => t.getAttribute('datetime'));
     expect(times).toEqual(['2026-11-02T09:00:00.000Z', '2026-11-02T09:00:02.000Z']);
@@ -89,7 +89,7 @@ describe('Pina', () => {
 
   it('the launcher badge shows pending', async () => {
     await setup(thread([card(10), card(11)]));
-    const launcher = await screen.findByRole('button', { name: /Pina/ });
+    const launcher = await screen.findByRole('button', { name: /Iris/ });
     expect(await within(launcher).findByText('2')).toBeInTheDocument();
   });
 
@@ -98,20 +98,20 @@ describe('Pina', () => {
     const field = document.createElement('input');
     document.body.append(field);
     await user.keyboard('{Control>}j{/Control}');
-    expect(await screen.findByRole('dialog', { name: 'Pina' })).toBeInTheDocument();
+    expect(await screen.findByRole('dialog', { name: 'Iris' })).toBeInTheDocument();
     field.focus();
     await user.keyboard('{Control>}j{/Control}');
     await waitFor(() => expect(panel()).toBeNull());
     field.focus();
     await user.keyboard('{Control>}j{/Control}');
-    expect(await screen.findByRole('dialog', { name: 'Pina' })).toBeInTheDocument();
+    expect(await screen.findByRole('dialog', { name: 'Iris' })).toBeInTheDocument();
   });
 
   it('Ctrl Enter accepts the focused pending card, never in another field', async () => {
     const { client, user } = await setup(thread([card(10)]), { open: true });
     client.pinaDecide.mockResolvedValue({ ...thread([card(10, { status: 'done' })]), card: card(10) });
     const pending = await screen.findByRole('group', { name: /Créer une tâche/ });
-    await user.click(screen.getByRole('textbox', { name: 'Demande à Pina' }));
+    await user.click(screen.getByRole('textbox', { name: 'Demande à Iris' }));
     await user.keyboard('{Control>}{Enter}{/Control}');
     expect(client.pinaDecide).not.toHaveBeenCalled();
     pending.focus();
@@ -137,7 +137,7 @@ describe('Pina', () => {
   it('keeps a size read back from the storage within the bounds', async () => {
     localStorage.setItem(SIZE_KEY, JSON.stringify({ width: 10, height: 99999 }));
     await setup(thread([]), { open: true });
-    const dialog = await screen.findByRole('dialog', { name: 'Pina' });
+    const dialog = await screen.findByRole('dialog', { name: 'Iris' });
     expect(dialog.style.getPropertyValue('--largeur')).toBe('340px');
     expect(dialog.style.getPropertyValue('--hauteur')).toBe(`${window.innerHeight - 24}px`);
   });
@@ -302,7 +302,7 @@ describe('Pina', () => {
       context: { screen: 'mail', mailId: 'm1', label: 'Sujet 1' },
     });
     client.pinaAsk.mockResolvedValue(thread([]));
-    const field = await screen.findByRole('textbox', { name: 'Demande à Pina' });
+    const field = await screen.findByRole('textbox', { name: 'Demande à Iris' });
     await user.type(field, 'Résume ce mail{Enter}');
     expect(client.pinaAsk).toHaveBeenCalledWith('Résume ce mail', { screen: 'mail', mailId: 'm1' });
     await user.click(field);
@@ -334,7 +334,7 @@ describe('Pina', () => {
     await user.click(await screen.findByRole('button', { name: 'Ouvrir les Réglages' }));
     expect(settings).toBe(1);
     await user.click(screen.getByRole('button', { name: /Réduire/ }));
-    expect(await screen.findByRole('button', { name: /Pina/ })).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: /Iris/ })).toBeInTheDocument();
   });
 
   it('no "Anima" anywhere in the panel texts', async () => {
@@ -353,7 +353,7 @@ describe('Pina', () => {
       ]),
       { open: true },
     );
-    await screen.findByRole('dialog', { name: 'Pina' });
+    await screen.findByRole('dialog', { name: 'Iris' });
     const texts = [
       document.body.textContent ?? '',
       ...[...document.querySelectorAll('[aria-label],[title],[placeholder]')].flatMap((e) => [
@@ -378,7 +378,7 @@ describe('Pina', () => {
     };
     const { user } = await setup();
     await user.keyboard('{Control>}j{/Control}');
-    const dialog = await screen.findByRole('dialog', { name: 'Pina' });
+    const dialog = await screen.findByRole('dialog', { name: 'Iris' });
     expect(getComputedStyle(dialog).position).toBe('fixed');
     expect({
       style: app.getAttribute('style'),
@@ -386,5 +386,67 @@ describe('Pina', () => {
       body: document.body.getAttribute('style'),
     }).toEqual(before);
     expect(document.documentElement.getAttribute('style')).toBeNull();
+  });
+});
+
+describe('the agenda conflicts reach the launcher', () => {
+  const detected = (id: number) =>
+    card(id, { turn: 0, callId: `chevauchement:serie-${id}|serie-0`, input: { title: `Conflit ${id}` } });
+
+  async function withEvents(first: PinaThread, props: Record<string, unknown> = {}) {
+    const fake = fakeClient();
+    let emit: (e: LunEvent) => void = () => {};
+    fake.client.subscribe.mockImplementation((fn) => ((emit = fn), () => {}));
+    fake.client.pinaToday.mockResolvedValue(structuredClone(first));
+    const user = userEvent.setup();
+    render(PinaPanel, { props: { client: fake.client, ...props } });
+    await waitFor(() => expect(fake.client.pinaToday).toHaveBeenCalledTimes(1));
+    const event = (type: string): LunEvent => ({ id: '1', type, importance: 'info', at: '', title: '' });
+    return { ...fake, user, emit: (type: string) => emit(event(type)) };
+  }
+
+  it('an agenda.overlap event reads the thread again: the badge follows, the panel closed', async () => {
+    const { client, emit } = await withEvents(thread([]));
+    expect(within(await screen.findByRole('button', { name: /Iris/ })).queryByText('1')).toBeNull();
+    client.pinaToday.mockResolvedValue(thread([detected(20)]));
+    emit('agenda.overlap');
+    const launcher = await screen.findByRole('button', { name: /Iris/ });
+    expect(await within(launcher).findByText('1')).toBeInTheDocument();
+    expect(client.pinaToday).toHaveBeenCalledTimes(2);
+  });
+
+  it('any other event type reads nothing', async () => {
+    const { client, emit } = await withEvents(thread([]));
+    emit('mail.filed');
+    emit('agenda.changed');
+    await new Promise((r) => setTimeout(r, 30));
+    expect(client.pinaToday).toHaveBeenCalledTimes(1);
+  });
+
+  it('without a subscription left after the unmount, nothing is read again', async () => {
+    const fake = fakeClient();
+    const off = vi.fn();
+    fake.client.subscribe.mockReturnValue(off);
+    const { unmount } = render(PinaPanel, { props: { client: fake.client } });
+    await waitFor(() => expect(fake.client.subscribe).toHaveBeenCalled());
+    unmount();
+    expect(off).toHaveBeenCalled();
+  });
+
+  it('two detected cards alone get no « Tout valider »', async () => {
+    await setup(thread([detected(20), detected(21)]), { open: true });
+    await screen.findAllByRole('group');
+    expect(screen.queryByRole('button', { name: 'Tout valider' })).toBeNull();
+  });
+
+  it('« Tout valider » counts and validates the cards of the turn, not the detected ones', async () => {
+    const { client, user } = await setup(thread([card(10), card(11), detected(20), detected(21)]), {
+      open: true,
+    });
+    client.pinaDecide.mockResolvedValue({ ...thread([]), card: card(10) });
+    expect(await screen.findByText('2 actions proposées ensemble')).toBeInTheDocument();
+    await user.click(await screen.findByRole('button', { name: 'Tout valider' }));
+    await waitFor(() => expect(client.pinaDecide).toHaveBeenCalledTimes(2));
+    expect(client.pinaDecide.mock.calls.map(([id]) => id).sort()).toEqual([10, 11]);
   });
 });

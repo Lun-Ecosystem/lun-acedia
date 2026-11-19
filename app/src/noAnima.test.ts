@@ -13,6 +13,13 @@ function sources(dir: string): string[] {
   });
 }
 
+/** What is displayed or run: the comments out. */
+const strip = (t: string) =>
+  t
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/<!--[\s\S]*?-->/g, '')
+    .replace(/(^|[^:'"`\w])\/\/[^\n]*/g, '$1');
+
 describe('standalone front', () => {
   it('no "Anima" in the standalone front', () => {
     const files = roots.flatMap(sources);
@@ -23,12 +30,16 @@ describe('standalone front', () => {
   });
 
   it('no em dash in what is displayed', () => {
-    const strip = (t: string) =>
-      t
-        .replace(/\/\*[\s\S]*?\*\//g, '')
-        .replace(/<!--[\s\S]*?-->/g, '')
-        .replace(/(^|[^:'"`\w])\/\/[^\n]*/g, '$1');
     const offenders = roots.flatMap(sources).filter((f) => strip(readFileSync(f, 'utf8')).includes('—'));
+    expect(offenders).toEqual([]);
+  });
+
+  it('no "Pina" outside comments: the agent is named by its settings', () => {
+    // Case-sensitive: `pina.load()`, `/api/pina/…` and `./pina.svelte.ts` stay.
+    const offenders = roots
+      .flatMap(sources)
+      .filter((f) => /\bPina\b/.test(strip(readFileSync(f, 'utf8'))))
+      .map((f) => f.replace(/^.*[\\/]/, ''));
     expect(offenders).toEqual([]);
   });
 });
