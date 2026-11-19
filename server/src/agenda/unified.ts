@@ -45,9 +45,15 @@ export async function syncAgenda(deps: SyncDeps): Promise<number> {
       deps.now(),
     );
   }
-  // Even when a calendar failed: the others' conflicts still count.
-  proposeOverlaps(deps.db, deps.now());
   const failed = [...calendars.failed, ...tasks.failed];
+  // Even when a calendar failed: the others' conflicts still count. Its own failure goes up with theirs.
+  try {
+    proposeOverlaps(deps.db, deps.now());
+  } catch (err) {
+    failed.push(
+      new Error(`Conflits de l’agenda : ${err instanceof Error ? err.message : String(err)}`, { cause: err }),
+    );
+  }
   if (failed.length) throw new AggregateError(failed, failed.map((e) => e.message).join(' ; '));
   return changes;
 }
