@@ -41,8 +41,14 @@ function loadSize(): Size {
   return clampSize(DEFAULT_SIZE, viewport());
 }
 
+/** The card is gone (withdrawn by the server) or decided elsewhere: the thread says what became of it. */
+const stale = (err: unknown) => err instanceof ApiError && (err.status === 404 || err.status === 409);
+
 const message = (err: unknown) =>
   err instanceof Error ? err.message : `${agentIdentity.name} ne répond pas`;
+/** On a card: the server's 404 (« Carte inconnue ») is a card that no longer exists. */
+const cardMessage = (err: unknown) =>
+  err instanceof ApiError && err.status === 404 ? 'Cette carte n’existe plus' : message(err);
 
 export class PinaState {
   /** Today's thread; `null` until read. */
@@ -128,9 +134,8 @@ export class PinaState {
       const { day, messages, cards, pending } = await this.#client.pinaDecide(id, decision, input);
       this.thread = { day, messages, cards, pending };
     } catch (err) {
-      toast(message(err), { tone: 'danger' });
-      // Decided elsewhere, or expired: the thread says what became of the card.
-      if (err instanceof ApiError && err.status === 409) await this.load();
+      toast(cardMessage(err), { tone: 'danger' });
+      if (stale(err)) await this.load();
     } finally {
       this.#mark(id, false);
     }
@@ -162,8 +167,8 @@ export class PinaState {
         this.thread = { ...this.thread, cards: this.thread.cards.map((c) => (c.id === id ? card : c)) };
       toast('Action annulée');
     } catch (err) {
-      toast(message(err), { tone: 'danger' });
-      if (err instanceof ApiError && err.status === 409) await this.load();
+      toast(cardMessage(err), { tone: 'danger' });
+      if (stale(err)) await this.load();
     } finally {
       this.#mark(id, false);
     }
