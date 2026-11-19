@@ -87,6 +87,8 @@ const journalKey = (id: unknown) => `journal:${str(id)}`;
 
 export function describe(card: { action: string; input: unknown }, names: Names): CardText {
   const input = (card.input ?? {}) as Input;
+  const conflict =
+    typeof input.conflit === 'object' && input.conflit !== null ? (input.conflit as Input) : undefined;
   const label = (id: unknown) => names.labels.get(str(id)) ?? str(id);
   /** What a write acts on: its name when today's thread knows it, else its id, so no card is blind. */
   const named = (what: string, key = str(input.id)): CardField[] => {
@@ -181,6 +183,20 @@ export function describe(card: { action: string; input: unknown }, names: Names)
         done: `Événement${quoted(input.title)} créé`,
       };
     case 'event.update':
+      // A card of the overlap detection: `conflit` names both events (« Modifier » drops it with the schema).
+      if (conflict)
+        return {
+          title: 'Déplacer un événement qui en chevauche un autre',
+          fields: [
+            { label: 'Événement', value: str(conflict.title) },
+            { label: 'Chevauche', value: str(conflict.other) },
+            ...fields(input, [
+              ['Début', 'start', 'when'],
+              ['Fin', 'end', 'when'],
+            ]),
+          ],
+          done: 'Événement déplacé',
+        };
       return {
         title: 'Modifier un événement',
         fields: [...named('Événement'), ...fields(input, event)],
@@ -278,11 +294,33 @@ export function describe(card: { action: string; input: unknown }, names: Names)
         fields: doomed('Règle'),
         done: 'Règle supprimée',
       };
-    default:
-      // shortcut: an action without its own wording shows its name; add a case when the catalogue grows.
-      return { title: card.action, fields: [], done: 'Fait' };
+    case 'agenda.list': {
+      // The overlap detection's card that only signals: a read, no field to edit.
+      if (!conflict) break;
+      const [first, second] = Array.isArray(conflict.titles) ? conflict.titles : [];
+      return {
+        title: 'Deux événements se chevauchent',
+        fields: [
+          { label: 'Événement', value: str(first) },
+          { label: 'Chevauche', value: str(second) },
+          { label: 'De', value: whenLabel(str(input.from)) },
+          { label: 'À', value: whenLabel(str(input.to)) },
+          { label: 'Pourquoi', value: OVERLAP_REASONS[str(conflict.reason)] ?? str(conflict.reason) },
+        ],
+        done: 'Conflit vu',
+      };
+    }
   }
+  // shortcut: an action without its own wording shows its name; add a case when the catalogue grows.
+  return { title: card.action, fields: [], done: 'Fait' };
 }
+
+/** Why the detection's card signals without proposing a move. */
+const OVERLAP_REASONS: Record<string, string> = {
+  'not-mine': 'aucun des deux n’est à toi seul',
+  'no-slot': 'aucun créneau libre ce jour-là, de 8 h à 22 h',
+  series: 'deux séries : en déplacer une seule date laisserait les suivantes',
+};
 
 /** Instant of a Google event's start (`{ dateTime }` or `{ date }`), or the plain value. */
 const instant = (v: unknown): string | undefined => {

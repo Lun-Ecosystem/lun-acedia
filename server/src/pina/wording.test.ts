@@ -201,6 +201,10 @@ group('describe: the two cards of conflict', () => {
       .fields.map((f) => f.value)
       .join(' | ');
     expect(noSlot).toContain('aucun créneau libre ce jour-là, de 8 h à 22 h');
+    const series = text('agenda.list', signal('series'))
+      .fields.map((f) => f.value)
+      .join(' | ');
+    expect(series).toContain('deux séries');
   });
 
   it('an agenda.list without `conflit` shows its name, as before', () => {
