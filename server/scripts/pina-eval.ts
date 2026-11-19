@@ -166,7 +166,7 @@ for (const s of SCENARIOS) {
 const total = rows.reduce((n, r) => n + r.cost, 0);
 const cell = (t: string) => t.replaceAll('|', '/');
 const md = [
-  `# Évaluation de Pina${dry ? ' (essai à blanc, modèle factice)' : ` : ${base.id} / ${base.model}`}`,
+  `# Évaluation de l’agent${dry ? ' (essai à blanc, modèle factice)' : ` : ${base.id} / ${base.model}`}`,
   '',
   '| Scénario | Résultat | Actions | Coût (USD) | Note |',
   '|---|---|---|---|---|',

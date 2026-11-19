@@ -118,7 +118,7 @@ startLoop(
     expireCards(db, today);
     purge(db, today);
   },
-  { intervalMs: 3600_000, onError: logError('Fil de Pina') },
+  { intervalMs: 3600_000, onError: logError('Fil de l’agent') },
 );
 
 // The base is copied next to itself, in backups/: once listening, then every hour if the day's copy is missing.

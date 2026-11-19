@@ -122,7 +122,7 @@ export async function runCard(deps: Pick<PinaDeps, 'db' | 'actions' | 'clock'>, 
         })
       : setCardStatus(deps.db, cardId, 'pending', 'failed', { error: out.error, at });
     // Impossible while every decision goes through this file: said loudly if it ever happens.
-    if (!settled) console.error(`Pina : carte ${cardId} décidée pendant son exécution`, JSON.stringify(out));
+    if (!settled) console.error(`Agent : carte ${cardId} décidée pendant son exécution`, JSON.stringify(out));
   } finally {
     running.delete(cardId);
   }

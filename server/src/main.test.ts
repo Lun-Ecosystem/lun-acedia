@@ -46,12 +46,12 @@ describe('the server', () => {
     for (const [what, message] of [
       ['Échéance des clés', 'échéance'],
       ['Purge des événements', 'purge'],
-      ['Fil de Pina', 'fil'],
+      ['Fil de l’agent', 'fil'],
     ] as const)
       expect(seen(what)).toEqual([expect.objectContaining({ message })]);
 
     await vi.advanceTimersByTimeAsync(3_600_000);
-    for (const what of ['Échéance des clés', 'Purge des événements', 'Fil de Pina'])
+    for (const what of ['Échéance des clés', 'Purge des événements', 'Fil de l’agent'])
       expect(seen(what)).toHaveLength(2);
     // Importing the whole server takes seconds, more on a small CI machine.
   }, 30_000);
