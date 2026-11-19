@@ -71,6 +71,8 @@ export class PinaState {
   });
 
   #client: AcediaClient;
+  /** Bumped by each read and each action: a read answers only if nothing started after it. */
+  #seq = 0;
 
   constructor(client: AcediaClient) {
     this.#client = client;
@@ -78,8 +80,10 @@ export class PinaState {
 
   /** `quiet`: read on a server event, with no gesture to answer, a failure says nothing. */
   async load(quiet = false) {
+    const seq = ++this.#seq;
     try {
-      this.thread = await this.#client.pinaToday();
+      const thread = await this.#client.pinaToday();
+      if (seq === this.#seq) this.thread = thread;
     } catch (err) {
       if (!quiet) toast(message(err), { tone: 'danger' });
     }
@@ -111,6 +115,7 @@ export class PinaState {
   async ask(text: string, context: ScreenContext) {
     if (this.asking) return;
     this.asking = text;
+    this.#seq++;
     try {
       this.thread = await this.#client.pinaAsk(text, context);
     } catch (err) {
@@ -130,6 +135,7 @@ export class PinaState {
   async decide(id: number, decision: 'accept' | 'refuse', input?: unknown) {
     if (this.busy.has(id)) return;
     this.#mark(id, true);
+    this.#seq++;
     try {
       const { day, messages, cards, pending } = await this.#client.pinaDecide(id, decision, input);
       this.thread = { day, messages, cards, pending };
@@ -161,6 +167,7 @@ export class PinaState {
   async undo(id: number) {
     if (this.busy.has(id)) return;
     this.#mark(id, true);
+    this.#seq++;
     try {
       const { card } = await this.#client.pinaUndo(id);
       if (this.thread)
