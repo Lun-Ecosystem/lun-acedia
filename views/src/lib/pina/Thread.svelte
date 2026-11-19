@@ -69,7 +69,10 @@
     </div>
     <time class="quand ia-a" datetime={item.at}>{timeLabel(item.at)}</time>
   {:else}
-    {@const waiting = item.cards.filter((c) => c.status === 'pending' && c.effect !== 'delete')}
+    {@const waiting = item.cards.filter(
+      // The agenda's detected conflicts are not a turn of the agent: each one is decided on its own.
+      (c) => c.status === 'pending' && c.effect !== 'delete' && !c.callId.startsWith('chevauchement:'),
+    )}
     {#each item.cards as card (card.id)}
       {@const common = {
         card,
