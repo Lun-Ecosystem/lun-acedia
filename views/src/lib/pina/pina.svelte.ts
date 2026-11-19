@@ -70,11 +70,12 @@ export class PinaState {
     this.#client = client;
   }
 
-  async load() {
+  /** `quiet`: read on a server event, with no gesture to answer, a failure says nothing. */
+  async load(quiet = false) {
     try {
       this.thread = await this.#client.pinaToday();
     } catch (err) {
-      toast(message(err), { tone: 'danger' });
+      if (!quiet) toast(message(err), { tone: 'danger' });
     }
   }
 

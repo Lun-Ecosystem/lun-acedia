@@ -102,7 +102,7 @@
   // ---- Pina: what the screen shows rides with each request.
   let pinaOpen = $state(false);
   /** Opening and closing go through the window itself (focus back, history left). */
-  let pinaPanel = $state<{ toggle: () => Promise<void> } | undefined>();
+  let pinaPanel = $state<{ toggle: () => Promise<void>; reload: () => Promise<void> } | undefined>();
   let pinaPending = $state(0);
   let shown = $state.raw<ShownContext | null>(null);
   provideScreenContext((ctx, leaving) => {
@@ -153,6 +153,8 @@
       .catch(() => {});
     // The counters follow what happens on the server: sorting, agenda sync, key and account state.
     const stop = c.subscribe((e) => {
+      // A conflict card: the agent's thread too, on this one stream (the tab keeps its connections).
+      if (e.type === 'agenda.overlap') void pinaPanel?.reload();
       if (e.type.startsWith('agenda.')) refresh(c, true);
       else if (/^(mail|key|credit|google)\./.test(e.type)) refresh(c);
     });
