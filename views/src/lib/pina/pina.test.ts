@@ -60,6 +60,26 @@ describe('a card the server withdrew', () => {
   });
 });
 
+describe('a reload that ends after an action', () => {
+  const day = (pending: number) => ({ day: '2026-11-02', messages: [], cards: [], pending });
+
+  it('never shows a thread older than the answer of a decision or a request', async () => {
+    const { client } = fakeClient();
+    const pina = new PinaState(client);
+    for (const act of [() => pina.decide(10, 'accept'), () => pina.ask('Salut', { screen: 'mail' })]) {
+      let late!: (t: ReturnType<typeof day>) => void;
+      client.pinaToday.mockReturnValueOnce(new Promise((r) => (late = r)));
+      client.pinaDecide.mockResolvedValueOnce({ ...day(2), card: {} as never });
+      client.pinaAsk.mockResolvedValueOnce(day(2));
+      const reading = pina.load(true);
+      await act();
+      late(day(9));
+      await reading;
+      expect(pina.thread?.pending).toBe(2);
+    }
+  });
+});
+
 describe('the fake client', () => {
   it('carries a name of settings that is not « Pina »', async () => {
     const { client } = fakeClient();
