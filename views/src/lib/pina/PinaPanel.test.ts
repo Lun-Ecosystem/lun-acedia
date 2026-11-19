@@ -445,6 +445,39 @@ describe('the agenda conflicts reach the launcher', () => {
     expect(client.pinaDecide.mock.calls.map(([id]) => id).sort()).toEqual([10, 11]);
   });
 
+  it('the card that signals says « Vu », the one that proposes keeps « Valider »', async () => {
+    const signals = card(20, {
+      turn: 0,
+      callId: 'chevauchement:a|b',
+      action: 'agenda.list',
+      effect: 'read',
+      input: {
+        from: '2026-11-03T18:00:00.000Z',
+        to: '2026-11-03T19:00:00.000Z',
+        conflit: { titles: ['Dîner', 'Cinéma'], reason: 'not-solo' },
+      },
+    });
+    const proposes = card(21, {
+      turn: 0,
+      callId: 'chevauchement:c|d',
+      action: 'event.update',
+      input: {
+        calendarId: 'primary',
+        id: 'e1',
+        start: '2026-11-03T20:00:00.000Z',
+        end: '2026-11-03T21:00:00.000Z',
+        conflit: { title: 'Sport', other: 'Réunion' },
+      },
+    });
+    const { client, user } = await setup(thread([signals, proposes]), { open: true });
+    client.pinaDecide.mockResolvedValue({ ...thread([]), card: signals });
+    const [first, second] = await screen.findAllByRole('group');
+    expect(within(first!).queryByRole('button', { name: 'Valider' })).toBeNull();
+    expect(within(second!).getByRole('button', { name: 'Valider' })).toBeInTheDocument();
+    await user.click(within(first!).getByRole('button', { name: 'Vu' }));
+    expect(client.pinaDecide).toHaveBeenCalledWith(20, 'accept', undefined);
+  });
+
   it('a detected card and a model card without its turn, in one group: only the model one counts', async () => {
     await setup(thread([card(30, { turn: 7 }), detected(20)]), { open: true });
     expect(await screen.findAllByRole('group')).toHaveLength(2);
