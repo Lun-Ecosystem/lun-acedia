@@ -1,4 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite';
+import { emitEvent } from '../contract/events.ts';
 import { NotFoundError } from '../gmail/actions.ts';
 import { getSyncState, setSyncState } from '../gmail/store.ts';
 import type { SyncDeps } from '../gmail/sync.ts';
@@ -301,6 +302,14 @@ function toGoogle(input: Partial<EventInput>, allDay: boolean): Record<string, u
   return out;
 }
 
+/** A write from Acedia changed the cache: said like a sync, as the tasks do, so the agenda screen reads again. */
+const changed = (deps: SyncDeps) =>
+  emitEvent(
+    deps.db,
+    { type: 'agenda.changed', importance: 'log', title: 'Agenda mis à jour', data: { changes: 1 } },
+    deps.now(),
+  );
+
 async function write(
   deps: SyncDeps,
   method: string,
@@ -322,6 +331,7 @@ export async function createEvent(
 ): Promise<AgendaEvent> {
   const e = (await write(deps, 'POST', eventsUrl(calendarId), toGoogle(input, input.allDay)))!;
   upsertEvent(deps.db, calendarId, e);
+  changed(deps);
   return getEvent(deps.db, calendarId, e.id)!;
 }
 
@@ -335,10 +345,12 @@ export async function updateEvent(
   const url = `${eventsUrl(calendarId)}/${encodeURIComponent(id)}`;
   const e = (await write(deps, 'PATCH', url, toGoogle(patch, allDay)))!;
   upsertEvent(deps.db, calendarId, e);
+  changed(deps);
   return getEvent(deps.db, calendarId, e.id)!;
 }
 
 export async function deleteEvent(deps: SyncDeps, calendarId: string, id: string): Promise<void> {
   await write(deps, 'DELETE', `${eventsUrl(calendarId)}/${encodeURIComponent(id)}`);
   removeEvent(deps.db, calendarId, id);
+  changed(deps);
 }
