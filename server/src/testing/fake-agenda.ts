@@ -11,6 +11,44 @@ export interface FakeEvent {
   start: { dateTime?: string; date?: string };
   end: { dateTime?: string; date?: string };
   reminders?: { useDefault: boolean; overrides?: { method: string; minutes: number }[] };
+  /** `transparent` is « disponible » on Google Agenda; `opaque` (the default) is « occupé ». */
+  transparency?: 'opaque' | 'transparent';
+  organizer?: { email?: string; self?: boolean };
+  /** `self` marks the owner of the calendar; `responseStatus` is `accepted`, `declined`, `tentative`, `needsAction`. */
+  attendees?: { email?: string; self?: boolean; responseStatus?: string }[];
+  /** On an occurrence of a recurring event: the id of the series. */
+  recurringEventId?: string;
+}
+
+/** The owner of the fake calendars, as Google marks them (`self`). */
+export const SELF = { email: 'moi@example.org', self: true };
+
+/** An event organized by the owner, with no other guest: the one an agent may move. */
+export function soloEvent(id: string, start: string, end: string, extra: Partial<FakeEvent> = {}): FakeEvent {
+  return {
+    id,
+    summary: `Événement ${id}`,
+    start: { dateTime: start },
+    end: { dateTime: end },
+    organizer: SELF,
+    ...extra,
+  };
+}
+
+/** An event the owner organizes with a guest: not theirs alone. */
+export function guestEvent(
+  id: string,
+  start: string,
+  end: string,
+  extra: Partial<FakeEvent> = {},
+): FakeEvent {
+  return soloEvent(id, start, end, {
+    attendees: [
+      { ...SELF, responseStatus: 'accepted' },
+      { email: 'invite@example.org', responseStatus: 'accepted' },
+    ],
+    ...extra,
+  });
 }
 
 export interface FakeTask {

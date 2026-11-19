@@ -157,3 +157,53 @@ group('cardLines', () => {
     expect([lines[0], lines[2]]).toEqual(['Événement : Réunion', 'Identifiant : e1']);
   });
 });
+
+group('describe: the two cards of conflict', () => {
+  const proposal = {
+    calendarId: 'primary',
+    id: 'a',
+    start: '2026-11-04T10:30:00.000Z',
+    end: '2026-11-04T11:30:00.000Z',
+    conflit: { title: 'Dentiste', other: 'Réunion client' },
+  };
+  const signal = (reason: string) => ({
+    from: '2026-11-04T09:30:00.000Z',
+    to: '2026-11-04T10:00:00.000Z',
+    conflit: { titles: ['Dentiste', 'Réunion client'], reason },
+  });
+
+  it('the card that proposes names both events, then Début and Fin, which « Modifier » opens', () => {
+    const card = text('event.update', proposal);
+    expect(card.title).toBe('Déplacer un événement qui en chevauche un autre');
+    expect(card.done).toBe('Événement déplacé');
+    expect(card.fields.map((f) => f.label)).toEqual(['Événement', 'Chevauche', 'Début', 'Fin']);
+    expect(card.fields[0]!.value).toBe('Dentiste');
+    expect(card.fields[1]!.value).toBe('Réunion client');
+    expect(card.fields.filter((f) => f.key).map((f) => f.key)).toEqual(['start', 'end']);
+  });
+
+  it('an event.update without `conflit` keeps its usual wording', () => {
+    expect(text('event.update', { calendarId: 'p', id: 'e1', location: 'Salle B' }).title).toBe(
+      'Modifier un événement',
+    );
+  });
+
+  it('the card that signals names both events and the reason, and has no field to edit', () => {
+    const notMine = text('agenda.list', signal('not-mine'));
+    expect(notMine.title).toBe('Deux événements se chevauchent');
+    expect(notMine.done).toBe('Conflit vu');
+    expect(notMine.fields.some((f) => f.key)).toBe(false);
+    const said = notMine.fields.map((f) => f.value).join(' | ');
+    expect(said).toContain('Dentiste');
+    expect(said).toContain('Réunion client');
+    expect(said).toContain('aucun des deux n’est à toi seul');
+    const noSlot = text('agenda.list', signal('no-slot'))
+      .fields.map((f) => f.value)
+      .join(' | ');
+    expect(noSlot).toContain('aucun créneau libre ce jour-là, de 8 h à 22 h');
+  });
+
+  it('an agenda.list without `conflit` shows its name, as before', () => {
+    expect(text('agenda.list', { from: '2026-11-04', to: '2026-11-05' }).title).toBe('agenda.list');
+  });
+});
