@@ -1,5 +1,6 @@
 import { render, screen } from '@testing-library/svelte';
 import { afterEach, describe, expect, it } from 'vitest';
+import { ApiError } from '../client.ts';
 import { fakeClient } from '../../testing/fake-client.ts';
 import Toaster from '../ui/Toaster.svelte';
 import { dismissAll } from '../ui/toasts.svelte.ts';
@@ -45,6 +46,37 @@ describe('reading the thread', () => {
     expect(screen.queryByText('Hors ligne')).toBeNull();
     await new PinaState(client).load();
     expect(await screen.findByText('Hors ligne')).toBeInTheDocument();
+  });
+});
+
+describe('a card the server withdrew', () => {
+  it('Annuler on it reads the thread again and says the card is gone', async () => {
+    render(Toaster);
+    const { client } = fakeClient();
+    client.pinaUndo.mockRejectedValue(new ApiError(404, 'Carte inconnue'));
+    await new PinaState(client).undo(10);
+    expect(await screen.findByText('Cette carte n’existe plus')).toBeInTheDocument();
+    expect(client.pinaToday).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('a reload that ends after an action', () => {
+  const day = (pending: number) => ({ day: '2026-11-02', messages: [], cards: [], pending });
+
+  it('never shows a thread older than the answer of a decision or a request', async () => {
+    const { client } = fakeClient();
+    const pina = new PinaState(client);
+    for (const act of [() => pina.decide(10, 'accept'), () => pina.ask('Salut', { screen: 'mail' })]) {
+      let late!: (t: ReturnType<typeof day>) => void;
+      client.pinaToday.mockReturnValueOnce(new Promise((r) => (late = r)));
+      client.pinaDecide.mockResolvedValueOnce({ ...day(2), card: {} as never });
+      client.pinaAsk.mockResolvedValueOnce(day(2));
+      const reading = pina.load(true);
+      await act();
+      late(day(9));
+      await reading;
+      expect(pina.thread?.pending).toBe(2);
+    }
   });
 });
 

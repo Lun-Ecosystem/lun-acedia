@@ -336,6 +336,9 @@ describe('the agenda conflicts reach the agent', () => {
     // The stream keeps its order: once the overlap is read, the two before it read nothing.
     await waitFor(() => expect(count(calls, 'GET /api/pina/today')).toBe(2));
     expect(count(calls, 'GET /lun/v1/events')).toBe(2);
+    // A card withdrawn by the server comes as a second overlap: the thread is read once more.
+    emit('agenda.overlap');
+    await waitFor(() => expect(count(calls, 'GET /api/pina/today')).toBe(3));
   });
 });
 
