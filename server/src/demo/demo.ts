@@ -20,7 +20,7 @@ import type { ChatMessage } from '../llm/types.ts';
 import { addCard, appendMessage, dayOf, setCardStatus } from '../pina/store.ts';
 import { markPina } from '../triage/journal.ts';
 import { createRule } from '../triage/rules.ts';
-import { FakeAgenda } from '../testing/fake-agenda.ts';
+import { FakeAgenda, SELF } from '../testing/fake-agenda.ts';
 import { fakeFetch } from '../testing/fake-fetch.ts';
 import { FakeGmail, message, multipart, textPart } from '../testing/fake-gmail.ts';
 
@@ -250,6 +250,16 @@ function seedAgenda(agenda: FakeAgenda, now: Date) {
   ev('primary', 'e7', 'Sport', 3, [18, 0, 19, 0]);
   ev('famille', 'e8', 'Cinéma', 4, [18, 0, 19, 30]);
   ev('famille', 'e9', 'Dîner chez Léa', 5, [19, 0, 22, 0]);
+  // Two conflicts, from tomorrow, at an hour no event above takes whatever the weekday: the first offers to move
+  // the event that is theirs alone, the second only signals (a guest on one, no known organizer on the other).
+  const tomorrow = ((now.getDay() + 6) % 7) + 1;
+  ev('primary', 'c1', 'Séance de kiné', tomorrow, [16, 0, 17, 0], { organizer: SELF });
+  ev('travail', 'c2', 'Point fournisseur', tomorrow, [16, 30, 17, 30]);
+  ev('travail', 'c3', 'Revue de sprint', tomorrow + 1, [16, 0, 17, 0], {
+    organizer: SELF,
+    attendees: [{ ...SELF, responseStatus: 'accepted' }, { email: 'equipe@example.org' }],
+  });
+  ev('famille', 'c4', 'Visio avec Léa', tomorrow + 1, [16, 30, 17, 15]);
   agenda.putEvent('famille', {
     id: 'e10',
     summary: 'Anniversaire Léa',
