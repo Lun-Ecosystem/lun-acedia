@@ -120,6 +120,7 @@ export class PinaState {
       this.thread = await this.#client.pinaAsk(text, context);
     } catch (err) {
       toast(message(err), { tone: 'danger' });
+      await this.load(true);
     } finally {
       this.asking = null;
     }
@@ -141,7 +142,8 @@ export class PinaState {
       this.thread = { day, messages, cards, pending };
     } catch (err) {
       toast(cardMessage(err), { tone: 'danger' });
-      if (stale(err)) await this.load();
+      // Stale: the thread says why, aloud. Otherwise in silence: a reload dropped for this action is made up.
+      await this.load(!stale(err));
     } finally {
       this.#mark(id, false);
     }
@@ -175,7 +177,7 @@ export class PinaState {
       toast('Action annulée');
     } catch (err) {
       toast(cardMessage(err), { tone: 'danger' });
-      if (stale(err)) await this.load();
+      await this.load(!stale(err));
     } finally {
       this.#mark(id, false);
     }
