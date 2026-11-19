@@ -1,6 +1,6 @@
 import { ApiError, type AcediaClient } from '../client.ts';
 import type { PinaCard, PinaSettings, PinaThread, ScreenContext } from '../types.ts';
-import { takeIdentity } from './identity.svelte.ts';
+import { agentIdentity, takeIdentity } from './identity.svelte.ts';
 import { toast } from '../ui/toasts.svelte.ts';
 
 /*
@@ -41,7 +41,8 @@ function loadSize(): Size {
   return clampSize(DEFAULT_SIZE, viewport());
 }
 
-const message = (err: unknown) => (err instanceof Error ? err.message : 'Pina ne répond pas');
+const message = (err: unknown) =>
+  err instanceof Error ? err.message : `${agentIdentity.name} ne répond pas`;
 
 export class PinaState {
   /** Today's thread; `null` until read. */

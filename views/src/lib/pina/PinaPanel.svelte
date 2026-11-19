@@ -110,6 +110,13 @@
     );
 
   // Ctrl J from anywhere, a field included.
+  // A conflict card born from the agenda sync: the badge follows, the panel open or closed.
+  $effect(() =>
+    client.subscribe((e) => {
+      if (e.type === 'agenda.overlap') void pina.load();
+    }),
+  );
+
   $effect(() =>
     bindShortcuts({ 'Ctrl+j': () => !otherDialog() && void toggle() }, window, { fromFields: ['Ctrl+j'] }),
   );
