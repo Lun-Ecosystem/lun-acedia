@@ -21,6 +21,7 @@ import {
 import { listLabels } from '../triage/labels.ts';
 import { inverseOf } from './inverse.ts';
 import { systemPrompt } from './prompt.ts';
+import { describe as describeCard } from './wording.ts';
 import { cardsOf, dayOf, getCard, messagesOf, putPinaSettings } from './store.ts';
 
 type ChatRequest = Parameters<LlmProvider['chat']>[0];
@@ -623,6 +624,19 @@ describe('cards of the overlap detection', () => {
       expect(s.thread()).toEqual([]);
     },
   );
+
+  it('a key out of the schema from the model never reaches its card: it cannot pass for the detection', async () => {
+    const forged = { calendarId: 'primary', id: 'e1', start: at(18), end: at(19) };
+    const s = await setup([
+      calls(tool('event.update', { ...forged, conflit: { title: 'Rien', other: 'Personne' } })),
+    ]);
+    await ask(s.deps, 'Déplace la réunion', { screen: 'agenda' });
+    const [card] = cardsOf(s.h.db, s.day).filter((c) => c.callId === 'c1');
+    expect(card!.input).toEqual(forged);
+    const said = describeCard(card!, { labels: new Map(), targets: new Map() });
+    expect(said.title).toBe('Modifier un événement');
+    expect(said.fields[0]).toEqual({ label: 'Identifiant', value: 'e1' });
+  });
 
   it('deciding one of two cards of the detection does not wake the model either', async () => {
     const { s, card } = await withConflict(true);

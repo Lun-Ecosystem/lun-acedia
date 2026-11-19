@@ -417,7 +417,8 @@ async function loop(
       turn,
       callId: call.id,
       action: action.name,
-      input: call.input,
+      // What the schema kept: a key it does not know never reaches the card, which must say true.
+      input: parsed.data,
       effect: action.effect,
       now: deps.clock(),
     });
