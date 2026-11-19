@@ -158,6 +158,18 @@ describe('Pina', () => {
     expect(client.pinaToday).toHaveBeenCalledTimes(2);
   });
 
+  it('a 404 on a decision: the card is gone, the thread is read again and says so', async () => {
+    const { client, user } = await setup(thread([card(10)]), { open: true });
+    render(Toaster);
+    client.pinaDecide.mockRejectedValueOnce(new ApiError(404, 'Carte inconnue'));
+    client.pinaToday.mockResolvedValue(thread([]));
+    await user.click(await screen.findByRole('button', { name: 'Valider' }));
+    expect(await screen.findByText('Cette carte n’existe plus')).toBeInTheDocument();
+    expect(screen.queryByText('Carte inconnue')).toBeNull();
+    expect(client.pinaToday).toHaveBeenCalledTimes(2);
+    await waitFor(() => expect(screen.queryByRole('group', { name: /Créer une tâche/ })).toBeNull());
+  });
+
   it('cards of one turn get « Tout valider »', async () => {
     const { client, user } = await setup(thread([card(10), card(11)]), { open: true });
     client.pinaDecide.mockResolvedValue({ ...thread([]), card: card(10) });

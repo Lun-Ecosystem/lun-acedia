@@ -1,5 +1,6 @@
 import { render, screen } from '@testing-library/svelte';
 import { afterEach, describe, expect, it } from 'vitest';
+import { ApiError } from '../client.ts';
 import { fakeClient } from '../../testing/fake-client.ts';
 import Toaster from '../ui/Toaster.svelte';
 import { dismissAll } from '../ui/toasts.svelte.ts';
@@ -45,6 +46,17 @@ describe('reading the thread', () => {
     expect(screen.queryByText('Hors ligne')).toBeNull();
     await new PinaState(client).load();
     expect(await screen.findByText('Hors ligne')).toBeInTheDocument();
+  });
+});
+
+describe('a card the server withdrew', () => {
+  it('Annuler on it reads the thread again and says the card is gone', async () => {
+    render(Toaster);
+    const { client } = fakeClient();
+    client.pinaUndo.mockRejectedValue(new ApiError(404, 'Carte inconnue'));
+    await new PinaState(client).undo(10);
+    expect(await screen.findByText('Cette carte n’existe plus')).toBeInTheDocument();
+    expect(client.pinaToday).toHaveBeenCalledTimes(1);
   });
 });
 
