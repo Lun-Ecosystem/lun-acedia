@@ -205,6 +205,11 @@ group('describe: the two cards of conflict', () => {
       .fields.map((f) => f.value)
       .join(' | ');
     expect(series).toContain('deux séries');
+    expect(said).toContain('aucun des deux n’est à toi seul dans ton agenda principal');
+    const moving = text('agenda.list', signal('moving'))
+      .fields.map((f) => f.value)
+      .join(' | ');
+    expect(moving).toContain('l’un des deux a déjà une carte qui propose de le déplacer');
   });
 
   it('an agenda.list without `conflit` shows its name, as before', () => {

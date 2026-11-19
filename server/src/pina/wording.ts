@@ -316,9 +316,10 @@ export function describe(card: { action: string; input: unknown }, names: Names)
 
 /** Why the detection's card signals without proposing a move. */
 const OVERLAP_REASONS: Record<string, string> = {
-  'not-mine': 'aucun des deux n’est à toi seul',
+  'not-mine': 'aucun des deux n’est à toi seul dans ton agenda principal',
   'no-slot': 'aucun créneau libre ce jour-là, de 8 h à 22 h',
   series: 'deux séries : en déplacer une seule date laisserait les suivantes',
+  moving: 'l’un des deux a déjà une carte qui propose de le déplacer',
 };
 
 /** Instant of a Google event's start (`{ dateTime }` or `{ date }`), or the plain value. */
