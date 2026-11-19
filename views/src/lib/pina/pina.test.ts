@@ -36,6 +36,18 @@ describe('the message of a request that fails without a reason', () => {
   });
 });
 
+describe('reading the thread', () => {
+  it('says why it failed when asked, and nothing when quiet', async () => {
+    render(Toaster);
+    const { client } = fakeClient();
+    client.pinaToday.mockRejectedValue(new Error('Hors ligne'));
+    await new PinaState(client).load(true);
+    expect(screen.queryByText('Hors ligne')).toBeNull();
+    await new PinaState(client).load();
+    expect(await screen.findByText('Hors ligne')).toBeInTheDocument();
+  });
+});
+
 describe('the fake client', () => {
   it('carries a name of settings that is not « Pina »', async () => {
     const { client } = fakeClient();

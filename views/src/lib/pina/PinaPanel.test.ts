@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { fakeClient } from '../../testing/fake-client.ts';
 import { ApiError } from '../client.ts';
-import type { LunEvent, PinaCard, PinaThread } from '../types.ts';
+import type { PinaCard, PinaThread } from '../types.ts';
 import Toaster from '../ui/Toaster.svelte';
 import { dismissAll } from '../ui/toasts.svelte.ts';
 import PinaPanel from './PinaPanel.svelte';
@@ -393,44 +393,27 @@ describe('the agenda conflicts reach the launcher', () => {
   const detected = (id: number) =>
     card(id, { turn: 0, callId: `chevauchement:serie-${id}|serie-0`, input: { title: `Conflit ${id}` } });
 
-  async function withEvents(first: PinaThread, props: Record<string, unknown> = {}) {
-    const fake = fakeClient();
-    let emit: (e: LunEvent) => void = () => {};
-    fake.client.subscribe.mockImplementation((fn) => ((emit = fn), () => {}));
-    fake.client.pinaToday.mockResolvedValue(structuredClone(first));
-    const user = userEvent.setup();
-    render(PinaPanel, { props: { client: fake.client, ...props } });
-    await waitFor(() => expect(fake.client.pinaToday).toHaveBeenCalledTimes(1));
-    const event = (type: string): LunEvent => ({ id: '1', type, importance: 'info', at: '', title: '' });
-    return { ...fake, user, emit: (type: string) => emit(event(type)) };
-  }
-
-  it('an agenda.overlap event reads the thread again: the badge follows, the panel closed', async () => {
-    const { client, emit } = await withEvents(thread([]));
+  it('reload() reads the thread again: the badge follows, the panel closed', async () => {
+    const { client, view } = await setup(thread([]));
     expect(within(await screen.findByRole('button', { name: /Iris/ })).queryByText('1')).toBeNull();
     client.pinaToday.mockResolvedValue(thread([detected(20)]));
-    emit('agenda.overlap');
+    await view.component.reload();
     const launcher = await screen.findByRole('button', { name: /Iris/ });
     expect(await within(launcher).findByText('1')).toBeInTheDocument();
     expect(client.pinaToday).toHaveBeenCalledTimes(2);
   });
 
-  it('any other event type reads nothing', async () => {
-    const { client, emit } = await withEvents(thread([]));
-    emit('mail.filed');
-    emit('agenda.changed');
-    await new Promise((r) => setTimeout(r, 30));
-    expect(client.pinaToday).toHaveBeenCalledTimes(1);
+  it('reload() fails in silence: no gesture, no red message', async () => {
+    const { client, view } = await setup(thread([]));
+    render(Toaster);
+    client.pinaToday.mockRejectedValue(new Error('Hors ligne'));
+    await view.component.reload();
+    expect(screen.queryByText('Hors ligne')).toBeNull();
   });
 
-  it('without a subscription left after the unmount, nothing is read again', async () => {
-    const fake = fakeClient();
-    const off = vi.fn();
-    fake.client.subscribe.mockReturnValue(off);
-    const { unmount } = render(PinaPanel, { props: { client: fake.client } });
-    await waitFor(() => expect(fake.client.subscribe).toHaveBeenCalled());
-    unmount();
-    expect(off).toHaveBeenCalled();
+  it('the panel opens no stream of its own', async () => {
+    const { client } = await setup(thread([]));
+    expect(client.subscribe).not.toHaveBeenCalled();
   });
 
   it('two detected cards alone get no « Tout valider »', async () => {
@@ -448,5 +431,11 @@ describe('the agenda conflicts reach the launcher', () => {
     await user.click(await screen.findByRole('button', { name: 'Tout valider' }));
     await waitFor(() => expect(client.pinaDecide).toHaveBeenCalledTimes(2));
     expect(client.pinaDecide.mock.calls.map(([id]) => id).sort()).toEqual([10, 11]);
+  });
+
+  it('a detected card and a model card without its turn, in one group: only the model one counts', async () => {
+    await setup(thread([card(30, { turn: 7 }), detected(20)]), { open: true });
+    expect(await screen.findAllByRole('group')).toHaveLength(2);
+    expect(screen.queryByRole('button', { name: 'Tout valider' })).toBeNull();
   });
 });
