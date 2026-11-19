@@ -197,7 +197,8 @@ export class FakeAgenda {
       };
     }
     if (call.method === 'POST' && list) {
-      const event = { ...body, id: `ev${++this.seq}` } as FakeEvent;
+      // As Google does for an event created in a calendar of the account: organized by self, no guest.
+      const event = { organizer: SELF, ...body, id: `ev${++this.seq}` } as FakeEvent;
       this.putEvent(cal!.id, event);
       return { json: this.event(cal!.id, event.id) };
     }
