@@ -745,6 +745,119 @@ describe('what the next pass finds', () => {
   });
 });
 
+describe('a card taken back is said to the screens', () => {
+  const last = (db: DatabaseSync) => overlapEvents(db).at(-1)!;
+
+  it('a withdrawal sends one `agenda.overlap`, `log`, that says the card is taken back', async () => {
+    const h = await run([A(), B()]);
+    h.agenda.cancelEvent('primary', 'b');
+    await h.syncAgenda();
+    expect(overlapEvents(h.db)).toHaveLength(2);
+    expect(last(h.db)).toMatchObject({ type: 'agenda.overlap', importance: 'log', link: '#/agenda' });
+    expect(last(h.db).title).toContain('retirée');
+  });
+
+  it('several withdrawals in one pass send one event', async () => {
+    const h = await run([
+      A(),
+      B(),
+      soloEvent('c', paris(4, 10), paris(4, 11)),
+      guestEvent('d', paris(4, 10, 30), paris(4, 11, 30)),
+    ]);
+    expect(overlapCards(h.db)).toHaveLength(2);
+    h.agenda.cancelEvent('primary', 'b');
+    h.agenda.cancelEvent('primary', 'd');
+    await h.syncAgenda();
+    expect(overlapEvents(h.db)).toHaveLength(3);
+    expect(last(h.db).title).toContain('2 cartes');
+  });
+
+  it('in pause too, a withdrawal is said', async () => {
+    const h = await run([A(), B()]);
+    setPaused(h.db, true);
+    h.agenda.cancelEvent('primary', 'b');
+    await h.syncAgenda();
+    expect(overlapEvents(h.db)).toHaveLength(2);
+  });
+
+  it('a card taken back and made again in the same pass sends one event', async () => {
+    const h = await run([A(), B()]);
+    h.agenda.putEvent('primary', guestEvent('c', paris(3, 11, 30), paris(3, 12)));
+    await h.syncAgenda();
+    expect(overlapEvents(h.db)).toHaveLength(2);
+  });
+
+  it('a pass that takes nothing back and makes nothing sends nothing', async () => {
+    const h = await run([A(), B()]);
+    await h.syncAgenda();
+    h.advance(HOUR / 2);
+    await h.syncAgenda();
+    expect(overlapEvents(h.db)).toHaveLength(1);
+  });
+});
+
+describe('a conflict that begins', () => {
+  // Monday Nov 2, 09:00 in Paris: `a` 10:00-11:00 is theirs alone, `b` 10:30-11:30 has a guest.
+  const today = () => [
+    soloEvent('a', paris(2, 10), paris(2, 11)),
+    guestEvent('b', paris(2, 10, 30), paris(2, 11, 30)),
+  ];
+
+  it('expires its pending card instead of deleting it, and says so', async () => {
+    const h = await run(today());
+    const [card] = overlapCards(h.db);
+    h.advance(1.25 * HOUR); // 10:15: `a` has begun.
+    await h.syncAgenda();
+    expect(getCard(h.db, card!.id)).toMatchObject({ status: 'expired' });
+    expect(overlapEvents(h.db)).toHaveLength(2);
+  });
+
+  it('keeps the key of two series more than seven days apart: no new card, one reminder on the next eve', async () => {
+    const pair = (d: number) => [
+      soloEvent(`s_${d}`, paris(d, 10), paris(d, 11), { recurringEventId: 's' }),
+      soloEvent(`t_${d}`, paris(d, 10, 30), paris(d, 11, 30), { recurringEventId: 't' }),
+    ];
+    const h = await run([...pair(2), ...pair(16)]);
+    h.advance(1.25 * HOUR);
+    await h.syncAgenda();
+    h.advance(8 * 24 * HOUR); // Nov 10: Nov 16 is inside the horizon.
+    await h.syncAgenda();
+    expect(overlapCards(h.db).map((c) => c.status)).toEqual(['expired']);
+    // The card ignored until its conflict began counts as ignored: its reminder is for the next occurrence.
+    h.advance(5 * 24 * HOUR - 1.25 * HOUR); // Nov 15, 09:00, the eve of Nov 16.
+    await h.syncAgenda();
+    expect(overlapCards(h.db).map((c) => [c.status, c.day])).toEqual([
+      ['expired', '2026-11-02'],
+      ['pending', '2026-11-15'],
+    ]);
+  });
+
+  it('a conflict begun has no reminder for itself', async () => {
+    const h = await run(today());
+    h.advance(1.25 * HOUR);
+    await h.syncAgenda();
+    h.advance(HOUR);
+    await h.syncAgenda();
+    expect(overlapCards(h.db)).toHaveLength(1);
+  });
+});
+
+describe('the fake Google of the tests and the demo', () => {
+  it('an event created by self is organized by self, with no guest: theirs alone', async () => {
+    const h = await makeAgendaHarness();
+    const made = await h.call('POST', '/api/events/primary', {
+      title: 'Café',
+      start: paris(3, 10),
+      end: paris(3, 11),
+      allDay: false,
+    });
+    expect(made.status).toBe(200);
+    expect(h.db.prepare('SELECT solo FROM calendar_events WHERE id = ?').get(made.body.id)).toEqual({
+      solo: 1,
+    });
+  });
+});
+
 describe('the day the clocks change', () => {
   // Sunday 2027-03-28: Paris goes from UTC+1 to UTC+2 at 2:00, so 8:00 is 06:00 UTC and 22:00 is 20:00 UTC.
   async function on28(events: FakeEvent[]) {

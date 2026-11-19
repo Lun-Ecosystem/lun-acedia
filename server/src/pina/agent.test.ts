@@ -638,6 +638,16 @@ describe('cards of the overlap detection', () => {
     expect(said.fields[0]).toEqual({ label: 'Identifiant', value: 'e1' });
   });
 
+  it('a card that moves an event says `agenda.changed`, and so does « Annuler »', async () => {
+    const { s, card } = await withConflict(true);
+    const changed = () => eventsSince(s.h.db).filter((e) => e.type === 'agenda.changed').length;
+    const before = changed();
+    await decideCard(s.deps, card.id, 'accept');
+    expect(changed()).toBe(before + 1);
+    expect(await undoCard(s.deps, card.id)).toMatchObject({ ok: true });
+    expect(changed()).toBe(before + 2);
+  });
+
   it('deciding one of two cards of the detection does not wake the model either', async () => {
     const { s, card } = await withConflict(true);
     s.h.agenda.putEvent('primary', soloEvent('c', at(15), at(16)));
