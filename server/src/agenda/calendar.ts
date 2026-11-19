@@ -23,6 +23,12 @@ interface GoogleEvent {
   start?: { dateTime?: string; date?: string };
   end?: { dateTime?: string; date?: string };
   reminders?: { useDefault?: boolean; overrides?: GoogleReminder[] };
+  /** `transparent` is « disponible ». */
+  transparency?: string;
+  organizer?: { self?: boolean };
+  /** `self` marks the owner of the calendar. */
+  attendees?: { self?: boolean; responseStatus?: string }[];
+  recurringEventId?: string;
 }
 
 interface CalendarListEntry {
@@ -118,18 +124,26 @@ function upsertEvent(db: DatabaseSync, calendarId: string, e: GoogleEvent): bool
     allDay ? 1 : 0,
     e.location ?? null,
     own,
+    e.transparency === 'transparent' ? 1 : 0,
+    e.attendees?.find((a) => a.self)?.responseStatus === 'declined' ? 1 : 0,
+    // Theirs alone: organized by the owner, with no guest but the owner.
+    e.organizer?.self === true && (e.attendees ?? []).every((a) => a.self) ? 1 : 0,
+    e.recurringEventId ?? null,
   ] as const;
   const before = db
     .prepare(
-      'SELECT title, start, end, start_ms, end_ms, all_day, location, reminders FROM calendar_events WHERE calendar_id = ? AND id = ?',
+      `SELECT title, start, end, start_ms, end_ms, all_day, location, reminders, free, declined, solo, series_id
+       FROM calendar_events WHERE calendar_id = ? AND id = ?`,
     )
     .get(calendarId, e.id);
   db.prepare(
-    `INSERT INTO calendar_events (calendar_id, id, title, start, end, start_ms, end_ms, all_day, location, reminders)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `INSERT INTO calendar_events (calendar_id, id, title, start, end, start_ms, end_ms, all_day, location, reminders,
+       free, declined, solo, series_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(calendar_id, id) DO UPDATE SET title = excluded.title, start = excluded.start, end = excluded.end,
        start_ms = excluded.start_ms, end_ms = excluded.end_ms, all_day = excluded.all_day,
-       location = excluded.location, reminders = excluded.reminders`,
+       location = excluded.location, reminders = excluded.reminders, free = excluded.free,
+       declined = excluded.declined, solo = excluded.solo, series_id = excluded.series_id`,
   ).run(calendarId, e.id, ...values);
   return JSON.stringify(before ? Object.values(before) : null) !== JSON.stringify(values);
 }
