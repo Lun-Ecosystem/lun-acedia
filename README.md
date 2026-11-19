@@ -26,7 +26,7 @@ et rien ne quitte la boîte sans ton accord.
   ton seuil, il propose ; au-dessus, il range.
 - **L'agenda et les tâches** : Google Agenda (jour, semaine, mois, planning) et Google Tasks, dans la même app.
 - **Les conflits de l'agenda** : deux événements qui se chevauchent vraiment font une carte, trois par jour au plus,
-  rien en pause. Elle propose de déplacer un événement de ton agenda principal, dont tu es seul, au premier créneau libre
+  rien en pause. Elle propose de déplacer un événement de ton agenda principal, dont tu es l'organisateur et le seul invité, au premier créneau libre
   du même jour (8 h à 22 h), ou signale le conflit sans rien changer ([détail](docs/pina.md)).
 - **Un agent borné** : ses écritures deviennent des cartes à valider, ses suppressions le restent toujours, et il
   n'envoie jamais de mail (brouillon seulement). Neutre par défaut, son nom, son icône et son ton se règlent.

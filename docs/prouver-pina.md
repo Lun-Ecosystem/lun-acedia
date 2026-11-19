@@ -25,9 +25,9 @@ doit être choisi pour l’agent (Réglages › Fournisseurs d’IA, puis Régla
    - Le compteur du lanceur de l’agent compte les deux cartes de conflit ; le panneau les montre : « Déplacer un
      événement qui en chevauche un autre » (avec l’événement, celui qu’il chevauche, le début et la fin proposés)
      et « Deux événements se chevauchent » (avec sa raison, sans Modifier).
-   - Valider la première : l’événement est à son nouvel horaire dans l’agenda (l’écran de l’agenda ouvert se
-     rafraîchit en changeant d’écran) ; Annuler le remet à son heure, et la carte ne revient pas à la minute suivante.
-   - Valider la seconde : rien ne change dans l’agenda, la carte devient « Conflit vu », sans Annuler.
+   - Valider la première : l’événement est à son nouvel horaire dans l’agenda, et l’écran de l’agenda déjà ouvert
+     le montre sans recharger ; Annuler le remet à son heure, et la carte ne revient pas à la minute suivante.
+   - « Vu » sur la seconde : rien ne change dans l’agenda, la carte devient « Conflit vu », sans Annuler.
    - Refuser une carte : elle part du compteur et ne revient pas à la minute suivante. « Tout valider » ne
      s’affiche pas pour les cartes de conflit.
    - Mettre Acedia en pause, ajouter un conflit dans l’agenda de la démo : aucune carte à la minute suivante ;

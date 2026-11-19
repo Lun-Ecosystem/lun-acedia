@@ -30,10 +30,12 @@ chevauchent dans les sept jours qui viennent. Chaque conflit fait une carte, que
   de Paris. Valider le déplace, Annuler le remet à son heure.
 - **« Deux événements se chevauchent »** : quand aucun des deux ne peut être déplacé (invités, autre agenda, deux
   séries, pas de créneau libre ce jour-là), la carte signale le conflit et dit pourquoi, sans rien proposer.
-  Valider la marque « Conflit vu » et ne change rien à l’agenda ; elle n’a ni Modifier ni Annuler.
+  Son bouton dit « Vu » : il la marque « Conflit vu » et ne change rien à l’agenda ; elle n’a ni Modifier ni
+  Annuler.
 - **« Tout valider »** ne prend jamais les cartes de conflit.
 - **Ce qui les fait partir** : un conflit réglé à la main, ou un créneau proposé pris depuis, retire la carte à
-  la synchro suivante. Une carte refusée ou validée ne revient pas ; une carte ignorée jusqu’à son expiration
+  la synchro suivante, et elle part de l’écran sans recharger. Quand le conflit commence, la carte encore en attente
+  expire : elle reste dans le fil, marquée expirée. Une carte refusée ou validée ne revient pas ; une carte ignorée jusqu’à son expiration
   revient une fois, la veille du conflit, s’il existe toujours.
 - **Le plafond** : trois cartes de conflit au plus par jour, les plus proches d’abord.
 - **En pause**, aucune carte nouvelle ; une carte devenue sans objet est tout de même retirée.
