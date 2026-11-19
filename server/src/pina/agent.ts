@@ -201,6 +201,11 @@ export function expireCards(db: DatabaseSync, today: string): void {
   expireOld(db, today, [...running]);
 }
 
+/** A pending card whose moment has passed (a conflict begun): `false` when decided or being run. */
+export function expireCard(db: DatabaseSync, cardId: number, at: Date): boolean {
+  return !running.has(cardId) && setCardStatus(db, cardId, 'pending', 'expired', { at });
+}
+
 /** Takes back a pending card (a conflict settled by hand): `false` when decided or being run. */
 export function withdrawCard(db: DatabaseSync, cardId: number): boolean {
   return !running.has(cardId) && deletePendingCard(db, cardId);

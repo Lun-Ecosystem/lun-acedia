@@ -1,7 +1,7 @@
 import type { DatabaseSync } from 'node:sqlite';
 import { emitEvent } from '../contract/events.ts';
 import { getState } from '../contract/state.ts';
-import { withdrawCard } from '../pina/agent.ts';
+import { expireCard, withdrawCard } from '../pina/agent.ts';
 import { addCard, dayOf } from '../pina/store.ts';
 import { parisOffset } from '../triage/journal.ts';
 import { mainCalendar } from './calendar.ts';
@@ -125,11 +125,11 @@ const eveOf = (day: string) => new Date(Date.parse(`${day}T00:00:00Z`) - DAY_MS)
 export function proposeOverlaps(db: DatabaseSync, now: Date): void {
   const nowMs = now.getTime();
   const main = mainCalendar(db);
-  // Timed, busy, not declined, not begun, not empty: the events that can be in a real conflict.
+  // Timed, busy, not declined, not over, not empty: the events that can be in a conflict, begun or to come.
   const rows = db
     .prepare(
       `SELECT calendar_id, id, title, start_ms, end_ms, solo, series_id FROM calendar_events
-       WHERE all_day = 0 AND free = 0 AND declined = 0 AND end_ms > start_ms AND start_ms > ? AND start_ms < ?
+       WHERE all_day = 0 AND free = 0 AND declined = 0 AND end_ms > start_ms AND end_ms > ? AND start_ms < ?
        ORDER BY start_ms, calendar_id, id`,
     )
     .all(nowMs, nowMs + HORIZON_MS) as unknown as Row[];
@@ -138,14 +138,39 @@ export function proposeOverlaps(db: DatabaseSync, now: Date): void {
   for (const r of rows) if (!byId.has(r.id) || r.calendar_id === main) byId.set(r.id, r);
   const events = [...byId.values()];
 
-  const pairs: [Row, Row][] = [];
+  const all: [Row, Row][] = [];
   for (let i = 0; i < events.length; i++)
     for (let j = i + 1; j < events.length && events[j]!.start_ms < events[i]!.end_ms; j++)
-      pairs.push([events[i]!, events[j]!]);
+      all.push([events[i]!, events[j]!]);
+  // A conflict whose first event has begun is no longer one to settle (`a` starts first).
+  const pairs = all.filter(([a]) => a.start_ms > nowMs);
+  const begun = new Set(all.filter(([a]) => a.start_ms <= nowMs).map(([a, b]) => keyOf(a, b)));
 
+  // Settled or slot taken: the card goes. Begun: it expires, so that its key stays (a series counts once).
   const live = new Set(pairs.map(([a, b]) => keyOf(a, b)));
-  for (const c of pendingCards(db)) if (!live.has(c.call_id) || slotTaken(db, c)) withdrawCard(db, c.id);
-  if (getState(db).paused) return;
+  let taken = 0;
+  for (const c of pendingCards(db)) {
+    if (live.has(c.call_id) && !slotTaken(db, c)) continue;
+    const gone =
+      begun.has(c.call_id) && !live.has(c.call_id) ? expireCard(db, c.id, now) : withdrawCard(db, c.id);
+    if (gone) taken += 1;
+  }
+  let made = 0;
+  // One event a pass for the screens to read the thread again; a card made in the pass sends its own.
+  const said = () => {
+    if (!taken || made) return;
+    emitEvent(
+      db,
+      {
+        type: 'agenda.overlap',
+        importance: 'log',
+        title: `${taken === 1 ? 'Carte de conflit retirée' : `${taken} cartes de conflit retirées`} : conflit réglé, commencé, ou créneau pris`,
+        link: '#/agenda',
+      },
+      now,
+    );
+  };
+  if (getState(db).paused) return said();
 
   const today = dayOf(now);
   const count = db.prepare(
@@ -160,7 +185,7 @@ export function proposeOverlaps(db: DatabaseSync, now: Date): void {
   );
   const seen = new Set<string>();
   for (const [a, b] of pairs) {
-    if ((count.get(today) as { n: number }).n >= MAX_PER_DAY) return;
+    if ((count.get(today) as { n: number }).n >= MAX_PER_DAY) break;
     const key = keyOf(a, b);
     // A series' pair is judged on its next occurrence only.
     if (seen.has(key)) continue;
@@ -171,6 +196,7 @@ export function proposeOverlaps(db: DatabaseSync, now: Date): void {
     if (cards.length && !reminder) continue;
     const moved = make(db, now, key, a, b, main, moving);
     if (moved) moving.add(moved);
+    made += 1;
     emitEvent(
       db,
       {
@@ -182,6 +208,7 @@ export function proposeOverlaps(db: DatabaseSync, now: Date): void {
       now,
     );
   }
+  said();
 }
 
 /**
