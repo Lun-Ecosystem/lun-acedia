@@ -3,12 +3,12 @@ import type { Hono } from 'hono';
 /** A screen route is either served by a catalog action or left to the screen, with the reason. */
 export type Parity = { action: string } | { excluded: string };
 
-const SEND = 'Envoi : Pina n’envoie jamais, CrOliX relit et envoie lui-même';
+const SEND = 'Envoi : l’agent n’envoie jamais, CrOliX relit et envoie lui-même';
 const SETTINGS = 'Réglages et clés : à la main seulement';
 const DEVICES = 'Appareils et codes : à la main seulement';
-const FILE = 'Pièce jointe : binaire, sans usage pour Pina';
+const FILE = 'Pièce jointe : binaire, sans usage pour l’agent';
 
-const PINA = 'Pina elle-même';
+const PINA = 'L’agent lui-même';
 
 export const PARITY: Record<string, Parity> = {
   'POST /api/pairing-codes': { excluded: DEVICES },

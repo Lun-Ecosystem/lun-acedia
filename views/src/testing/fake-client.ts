@@ -224,7 +224,7 @@ export function fakeClient(opts: { mails?: MailSummary[]; journal?: JournalEntry
       instructions: '',
       dailyCapUsd: 1,
       // The identity a user gave the agent; a fresh install says « Agent ».
-      name: 'Pina',
+      name: 'Iris',
       icon: 'sparkles' as const,
       tone: 'chaleureux' as const,
       persona: '',
@@ -235,7 +235,7 @@ export function fakeClient(opts: { mails?: MailSummary[]; journal?: JournalEntry
       instructions: '',
       dailyCapUsd: 1,
       // The identity a user gave the agent; a fresh install says « Agent ».
-      name: 'Pina',
+      name: 'Iris',
       icon: 'sparkles' as const,
       tone: 'chaleureux' as const,
       persona: '',

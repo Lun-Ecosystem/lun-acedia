@@ -3,6 +3,8 @@ import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { serve } from '@hono/node-server';
+import { syncAgenda } from '../agenda/unified.ts';
+import { startLoop } from '../util.ts';
 import { createDemo } from './demo.ts';
 
 // No network at all: any fetch that is not the fake one (handed to the app) fails.
@@ -13,7 +15,15 @@ if (!existsSync(resolve(staticDir, 'index.html'))) {
   console.error('app/dist absent : lancer « npm run build » d’abord.');
   process.exit(1);
 }
-const { app, token } = await createDemo({ staticDir, keyRefused: process.env.DEMO_KEY === 'refused' });
+const { app, token, deps } = await createDemo({
+  staticDir,
+  keyRefused: process.env.DEMO_KEY === 'refused',
+});
+// The agenda passes every minute, as on the server: a conflict settled by hand takes its card away.
+startLoop(() => syncAgenda(deps), {
+  intervalMs: 60_000,
+  onError: (err) => console.error('Synchro Agenda', err),
+});
 const port = Number(process.env.DEMO_PORT ?? 8797);
 serve({ fetch: app.fetch, port, hostname: '127.0.0.1' }, () => {
   console.log(`Démo Lun'Acedia (données inventées) : http://localhost:${port}`);

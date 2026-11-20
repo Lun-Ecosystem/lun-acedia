@@ -1,4 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite';
+import { emitEvent } from '../contract/events.ts';
 import { NotFoundError } from '../gmail/actions.ts';
 import { getSyncState, setSyncState } from '../gmail/store.ts';
 import type { SyncDeps } from '../gmail/sync.ts';
@@ -23,6 +24,12 @@ interface GoogleEvent {
   start?: { dateTime?: string; date?: string };
   end?: { dateTime?: string; date?: string };
   reminders?: { useDefault?: boolean; overrides?: GoogleReminder[] };
+  /** `transparent` is « disponible ». */
+  transparency?: string;
+  organizer?: { self?: boolean };
+  /** `self` marks the owner of the calendar. */
+  attendees?: { self?: boolean; responseStatus?: string }[];
+  recurringEventId?: string;
 }
 
 interface CalendarListEntry {
@@ -118,18 +125,26 @@ function upsertEvent(db: DatabaseSync, calendarId: string, e: GoogleEvent): bool
     allDay ? 1 : 0,
     e.location ?? null,
     own,
+    e.transparency === 'transparent' ? 1 : 0,
+    e.attendees?.find((a) => a.self)?.responseStatus === 'declined' ? 1 : 0,
+    // Theirs alone: organized by the owner, with no guest but the owner.
+    e.organizer?.self === true && (e.attendees ?? []).every((a) => a.self) ? 1 : 0,
+    e.recurringEventId ?? null,
   ] as const;
   const before = db
     .prepare(
-      'SELECT title, start, end, start_ms, end_ms, all_day, location, reminders FROM calendar_events WHERE calendar_id = ? AND id = ?',
+      `SELECT title, start, end, start_ms, end_ms, all_day, location, reminders, free, declined, solo, series_id
+       FROM calendar_events WHERE calendar_id = ? AND id = ?`,
     )
     .get(calendarId, e.id);
   db.prepare(
-    `INSERT INTO calendar_events (calendar_id, id, title, start, end, start_ms, end_ms, all_day, location, reminders)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `INSERT INTO calendar_events (calendar_id, id, title, start, end, start_ms, end_ms, all_day, location, reminders,
+       free, declined, solo, series_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(calendar_id, id) DO UPDATE SET title = excluded.title, start = excluded.start, end = excluded.end,
        start_ms = excluded.start_ms, end_ms = excluded.end_ms, all_day = excluded.all_day,
-       location = excluded.location, reminders = excluded.reminders`,
+       location = excluded.location, reminders = excluded.reminders, free = excluded.free,
+       declined = excluded.declined, solo = excluded.solo, series_id = excluded.series_id`,
   ).run(calendarId, e.id, ...values);
   return JSON.stringify(before ? Object.values(before) : null) !== JSON.stringify(values);
 }
@@ -287,6 +302,14 @@ function toGoogle(input: Partial<EventInput>, allDay: boolean): Record<string, u
   return out;
 }
 
+/** A write from Acedia changed the cache: said like a sync, as the tasks do, so the agenda screen reads again. */
+const changed = (deps: SyncDeps) =>
+  emitEvent(
+    deps.db,
+    { type: 'agenda.changed', importance: 'log', title: 'Agenda mis à jour', data: { changes: 1 } },
+    deps.now(),
+  );
+
 async function write(
   deps: SyncDeps,
   method: string,
@@ -308,6 +331,7 @@ export async function createEvent(
 ): Promise<AgendaEvent> {
   const e = (await write(deps, 'POST', eventsUrl(calendarId), toGoogle(input, input.allDay)))!;
   upsertEvent(deps.db, calendarId, e);
+  changed(deps);
   return getEvent(deps.db, calendarId, e.id)!;
 }
 
@@ -321,10 +345,12 @@ export async function updateEvent(
   const url = `${eventsUrl(calendarId)}/${encodeURIComponent(id)}`;
   const e = (await write(deps, 'PATCH', url, toGoogle(patch, allDay)))!;
   upsertEvent(deps.db, calendarId, e);
+  changed(deps);
   return getEvent(deps.db, calendarId, e.id)!;
 }
 
 export async function deleteEvent(deps: SyncDeps, calendarId: string, id: string): Promise<void> {
   await write(deps, 'DELETE', `${eventsUrl(calendarId)}/${encodeURIComponent(id)}`);
   removeEvent(deps.db, calendarId, id);
+  changed(deps);
 }

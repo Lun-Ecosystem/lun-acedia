@@ -5,11 +5,23 @@ import { getState } from '../contract/state.ts';
 import { spentToday } from '../llm/models.ts';
 import { ProviderError, type ChatResult, type LlmProvider, type ToolCall } from '../llm/types.ts';
 import { makeAgendaHarness } from '../testing/agenda-harness.ts';
+import { guestEvent, soloEvent } from '../testing/fake-agenda.ts';
 import { message, textPart } from '../testing/fake-gmail.ts';
-import { ask, expireCards, refuseCard, resume, runCard, toolsOf, undoCard, type PinaDeps } from './agent.ts';
+import {
+  ask,
+  decideCard,
+  expireCards,
+  refuseCard,
+  resume,
+  runCard,
+  toolsOf,
+  undoCard,
+  type PinaDeps,
+} from './agent.ts';
 import { listLabels } from '../triage/labels.ts';
 import { inverseOf } from './inverse.ts';
 import { systemPrompt } from './prompt.ts';
+import { describe as describeCard } from './wording.ts';
 import { cardsOf, dayOf, getCard, messagesOf, putPinaSettings } from './store.ts';
 
 type ChatRequest = Parameters<LlmProvider['chat']>[0];
@@ -558,5 +570,92 @@ describe('Pina fix round 1', () => {
     expect(
       s.thread().map((m) => (m.role === 'user' ? m.text : m.role === 'assistant' ? m.text : m.role)),
     ).toEqual(['Premier', 'Un.', 'Second', 'Deux.']);
+  });
+});
+
+describe('cards of the overlap detection', () => {
+  // Nov 4, Paris is UTC+1: `a` 10:00-11:00 is theirs alone, `b` 10:30-11:30 has a guest.
+  const at = (h: number, min = 0) => new Date(Date.UTC(2026, 10, 4, h - 1, min)).toISOString();
+
+  async function withConflict(solo: boolean) {
+    const s = await setup();
+    s.h.agenda.putEvent('primary', solo ? soloEvent('a', at(10), at(11)) : guestEvent('a', at(10), at(11)));
+    s.h.agenda.putEvent('primary', guestEvent('b', at(10, 30), at(11, 30)));
+    await s.h.syncAgenda();
+    const card = cardsOf(s.h.db, s.day).find((c) => c.callId.startsWith('chevauchement:'))!;
+    expect(card).toMatchObject({ status: 'pending' });
+    return { s, card, writes: s.writes() };
+  }
+  const patches = (s: Awaited<ReturnType<typeof setup>>) => s.h.calls.filter((c) => c.method === 'PATCH');
+
+  it('accepted, the card that proposes moves the event, the hours only, and never wakes the model', async () => {
+    const { s, card } = await withConflict(true);
+    const out = await decideCard(s.deps, card.id, 'accept');
+    expect(out).toMatchObject({ ok: true, card: { status: 'done' } });
+    expect(s.h.agenda.event('primary', 'a')).toMatchObject({
+      start: { dateTime: at(11, 30) },
+      end: { dateTime: at(12, 30) },
+    });
+    const [patch] = patches(s);
+    expect(Object.keys(JSON.parse(patch!.body!) as object).sort()).toEqual(['end', 'start']);
+    expect(s.requests).toEqual([]);
+    expect(s.thread()).toEqual([]);
+  });
+
+  it('accepted, the card that signals is done: no call to Google, nothing to undo', async () => {
+    const { s, card, writes } = await withConflict(false);
+    expect(card.action).toBe('agenda.list');
+    const out = await decideCard(s.deps, card.id, 'accept');
+    expect(out).toMatchObject({ ok: true, card: { status: 'done', inverse: null } });
+    expect(s.writes()).toBe(writes);
+    expect(s.requests).toEqual([]);
+    expect(s.thread()).toEqual([]);
+  });
+
+  it.each([true, false])(
+    'refused (card that proposes: %s), it is refused and nothing is called',
+    async (solo) => {
+      const { s, card, writes } = await withConflict(solo);
+      const out = await decideCard(s.deps, card.id, 'refuse');
+      expect(out).toMatchObject({ ok: true, card: { status: 'refused' } });
+      expect(s.writes()).toBe(writes);
+      expect(patches(s)).toEqual([]);
+      expect(s.requests).toEqual([]);
+      expect(s.thread()).toEqual([]);
+    },
+  );
+
+  it('a key out of the schema from the model never reaches its card: it cannot pass for the detection', async () => {
+    const forged = { calendarId: 'primary', id: 'e1', start: at(18), end: at(19) };
+    const s = await setup([
+      calls(tool('event.update', { ...forged, conflit: { title: 'Rien', other: 'Personne' } })),
+    ]);
+    await ask(s.deps, 'Déplace la réunion', { screen: 'agenda' });
+    const [card] = cardsOf(s.h.db, s.day).filter((c) => c.callId === 'c1');
+    expect(card!.input).toEqual(forged);
+    const said = describeCard(card!, { labels: new Map(), targets: new Map() });
+    expect(said.title).toBe('Modifier un événement');
+    expect(said.fields[0]).toEqual({ label: 'Identifiant', value: 'e1' });
+  });
+
+  it('a card that moves an event says `agenda.changed`, and so does « Annuler »', async () => {
+    const { s, card } = await withConflict(true);
+    const changed = () => eventsSince(s.h.db).filter((e) => e.type === 'agenda.changed').length;
+    const before = changed();
+    await decideCard(s.deps, card.id, 'accept');
+    expect(changed()).toBe(before + 1);
+    expect(await undoCard(s.deps, card.id)).toMatchObject({ ok: true });
+    expect(changed()).toBe(before + 2);
+  });
+
+  it('deciding one of two cards of the detection does not wake the model either', async () => {
+    const { s, card } = await withConflict(true);
+    s.h.agenda.putEvent('primary', soloEvent('c', at(15), at(16)));
+    s.h.agenda.putEvent('primary', guestEvent('d', at(15, 30), at(16, 30)));
+    await s.h.syncAgenda();
+    expect(cardsOf(s.h.db, s.day).filter((c) => c.callId.startsWith('chevauchement:'))).toHaveLength(2);
+    await decideCard(s.deps, card.id, 'refuse');
+    expect(s.requests).toEqual([]);
+    expect(s.thread()).toEqual([]);
   });
 });

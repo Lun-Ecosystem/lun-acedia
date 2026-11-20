@@ -25,6 +25,9 @@ et rien ne quitte la boîte sans ton accord.
 - **Le courrier** : la boîte Gmail, ses boîtes, étiquettes et règles, avec un tri par IA qui annonce sa confiance. Sous
   ton seuil, il propose ; au-dessus, il range.
 - **L'agenda et les tâches** : Google Agenda (jour, semaine, mois, planning) et Google Tasks, dans la même app.
+- **Les conflits de l'agenda** : deux événements qui se chevauchent vraiment font une carte, trois par jour au plus,
+  rien en pause. Elle propose de déplacer un événement de ton agenda principal, dont tu es l'organisateur et le seul invité, au premier créneau libre
+  du même jour (8 h à 22 h), ou signale le conflit sans rien changer ([détail](docs/pina.md)).
 - **Un agent borné** : ses écritures deviennent des cartes à valider, ses suppressions le restent toujours, et il
   n'envoie jamais de mail (brouillon seulement). Neutre par défaut, son nom, son icône et son ton se règlent.
 - **Une app installable** : une PWA servie par le serveur lui-même, sans magasin d'applications.
@@ -96,7 +99,7 @@ et il sert ses propres écrans. Il fonctionne seul. Lun'Anima s'y branche par le
 
 ## Documentation
 
-- [`docs/`](docs/) : ce que fait le projet aujourd'hui, dont [Pina](docs/pina.md), l'agent, et [Prouver J1](docs/prouver-j1.md).
+- [`docs/`](docs/) : ce que fait le projet aujourd'hui, dont [l’agent](docs/pina.md) et [Prouver J1](docs/prouver-j1.md).
 - [`docs/decisions/`](docs/decisions/) : les décisions propres au projet.
 - Règles communes : [lun-docs](https://github.com/Lun-Ecosystem/lun-docs).
 

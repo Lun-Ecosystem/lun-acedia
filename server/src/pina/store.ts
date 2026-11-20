@@ -137,6 +137,11 @@ export function pendingInTurn(db: DatabaseSync, turn: number): number {
   return (r as { n: number }).n;
 }
 
+/** Deletes a card still pending; `false` once decided. */
+export function deletePendingCard(db: DatabaseSync, id: number): boolean {
+  return db.prepare("DELETE FROM pina_cards WHERE id = ? AND status = 'pending'").run(id).changes > 0;
+}
+
 /** Cards of an earlier day can no longer be validated; `keep` are the cards being run right now. */
 export function expireOld(db: DatabaseSync, today: string, keep: number[] = []): void {
   db.prepare(
@@ -154,7 +159,9 @@ export function purge(db: DatabaseSync, today: string): void {
     .toISOString()
     .slice(0, 10);
   db.prepare('DELETE FROM pina_messages WHERE day < ?').run(today);
-  db.prepare('DELETE FROM pina_cards WHERE day < ?').run(cutoff);
+  // The detection's cards (turn 0) stay: their call id keeps a pair from coming back.
+  // shortcut: they add up, three a day at most; a table of their own if the base feels it.
+  db.prepare('DELETE FROM pina_cards WHERE day < ? AND turn <> 0').run(cutoff);
 }
 
 export type { PinaSettings };

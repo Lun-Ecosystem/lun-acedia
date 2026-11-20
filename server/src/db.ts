@@ -169,6 +169,12 @@ const MIGRATIONS: string[] = [
   'ALTER TABLE calendars ADD COLUMN writable INTEGER NOT NULL DEFAULT 1',
   'ALTER TABLE events ADD COLUMN link TEXT',
   'ALTER TABLE events ADD COLUMN lines TEXT',
+  // What the overlap detection reads; the sync tokens go, so that the next sync fills them for every event.
+  `ALTER TABLE calendar_events ADD COLUMN free INTEGER NOT NULL DEFAULT 0;
+   ALTER TABLE calendar_events ADD COLUMN declined INTEGER NOT NULL DEFAULT 0;
+   ALTER TABLE calendar_events ADD COLUMN solo INTEGER NOT NULL DEFAULT 0;
+   ALTER TABLE calendar_events ADD COLUMN series_id TEXT;
+   DELETE FROM sync_state WHERE key LIKE 'cal:%';`,
 ];
 
 export function openDb(path: string): DatabaseSync {

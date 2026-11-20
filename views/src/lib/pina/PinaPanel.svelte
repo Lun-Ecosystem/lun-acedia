@@ -123,6 +123,11 @@
   /** Where the focus was when the window opened (the phone's top-bar button). */
   let opener: HTMLElement | null = null;
 
+  /** Reads the thread again, in silence (a conflict card born from the agenda sync): the badge follows. */
+  export function reload() {
+    return pina.load(true);
+  }
+
   /** Opens or closes the window: the launcher, Ctrl J, the phone's button and « Ouvrir le brouillon » all come here. */
   export async function toggle() {
     if (!open) {

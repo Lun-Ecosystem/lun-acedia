@@ -66,12 +66,27 @@ function fakeServer({
   noProvider = false,
 } = {}) {
   const calls: string[] = [];
+  /** The open event streams (`GET /lun/v1/events`), each closed by its own abort. */
+  const streams = new Set<ReadableStreamDefaultController<Uint8Array>>();
+  const emit = (type: string) => {
+    const frame = `data: ${JSON.stringify({ id: type, type, importance: 'info', at: '', title: '' })}
+
+`;
+    for (const s of streams) s.enqueue(new TextEncoder().encode(frame));
+  };
   let paused = startPaused;
   const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status });
   const fetch = vi.fn<typeof globalThis.fetch>(async (input, init) => {
     const key = `${init?.method ?? 'GET'} ${new URL(String(input)).pathname}`;
     calls.push(key);
     switch (key) {
+      case 'GET /lun/v1/events': {
+        let ctl!: ReadableStreamDefaultController<Uint8Array>;
+        const body = new ReadableStream<Uint8Array>({ start: (c) => void (ctl = c) });
+        streams.add(ctl);
+        init?.signal?.addEventListener('abort', () => (streams.delete(ctl), ctl.error(new Error('aborted'))));
+        return new Response(body, { status: 200 });
+      }
       case 'GET /api/labels':
         return json({ labels: [] });
       case 'GET /api/rules':
@@ -166,7 +181,7 @@ function fakeServer({
     }
   });
   vi.stubGlobal('fetch', fetch);
-  return { calls };
+  return { calls, emit };
 }
 
 const authorizeQuery = (redirect = 'http://127.0.0.1:53682/callback') =>
@@ -302,6 +317,28 @@ describe('App', () => {
     await user.click(screen.getByRole('button', { name: "Ouvrir Lun'Acedia" }));
     expect(window.location.search).toBe('');
     expect(await screen.findByRole('navigation', { name: 'Sections' })).toBeInTheDocument();
+  });
+});
+
+describe('the agenda conflicts reach the agent', () => {
+  const count = (calls: string[], key: string) => calls.filter((c) => c === key).length;
+
+  it('agenda.overlap reads the thread again, another type does not, and no stream is added', async () => {
+    const { calls, emit } = fakeServer();
+    localStorage.setItem(TOKEN_KEY, 'tok-1');
+    render(App);
+    // The tab's streams, as on main: the app's, and the mailbox's.
+    await waitFor(() => expect(count(calls, 'GET /lun/v1/events')).toBe(2));
+    await waitFor(() => expect(count(calls, 'GET /api/pina/today')).toBe(1));
+    emit('agenda.changed');
+    emit('mail.filed');
+    emit('agenda.overlap');
+    // The stream keeps its order: once the overlap is read, the two before it read nothing.
+    await waitFor(() => expect(count(calls, 'GET /api/pina/today')).toBe(2));
+    expect(count(calls, 'GET /lun/v1/events')).toBe(2);
+    // A card withdrawn by the server comes as a second overlap: the thread is read once more.
+    emit('agenda.overlap');
+    await waitFor(() => expect(count(calls, 'GET /api/pina/today')).toBe(3));
   });
 });
 

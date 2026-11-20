@@ -20,6 +20,7 @@ import {
   appendMessage,
   cardsOf,
   dayOf,
+  deletePendingCard,
   expireOld,
   getCard,
   messagesOf,
@@ -121,7 +122,7 @@ export async function runCard(deps: Pick<PinaDeps, 'db' | 'actions' | 'clock'>, 
         })
       : setCardStatus(deps.db, cardId, 'pending', 'failed', { error: out.error, at });
     // Impossible while every decision goes through this file: said loudly if it ever happens.
-    if (!settled) console.error(`Pina : carte ${cardId} décidée pendant son exécution`, JSON.stringify(out));
+    if (!settled) console.error(`Agent : carte ${cardId} décidée pendant son exécution`, JSON.stringify(out));
   } finally {
     running.delete(cardId);
   }
@@ -198,6 +199,16 @@ export async function decideCard(
 /** The daily tidy: earlier days' pending cards expire, except one being run right now. */
 export function expireCards(db: DatabaseSync, today: string): void {
   expireOld(db, today, [...running]);
+}
+
+/** A pending card whose moment has passed (a conflict begun): `false` when decided or being run. */
+export function expireCard(db: DatabaseSync, cardId: number, at: Date): boolean {
+  return !running.has(cardId) && setCardStatus(db, cardId, 'pending', 'expired', { at });
+}
+
+/** Takes back a pending card (a conflict settled by hand): `false` when decided or being run. */
+export function withdrawCard(db: DatabaseSync, cardId: number): boolean {
+  return !running.has(cardId) && deletePendingCard(db, cardId);
 }
 
 /** A stored message knows its turn (a request is its own turn); the providers never see it. */
@@ -308,7 +319,8 @@ export async function ask(
 /** After a decision: once no card of the turn is pending, their outcomes go to the model and it goes on. */
 export async function resume(deps: PinaDeps, cardId: number): Promise<void> {
   const card = getCard(deps.db, cardId);
-  if (!card) return;
+  // Turn 0 is the overlap detection's: no model asked for the card, so its decision wakes none.
+  if (!card || card.turn === 0) return;
   await serial(card.day, async () => {
     if (pendingInTurn(deps.db, card.turn) > 0) return;
     const thread = messagesOf(deps.db, card.day);
@@ -410,7 +422,8 @@ async function loop(
       turn,
       callId: call.id,
       action: action.name,
-      input: call.input,
+      // What the schema kept: a key it does not know never reaches the card, which must say true.
+      input: parsed.data,
       effect: action.effect,
       now: deps.clock(),
     });

@@ -207,7 +207,7 @@ export function contractRoutes(deps: AppDeps, pina: PinaDeps): Hono {
       return await decideCard(pina, Number(id), decision, input);
     } catch (err) {
       log(
-        `Pina : reprise après la carte ${id} en échec : ${err instanceof Error ? err.message : String(err)}`,
+        `Agent : reprise après la carte ${id} en échec : ${err instanceof Error ? err.message : String(err)}`,
       );
       const card = getCard(db, Number(id));
       return card

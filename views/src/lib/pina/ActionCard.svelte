@@ -100,8 +100,9 @@
       </dl>
     {/if}
     <div class="act">
+      <!-- A read card (the agenda conflict that only signals) changes nothing: accepting it says it was seen. -->
       <Button variant={deletion ? 'danger' : 'doux'} size="petit" icon={Check} loading={busy} onclick={accept}
-        >Valider</Button
+        >{card.effect === 'read' ? 'Vu' : 'Valider'}</Button
       >
       {#if editing}
         <Button variant="fantome" size="petit" onclick={() => (editing = null)}>Garder la proposition</Button>

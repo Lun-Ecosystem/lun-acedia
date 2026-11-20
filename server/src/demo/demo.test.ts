@@ -21,15 +21,22 @@ describe('demo', () => {
       last4: 'ZQAA',
     });
     const pina = await get('/api/pina/today');
-    expect(pina.cards.map((c: { status: string }) => c.status)).toEqual([
-      'done',
-      'done',
-      'pending',
-      'pending',
-    ]);
-    expect(pina.cards[2]).toMatchObject({ action: 'event.delete', effect: 'delete' });
-    expect(pina.pending).toBe(2);
+    // The cards of the overlap detection are checked on their own below.
+    const seeded = pina.cards.filter((c: { callId: string }) => !c.callId.startsWith('chevauchement:'));
+    expect(seeded.map((c: { status: string }) => c.status)).toEqual(['done', 'done', 'pending', 'pending']);
+    expect(seeded[2]).toMatchObject({ action: 'event.delete', effect: 'delete' });
+    expect(pina.pending).toBe(2 + pina.cards.length - seeded.length);
     expect((await get('/api/journal')).items.some((e: { origin: string }) => e.origin === 'pina')).toBe(true);
     expect((await app.request('/api/mail')).status).toBe(401);
+  });
+
+  it('shows the two cards of conflict: one that proposes a move, one that only signals', async () => {
+    const { app, token } = await createDemo();
+    const res = await app.request('/api/pina/today', { headers: { authorization: `Bearer ${token}` } });
+    const cards = (
+      (await res.json()) as { cards: { callId: string; action: string; status: string }[] }
+    ).cards.filter((c) => c.callId.startsWith('chevauchement:'));
+    expect(cards.map((c) => c.action).sort()).toEqual(['agenda.list', 'event.update']);
+    expect(cards.every((c) => c.status === 'pending')).toBe(true);
   });
 });

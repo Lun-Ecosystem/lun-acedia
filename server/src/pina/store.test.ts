@@ -92,6 +92,14 @@ describe('pina store', () => {
     expect(cardsOf(db, '2026-07-01')).toHaveLength(1);
   });
 
+  it('purge keeps the cards of the detection (turn 0), whatever their age: their call id is the memory of a pair', () => {
+    const db = openDb(':memory:');
+    addCard(db, card('2026-01-01', 0, 'chevauchement:primary/a|primary/b'));
+    addCard(db, card('2026-01-01', 1, 'c1'));
+    purge(db, '2026-07-01');
+    expect(cardsOf(db, '2026-01-01').map((c) => c.callId)).toEqual(['chevauchement:primary/a|primary/b']);
+  });
+
   it('has defaults, never written, and stores changes', () => {
     const db = openDb(':memory:');
     expect(pinaSettings(db)).toEqual({

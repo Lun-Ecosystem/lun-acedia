@@ -1,6 +1,6 @@
 import { ApiError, type AcediaClient } from '../client.ts';
 import type { PinaCard, PinaSettings, PinaThread, ScreenContext } from '../types.ts';
-import { takeIdentity } from './identity.svelte.ts';
+import { agentIdentity, takeIdentity } from './identity.svelte.ts';
 import { toast } from '../ui/toasts.svelte.ts';
 
 /*
@@ -41,7 +41,14 @@ function loadSize(): Size {
   return clampSize(DEFAULT_SIZE, viewport());
 }
 
-const message = (err: unknown) => (err instanceof Error ? err.message : 'Pina ne répond pas');
+/** The card is gone (withdrawn by the server) or decided elsewhere: the thread says what became of it. */
+const stale = (err: unknown) => err instanceof ApiError && (err.status === 404 || err.status === 409);
+
+const message = (err: unknown) =>
+  err instanceof Error ? err.message : `${agentIdentity.name} ne répond pas`;
+/** On a card: the server's 404 (« Carte inconnue ») is a card that no longer exists. */
+const cardMessage = (err: unknown) =>
+  err instanceof ApiError && err.status === 404 ? 'Cette carte n’existe plus' : message(err);
 
 export class PinaState {
   /** Today's thread; `null` until read. */
@@ -64,16 +71,21 @@ export class PinaState {
   });
 
   #client: AcediaClient;
+  /** Bumped by each read and each action: a read answers only if nothing started after it. */
+  #seq = 0;
 
   constructor(client: AcediaClient) {
     this.#client = client;
   }
 
-  async load() {
+  /** `quiet`: read on a server event, with no gesture to answer, a failure says nothing. */
+  async load(quiet = false) {
+    const seq = ++this.#seq;
     try {
-      this.thread = await this.#client.pinaToday();
+      const thread = await this.#client.pinaToday();
+      if (seq === this.#seq) this.thread = thread;
     } catch (err) {
-      toast(message(err), { tone: 'danger' });
+      if (!quiet) toast(message(err), { tone: 'danger' });
     }
   }
 
@@ -103,10 +115,12 @@ export class PinaState {
   async ask(text: string, context: ScreenContext) {
     if (this.asking) return;
     this.asking = text;
+    this.#seq++;
     try {
       this.thread = await this.#client.pinaAsk(text, context);
     } catch (err) {
       toast(message(err), { tone: 'danger' });
+      await this.load(true);
     } finally {
       this.asking = null;
     }
@@ -122,13 +136,14 @@ export class PinaState {
   async decide(id: number, decision: 'accept' | 'refuse', input?: unknown) {
     if (this.busy.has(id)) return;
     this.#mark(id, true);
+    this.#seq++;
     try {
       const { day, messages, cards, pending } = await this.#client.pinaDecide(id, decision, input);
       this.thread = { day, messages, cards, pending };
     } catch (err) {
-      toast(message(err), { tone: 'danger' });
-      // Decided elsewhere, or expired: the thread says what became of the card.
-      if (err instanceof ApiError && err.status === 409) await this.load();
+      toast(cardMessage(err), { tone: 'danger' });
+      // Stale: the thread says why, aloud. Otherwise in silence: a reload dropped for this action is made up.
+      await this.load(!stale(err));
     } finally {
       this.#mark(id, false);
     }
@@ -154,14 +169,15 @@ export class PinaState {
   async undo(id: number) {
     if (this.busy.has(id)) return;
     this.#mark(id, true);
+    this.#seq++;
     try {
       const { card } = await this.#client.pinaUndo(id);
       if (this.thread)
         this.thread = { ...this.thread, cards: this.thread.cards.map((c) => (c.id === id ? card : c)) };
       toast('Action annulée');
     } catch (err) {
-      toast(message(err), { tone: 'danger' });
-      if (err instanceof ApiError && err.status === 409) await this.load();
+      toast(cardMessage(err), { tone: 'danger' });
+      await this.load(!stale(err));
     } finally {
       this.#mark(id, false);
     }

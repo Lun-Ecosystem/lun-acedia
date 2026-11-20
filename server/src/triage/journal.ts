@@ -184,7 +184,7 @@ export async function undo(deps: ActionDeps, journalId: number): Promise<LabelCh
 const PARIS = 'Europe/Paris';
 
 /** Offset of Paris from UTC at an instant, in ms (DST included). */
-function parisOffset(at: number): number {
+export function parisOffset(at: number): number {
   const p = Object.fromEntries(
     new Intl.DateTimeFormat('en-GB', {
       timeZone: PARIS,
