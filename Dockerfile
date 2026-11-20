@@ -1,4 +1,4 @@
-# The server and its front in one image (amd64 for the NAS). The server runs its TypeScript sources directly.
+# The server and its front in one image (amd64, for the dedicated machine). The server runs its TypeScript sources directly.
 FROM node:24-slim AS build
 WORKDIR /app
 COPY package.json package-lock.json ./
