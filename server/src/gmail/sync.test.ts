@@ -6,7 +6,7 @@ import { createGoogleClient, saveTokens } from '../google/client.ts';
 import { fakeFetch } from '../testing/fake-fetch.ts';
 import { FakeGmail, message } from '../testing/fake-gmail.ts';
 import { getStoredMessage, messageCount, upsertMessage } from './store.ts';
-import { startSyncLoop, syncGmail } from './sync.ts';
+import { startSyncLoop, syncGmail, syncIntervalMs } from './sync.ts';
 
 const secretKey = randomBytes(32).toString('base64');
 const config = { clientId: 'id', clientSecret: 's', redirectUri: 'http://localhost/cb' };
@@ -166,5 +166,26 @@ describe('startSyncLoop', () => {
       timers.mockRestore();
       vi.unstubAllEnvs();
     }
+  });
+});
+
+describe('syncIntervalMs', () => {
+  it.each(['abc', '0', '-5', '1.5'])(
+    'takes SYNC_INTERVAL_MS=%s for a minute and says so: never a sync without a pause',
+    (value) => {
+      const log = vi.fn();
+      expect(syncIntervalMs({ SYNC_INTERVAL_MS: value }, log)).toBe(60_000);
+      expect(log).toHaveBeenCalledTimes(1);
+      expect(log).toHaveBeenCalledWith(expect.stringContaining('SYNC_INTERVAL_MS'));
+      expect(log).toHaveBeenCalledWith(expect.stringContaining(value));
+    },
+  );
+
+  it('keeps a whole number of milliseconds above zero as it is, and says nothing', () => {
+    const log = vi.fn();
+    expect(syncIntervalMs({ SYNC_INTERVAL_MS: '5000' }, log)).toBe(5000);
+    expect(syncIntervalMs({ SYNC_INTERVAL_MS: '' }, log)).toBe(60_000);
+    expect(syncIntervalMs({}, log)).toBe(60_000);
+    expect(log).not.toHaveBeenCalled();
   });
 });

@@ -231,6 +231,22 @@ export async function syncGmail(deps: SyncDeps): Promise<SyncResult> {
 }
 
 /**
+ * `SYNC_INTERVAL_MS`, a minute when absent. Anything but a whole number above zero would sync without a pause and
+ * use up Google's quota: a minute then, and one line to say so.
+ */
+export function syncIntervalMs(
+  env: NodeJS.ProcessEnv = process.env,
+  log: (line: string) => void = console.log,
+): number {
+  const raw = envOf('SYNC_INTERVAL_MS', env);
+  if (raw === undefined) return 60_000;
+  const ms = Number(raw);
+  if (Number.isInteger(ms) && ms > 0) return ms;
+  log(`SYNC_INTERVAL_MS ignorée (« ${raw} ») : entier strictement positif attendu, une minute par défaut.`);
+  return 60_000;
+}
+
+/**
  * Runs `syncGmail` every `intervalMs`, never two at a time; `onResult` receives each result (the
  * triage plugs in there). Errors are passed to `onError` and the loop goes on.
  */
@@ -248,7 +264,7 @@ export function startSyncLoop(
       await opts.onResult?.(result);
     },
     {
-      intervalMs: opts.intervalMs ?? Number(envOf('SYNC_INTERVAL_MS') ?? 60_000),
+      intervalMs: opts.intervalMs ?? syncIntervalMs(),
       ...(opts.onError ? { onError: opts.onError } : {}),
     },
   );

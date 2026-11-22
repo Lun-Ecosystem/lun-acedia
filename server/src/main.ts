@@ -11,7 +11,7 @@ import { bootstrapPairing } from './contract/auth.ts';
 import { pruneEvents } from './contract/events.ts';
 import { localOriginFor } from './contract/first-code.ts';
 import { openDb } from './db.ts';
-import { startSyncLoop } from './gmail/sync.ts';
+import { startSyncLoop, syncIntervalMs } from './gmail/sync.ts';
 import { createGoogleClient, GoogleNotConnectedError, GoogleReauthError } from './google/client.ts';
 import { googleFromEnv } from './google/oauth.ts';
 import { isValidDate } from './keys/expiry.ts';
@@ -93,7 +93,10 @@ function logError(what: string) {
 recoverQueue(db);
 if (google) {
   const deps = { db, google: createGoogleClient({ db, now: clock, ...google }), now: clock };
+  // Read once for both loops: an invalid value is said once.
+  const intervalMs = syncIntervalMs();
   startSyncLoop(deps, {
+    intervalMs,
     // The sync queues the new mails; the triage drains the queue (also what waited for a resume).
     // The classifier is looked up at each pass: a key saved in the settings serves at once.
     onResult: () => triageNew({ ...deps, classifier: classifierFor(db, secretKey, llmEnv) }),
@@ -101,7 +104,7 @@ if (google) {
   });
   // The agenda has its own loop: a Gmail or AI failure never stops it.
   startLoop(() => syncAgenda(deps), {
-    intervalMs: Number(envOf('SYNC_INTERVAL_MS') ?? 60_000),
+    intervalMs,
     onError: logError('Synchro Agenda'),
   });
 }
