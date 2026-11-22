@@ -260,6 +260,8 @@ export function httpClient(opts: { baseUrl: string; token: string; fetch?: typeo
             buffer += value;
             let end: number;
             while ((end = buffer.indexOf('\n\n')) >= 0) {
+              // A read already resolved when the stream was closed: its events are not for whoever joined since.
+              if (stop.signal.aborted) return;
               const block = buffer.slice(0, end);
               buffer = buffer.slice(end + 2);
               const data = block
@@ -394,10 +396,7 @@ export function httpClient(opts: { baseUrl: string; token: string; fetch?: typeo
       const listener = (e: LunEvent) => onEvent(e);
       listeners.add(listener);
       stream ??= openStream();
-      let left = false;
       return () => {
-        if (left) return;
-        left = true;
         listeners.delete(listener);
         // Waits a tick: a screen torn down and the next one set up in the same render keep the stream.
         queueMicrotask(() => {

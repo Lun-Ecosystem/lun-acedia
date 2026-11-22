@@ -153,12 +153,18 @@ describe('one stream per client', () => {
   it('opens a new connection for a listener that comes after the stream was closed', async () => {
     const s = fakeStream();
     const client = createHttpClient(BASE, 'tok-1', { fetch: s.fetch });
-    client.subscribe(() => {})();
+    const leave = client.subscribe(() => {});
+    await settle();
+    s.conns.at(-1)!.push(ev('1'));
+    await settle();
+    leave();
     await settle();
     const got: string[] = [];
     client.subscribe((e) => got.push(e.id));
     await settle();
     expect(s.open()).toBe(1);
+    // It starts from now: the catch-up id is for a reconnection, not for a listener who comes back.
+    expect(s.conns.at(-1)!.headers.get('last-event-id')).toBeNull();
     s.conns.at(-1)!.push(ev('9'));
     await settle();
     expect(got).toEqual(['9']);
