@@ -181,7 +181,7 @@ function fakeServer({
     }
   });
   vi.stubGlobal('fetch', fetch);
-  return { calls, emit };
+  return { calls, emit, open: () => streams.size };
 }
 
 const authorizeQuery = (redirect = 'http://127.0.0.1:53682/callback') =>
@@ -327,18 +327,65 @@ describe('the agenda conflicts reach the agent', () => {
     const { calls, emit } = fakeServer();
     localStorage.setItem(TOKEN_KEY, 'tok-1');
     render(App);
-    // The tab's streams, as on main: the app's, and the mailbox's.
-    await waitFor(() => expect(count(calls, 'GET /lun/v1/events')).toBe(2));
+    // One stream for the tab, shared by the app and the mailbox (it was two, one each, on main).
+    await waitFor(() => expect(count(calls, 'GET /lun/v1/events')).toBe(1));
     await waitFor(() => expect(count(calls, 'GET /api/pina/today')).toBe(1));
     emit('agenda.changed');
     emit('mail.filed');
     emit('agenda.overlap');
     // The stream keeps its order: once the overlap is read, the two before it read nothing.
     await waitFor(() => expect(count(calls, 'GET /api/pina/today')).toBe(2));
-    expect(count(calls, 'GET /lun/v1/events')).toBe(2);
+    expect(count(calls, 'GET /lun/v1/events')).toBe(1);
     // A card withdrawn by the server comes as a second overlap: the thread is read once more.
     emit('agenda.overlap');
     await waitFor(() => expect(count(calls, 'GET /api/pina/today')).toBe(3));
+  });
+});
+
+describe('one event stream per tab', () => {
+  const settle = () => new Promise((r) => setTimeout(r, 150));
+  // Each screen mounted with the root component, and a call that says it has loaded.
+  const SCREENS = [
+    ['#/mail', 'GET /api/mail'],
+    ['#/a-valider', 'GET /api/mail'],
+    ['#/agenda', 'GET /api/agenda'],
+    ['#/taches', 'GET /api/tasks'],
+    ['#/journal', 'GET /api/journal'],
+    ['#/reglages', 'GET /api/llm/providers'],
+  ] as const;
+
+  it.each(SCREENS)(
+    '%s opens one connection to the stream (two on main for mail, a-valider, agenda, taches)',
+    async (hash, loaded) => {
+      const { calls, open } = fakeServer();
+      localStorage.setItem(TOKEN_KEY, 'tok-1');
+      history.replaceState(null, '', `/${hash}`);
+      render(App);
+      await waitFor(() => expect(calls).toContain(loaded));
+      await settle();
+      expect(open()).toBe(1);
+    },
+  );
+
+  it('keeps one connection, never reopened, while moving through every screen', async () => {
+    const { calls, open } = fakeServer();
+    localStorage.setItem(TOKEN_KEY, 'tok-1');
+    render(App);
+    await screen.findByRole('navigation', { name: 'Sections' });
+    for (const [hash] of SCREENS) {
+      location.hash = hash;
+      await settle();
+      expect(open()).toBe(1);
+    }
+    expect(calls.filter((c) => c === 'GET /lun/v1/events')).toHaveLength(1);
+  });
+
+  it('three tabs hold three connections, under the six of a browser', async () => {
+    const { open } = fakeServer();
+    localStorage.setItem(TOKEN_KEY, 'tok-1');
+    for (let tab = 0; tab < 3; tab++) render(App);
+    await settle();
+    expect(open()).toBe(3);
   });
 });
 
