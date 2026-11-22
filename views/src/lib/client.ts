@@ -187,7 +187,10 @@ export interface AcediaClient {
   getPinaSettings(): Promise<PinaSettingsView>;
   /** Saves the fields given; the server checks the bounds (400 outside them). */
   updatePinaSettings(patch: Partial<PinaSettings>): Promise<PinaSettingsView>;
-  /** Calls `onEvent` for each satellite event; returns the function that stops listening. */
+  /**
+   * Calls `onEvent` for each satellite event; returns the function that stops listening. Every
+   * listener of a client shares one connection to the stream.
+   */
   subscribe(onEvent: (e: LunEvent) => void): () => void;
 }
 
@@ -230,6 +233,62 @@ export function httpClient(opts: { baseUrl: string; token: string; fetch?: typeo
     return json as T;
   }
   const items = async <T>(path: string) => (await call<{ items: T[] }>('GET', path)).items;
+
+  // One connection to the events for the whole client, shared by every listener (a browser holds six
+  // connections per address, all tabs together). A new one starts from now, as a new subscription did.
+  const listeners = new Set<(e: LunEvent) => void>();
+  let stream: AbortController | undefined;
+  function openStream(): AbortController {
+    const stop = new AbortController();
+    let lastId: string | undefined;
+    (async () => {
+      while (!stop.signal.aborted) {
+        try {
+          const res = await doFetch(`${base}/lun/v1/events`, {
+            headers: {
+              authorization: headers.authorization,
+              ...(lastId ? { 'last-event-id': lastId } : {}),
+            },
+            signal: stop.signal,
+          });
+          if (!res.ok || !res.body) throw new ApiError(res.status, 'Flux d’événements indisponible');
+          const reader = res.body.pipeThrough(new TextDecoderStream()).getReader();
+          let buffer = '';
+          for (;;) {
+            const { value, done } = await reader.read();
+            if (done) break;
+            buffer += value;
+            let end: number;
+            while ((end = buffer.indexOf('\n\n')) >= 0) {
+              const block = buffer.slice(0, end);
+              buffer = buffer.slice(end + 2);
+              const data = block
+                .split('\n')
+                .filter((l) => l.startsWith('data:'))
+                .map((l) => l.slice(5).trimStart())
+                .join('\n');
+              if (!data) continue;
+              const event = JSON.parse(data) as LunEvent;
+              lastId = event.id;
+              // A copy: joining or leaving during the delivery skips or doubles no one.
+              for (const listener of [...listeners]) {
+                try {
+                  listener(event);
+                } catch (err) {
+                  console.error(err);
+                }
+              }
+            }
+          }
+        } catch {
+          if (stop.signal.aborted) return;
+        }
+        // Reconnects after a cut, from the last event seen.
+        await new Promise((r) => setTimeout(r, 3000));
+      }
+    })();
+    return stop;
+  }
 
   return {
     listMail(view, o = {}) {
@@ -331,48 +390,22 @@ export function httpClient(opts: { baseUrl: string; token: string; fetch?: typeo
     getPinaSettings: () => call('GET', '/api/pina/settings'),
     updatePinaSettings: (patch) => call('PUT', '/api/pina/settings', patch),
     subscribe(onEvent) {
-      const stop = new AbortController();
-      let lastId: string | undefined;
-      (async () => {
-        while (!stop.signal.aborted) {
-          try {
-            const res = await doFetch(`${base}/lun/v1/events`, {
-              headers: {
-                authorization: headers.authorization,
-                ...(lastId ? { 'last-event-id': lastId } : {}),
-              },
-              signal: stop.signal,
-            });
-            if (!res.ok || !res.body) throw new ApiError(res.status, 'Flux d’événements indisponible');
-            const reader = res.body.pipeThrough(new TextDecoderStream()).getReader();
-            let buffer = '';
-            for (;;) {
-              const { value, done } = await reader.read();
-              if (done) break;
-              buffer += value;
-              let end: number;
-              while ((end = buffer.indexOf('\n\n')) >= 0) {
-                const block = buffer.slice(0, end);
-                buffer = buffer.slice(end + 2);
-                const data = block
-                  .split('\n')
-                  .filter((l) => l.startsWith('data:'))
-                  .map((l) => l.slice(5).trimStart())
-                  .join('\n');
-                if (!data) continue;
-                const event = JSON.parse(data) as LunEvent;
-                lastId = event.id;
-                onEvent(event);
-              }
-            }
-          } catch {
-            if (stop.signal.aborted) return;
-          }
-          // Reconnects after a cut, from the last event seen.
-          await new Promise((r) => setTimeout(r, 3000));
-        }
-      })();
-      return () => stop.abort();
+      // A wrapper of its own, so the same function subscribed twice is two listeners.
+      const listener = (e: LunEvent) => onEvent(e);
+      listeners.add(listener);
+      stream ??= openStream();
+      let left = false;
+      return () => {
+        if (left) return;
+        left = true;
+        listeners.delete(listener);
+        // Waits a tick: a screen torn down and the next one set up in the same render keep the stream.
+        queueMicrotask(() => {
+          if (listeners.size > 0 || !stream) return;
+          stream.abort();
+          stream = undefined;
+        });
+      };
     },
   };
 }
