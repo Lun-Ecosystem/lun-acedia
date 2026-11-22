@@ -1,12 +1,12 @@
 import { randomBytes } from 'node:crypto';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { eventsSince } from '../contract/events.ts';
 import { openDb } from '../db.ts';
 import { createGoogleClient, saveTokens } from '../google/client.ts';
 import { fakeFetch } from '../testing/fake-fetch.ts';
 import { FakeGmail, message } from '../testing/fake-gmail.ts';
 import { getStoredMessage, messageCount, upsertMessage } from './store.ts';
-import { syncGmail } from './sync.ts';
+import { startSyncLoop, syncGmail, syncIntervalMs } from './sync.ts';
 
 const secretKey = randomBytes(32).toString('base64');
 const config = { clientId: 'id', clientSecret: 's', redirectUri: 'http://localhost/cb' };
@@ -151,5 +151,43 @@ describe('syncGmail', () => {
     const result = await s.sync();
     expect(result.added).toEqual([]);
     expect(getStoredMessage(s.db, 'ghost')).toBeUndefined();
+  });
+});
+
+describe('startSyncLoop', () => {
+  it('takes SYNC_INTERVAL_MS set but empty for an absent one: every minute, not without a pause', () => {
+    vi.stubEnv('SYNC_INTERVAL_MS', '');
+    const timers = vi.spyOn(globalThis, 'setInterval');
+    try {
+      // No Google behind: the first pass fails and goes to onError, the interval is what is looked at.
+      startSyncLoop({} as never, { onError: () => {} }).stop();
+      expect(timers).toHaveBeenCalledWith(expect.any(Function), 60_000);
+    } finally {
+      timers.mockRestore();
+      vi.unstubAllEnvs();
+    }
+  });
+});
+
+describe('syncIntervalMs', () => {
+  it.each(['abc', '0', '-5', '1.5', '1e3', '0x10', '1', '999', '2147483648'])(
+    'takes SYNC_INTERVAL_MS=%s for a minute and says so: never a sync without a pause',
+    (value) => {
+      const log = vi.fn();
+      expect(syncIntervalMs({ SYNC_INTERVAL_MS: value }, log)).toBe(60_000);
+      expect(log).toHaveBeenCalledTimes(1);
+      expect(log).toHaveBeenCalledWith(expect.stringContaining('SYNC_INTERVAL_MS'));
+      expect(log).toHaveBeenCalledWith(expect.stringContaining(value));
+    },
+  );
+
+  it('keeps digits from a second to the limit of a Node timer as they are, and says nothing', () => {
+    const log = vi.fn();
+    expect(syncIntervalMs({ SYNC_INTERVAL_MS: '1000' }, log)).toBe(1000);
+    expect(syncIntervalMs({ SYNC_INTERVAL_MS: '5000' }, log)).toBe(5000);
+    expect(syncIntervalMs({ SYNC_INTERVAL_MS: '2147483647' }, log)).toBe(2_147_483_647);
+    expect(syncIntervalMs({ SYNC_INTERVAL_MS: '' }, log)).toBe(60_000);
+    expect(syncIntervalMs({}, log)).toBe(60_000);
+    expect(log).not.toHaveBeenCalled();
   });
 });

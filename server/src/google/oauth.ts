@@ -4,6 +4,7 @@ import { Hono } from 'hono';
 import type { AppDeps } from '../app.ts';
 import { requireToken } from '../contract/auth.ts';
 import { getSetting, putSetting } from '../db.ts';
+import { envOf } from '../util.ts';
 import {
   createGoogleClient,
   forgetTokens,
@@ -49,7 +50,8 @@ export function googleFromEnv(env: NodeJS.ProcessEnv): GoogleDeps | undefined {
     config: {
       clientId: GOOGLE_CLIENT_ID,
       clientSecret: GOOGLE_CLIENT_SECRET,
-      redirectUri: env.GOOGLE_REDIRECT_URI || `http://localhost:${env.PORT ?? 8787}/oauth/callback`,
+      redirectUri:
+        envOf('GOOGLE_REDIRECT_URI', env) ?? `http://localhost:${envOf('PORT', env) ?? 8787}/oauth/callback`,
     },
     secretKey: ACEDIA_SECRET_KEY,
     fetch,

@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest';
 import { fakeFetch, on } from '../testing/fake-fetch.ts';
 import { makeHarness } from '../testing/harness.ts';
 import { TOKEN_URL } from './client.ts';
-import { authUrl, SCOPES } from './oauth.ts';
+import { authUrl, googleFromEnv, SCOPES } from './oauth.ts';
 
 const secretKey = randomBytes(32).toString('base64');
 const config = {
@@ -117,5 +117,17 @@ describe('Google authorization', () => {
     expect(count(h, 'rules')).toBe(1);
     await connect('autre@example.com');
     for (const table of ['rules', 'labels', 'label_roles', 'sync_state']) expect(count(h, table)).toBe(0);
+  });
+});
+
+describe('googleFromEnv', () => {
+  it('takes PORT and GOOGLE_REDIRECT_URI set but empty for absent ones: the default return address', () => {
+    const env = { GOOGLE_CLIENT_ID: 'id', GOOGLE_CLIENT_SECRET: 'secret', ACEDIA_SECRET_KEY: secretKey };
+    expect(googleFromEnv({ ...env, PORT: '', GOOGLE_REDIRECT_URI: ' ' })?.config.redirectUri).toBe(
+      'http://localhost:8787/oauth/callback',
+    );
+    expect(googleFromEnv({ ...env, PORT: '8080' })?.config.redirectUri).toBe(
+      'http://localhost:8080/oauth/callback',
+    );
   });
 });

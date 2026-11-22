@@ -11,7 +11,7 @@ import { bootstrapPairing } from './contract/auth.ts';
 import { pruneEvents } from './contract/events.ts';
 import { localOriginFor } from './contract/first-code.ts';
 import { openDb } from './db.ts';
-import { startSyncLoop } from './gmail/sync.ts';
+import { startSyncLoop, syncIntervalMs } from './gmail/sync.ts';
 import { createGoogleClient, GoogleNotConnectedError, GoogleReauthError } from './google/client.ts';
 import { googleFromEnv } from './google/oauth.ts';
 import { isValidDate } from './keys/expiry.ts';
@@ -28,7 +28,7 @@ import { expireCards } from './pina/agent.ts';
 import { dayOf, purge } from './pina/store.ts';
 import { triageNew } from './triage/pipeline.ts';
 import { recoverQueue } from './triage/queue.ts';
-import { startLoop } from './util.ts';
+import { envOf, startLoop } from './util.ts';
 
 // Paths are resolved from the repository root, whatever the working directory (npm -w runs in server/).
 const root = fileURLToPath(new URL('../../', import.meta.url));
@@ -38,7 +38,7 @@ if (existsSync(envFile)) process.loadEnvFile(envFile);
 const { version } = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as {
   version: string;
 };
-const dbPath = resolve(root, process.env.DB_PATH ?? 'data/acedia.db');
+const dbPath = resolve(root, envOf('DB_PATH') ?? 'data/acedia.db');
 const db = openDb(dbPath);
 const clock = () => new Date();
 const actions = new ActionRegistry();
@@ -52,7 +52,7 @@ const staticDir = existsSync(resolve(appDist, 'index.html')) ? appDist : undefin
 if (!staticDir) console.log('Front autonome absent : lancer « npm run build -w @lun-acedia/app ».');
 const secretKey = process.env.ACEDIA_SECRET_KEY || undefined;
 const llmEnv = llmEnvFrom(process.env);
-const port = Number(process.env.PORT ?? 8787);
+const port = Number(envOf('PORT') ?? 8787);
 // Loopback by default: a deployment that must be reachable gives its address explicitly.
 const hostname = process.env.HOST?.trim() || '127.0.0.1';
 const app = createApp({
@@ -93,7 +93,10 @@ function logError(what: string) {
 recoverQueue(db);
 if (google) {
   const deps = { db, google: createGoogleClient({ db, now: clock, ...google }), now: clock };
+  // Read once for both loops: an invalid value is said once.
+  const intervalMs = syncIntervalMs();
   startSyncLoop(deps, {
+    intervalMs,
     // The sync queues the new mails; the triage drains the queue (also what waited for a resume).
     // The classifier is looked up at each pass: a key saved in the settings serves at once.
     onResult: () => triageNew({ ...deps, classifier: classifierFor(db, secretKey, llmEnv) }),
@@ -101,7 +104,7 @@ if (google) {
   });
   // The agenda has its own loop: a Gmail or AI failure never stops it.
   startLoop(() => syncAgenda(deps), {
-    intervalMs: Number(process.env.SYNC_INTERVAL_MS ?? 60_000),
+    intervalMs,
     onError: logError('Synchro Agenda'),
   });
 }

@@ -2,7 +2,7 @@ import type { DatabaseSync } from 'node:sqlite';
 import { emitEvent } from '../contract/events.ts';
 import { GoogleApiError, type GoogleClient } from '../google/client.ts';
 import { enqueue } from '../triage/queue.ts';
-import { startLoop } from '../util.ts';
+import { envOf, startLoop } from '../util.ts';
 import {
   getStoredMessage,
   getSyncState,
@@ -231,6 +231,23 @@ export async function syncGmail(deps: SyncDeps): Promise<SyncResult> {
 }
 
 /**
+ * `SYNC_INTERVAL_MS`, a minute when absent: digits only, from a second to the limit of a Node timer (beyond it, Node
+ * falls back to 1 ms). Anything else would sync without a pause and use up Google's quota: a minute then, and one
+ * line to say so.
+ */
+export function syncIntervalMs(
+  env: NodeJS.ProcessEnv = process.env,
+  log: (line: string) => void = console.log,
+): number {
+  const raw = envOf('SYNC_INTERVAL_MS', env);
+  if (raw === undefined) return 60_000;
+  const ms = Number(raw);
+  if (/^\d+$/.test(raw) && ms >= 1000 && ms <= 2_147_483_647) return ms;
+  log(`SYNC_INTERVAL_MS ignorée (« ${raw} ») : entier de 1000 à 2147483647 attendu, une minute par défaut.`);
+  return 60_000;
+}
+
+/**
  * Runs `syncGmail` every `intervalMs`, never two at a time; `onResult` receives each result (the
  * triage plugs in there). Errors are passed to `onError` and the loop goes on.
  */
@@ -248,7 +265,7 @@ export function startSyncLoop(
       await opts.onResult?.(result);
     },
     {
-      intervalMs: opts.intervalMs ?? Number(process.env.SYNC_INTERVAL_MS ?? 60_000),
+      intervalMs: opts.intervalMs ?? syncIntervalMs(),
       ...(opts.onError ? { onError: opts.onError } : {}),
     },
   );
