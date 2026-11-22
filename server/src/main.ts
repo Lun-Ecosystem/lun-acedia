@@ -28,7 +28,7 @@ import { expireCards } from './pina/agent.ts';
 import { dayOf, purge } from './pina/store.ts';
 import { triageNew } from './triage/pipeline.ts';
 import { recoverQueue } from './triage/queue.ts';
-import { startLoop } from './util.ts';
+import { envOf, startLoop } from './util.ts';
 
 // Paths are resolved from the repository root, whatever the working directory (npm -w runs in server/).
 const root = fileURLToPath(new URL('../../', import.meta.url));
@@ -38,7 +38,7 @@ if (existsSync(envFile)) process.loadEnvFile(envFile);
 const { version } = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as {
   version: string;
 };
-const dbPath = resolve(root, process.env.DB_PATH ?? 'data/acedia.db');
+const dbPath = resolve(root, envOf('DB_PATH') ?? 'data/acedia.db');
 const db = openDb(dbPath);
 const clock = () => new Date();
 const actions = new ActionRegistry();
@@ -52,7 +52,7 @@ const staticDir = existsSync(resolve(appDist, 'index.html')) ? appDist : undefin
 if (!staticDir) console.log('Front autonome absent : lancer « npm run build -w @lun-acedia/app ».');
 const secretKey = process.env.ACEDIA_SECRET_KEY || undefined;
 const llmEnv = llmEnvFrom(process.env);
-const port = Number(process.env.PORT ?? 8787);
+const port = Number(envOf('PORT') ?? 8787);
 // Loopback by default: a deployment that must be reachable gives its address explicitly.
 const hostname = process.env.HOST?.trim() || '127.0.0.1';
 const app = createApp({
@@ -101,7 +101,7 @@ if (google) {
   });
   // The agenda has its own loop: a Gmail or AI failure never stops it.
   startLoop(() => syncAgenda(deps), {
-    intervalMs: Number(process.env.SYNC_INTERVAL_MS ?? 60_000),
+    intervalMs: Number(envOf('SYNC_INTERVAL_MS') ?? 60_000),
     onError: logError('Synchro Agenda'),
   });
 }

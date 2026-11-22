@@ -2,7 +2,7 @@ import type { DatabaseSync } from 'node:sqlite';
 import { emitEvent } from '../contract/events.ts';
 import { GoogleApiError, type GoogleClient } from '../google/client.ts';
 import { enqueue } from '../triage/queue.ts';
-import { startLoop } from '../util.ts';
+import { envOf, startLoop } from '../util.ts';
 import {
   getStoredMessage,
   getSyncState,
@@ -248,7 +248,7 @@ export function startSyncLoop(
       await opts.onResult?.(result);
     },
     {
-      intervalMs: opts.intervalMs ?? Number(process.env.SYNC_INTERVAL_MS ?? 60_000),
+      intervalMs: opts.intervalMs ?? Number(envOf('SYNC_INTERVAL_MS') ?? 60_000),
       ...(opts.onError ? { onError: opts.onError } : {}),
     },
   );

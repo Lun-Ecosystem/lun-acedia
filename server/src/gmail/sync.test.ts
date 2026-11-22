@@ -1,12 +1,12 @@
 import { randomBytes } from 'node:crypto';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { eventsSince } from '../contract/events.ts';
 import { openDb } from '../db.ts';
 import { createGoogleClient, saveTokens } from '../google/client.ts';
 import { fakeFetch } from '../testing/fake-fetch.ts';
 import { FakeGmail, message } from '../testing/fake-gmail.ts';
 import { getStoredMessage, messageCount, upsertMessage } from './store.ts';
-import { syncGmail } from './sync.ts';
+import { startSyncLoop, syncGmail } from './sync.ts';
 
 const secretKey = randomBytes(32).toString('base64');
 const config = { clientId: 'id', clientSecret: 's', redirectUri: 'http://localhost/cb' };
@@ -151,5 +151,20 @@ describe('syncGmail', () => {
     const result = await s.sync();
     expect(result.added).toEqual([]);
     expect(getStoredMessage(s.db, 'ghost')).toBeUndefined();
+  });
+});
+
+describe('startSyncLoop', () => {
+  it('takes SYNC_INTERVAL_MS set but empty for an absent one: every minute, not without a pause', () => {
+    vi.stubEnv('SYNC_INTERVAL_MS', '');
+    const timers = vi.spyOn(globalThis, 'setInterval');
+    try {
+      // No Google behind: the first pass fails and goes to onError, the interval is what is looked at.
+      startSyncLoop({} as never, { onError: () => {} }).stop();
+      expect(timers).toHaveBeenCalledWith(expect.any(Function), 60_000);
+    } finally {
+      timers.mockRestore();
+      vi.unstubAllEnvs();
+    }
   });
 });

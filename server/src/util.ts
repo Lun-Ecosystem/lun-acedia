@@ -31,3 +31,7 @@ export function startLoop(
   void runNow();
   return { stop: () => clearInterval(timer), runNow };
 }
+
+/** An environment variable. Set but empty, or blank, counts as absent: an empty line of an env file gives ''. */
+export const envOf = (name: string, env: NodeJS.ProcessEnv = process.env): string | undefined =>
+  env[name]?.trim() || undefined;

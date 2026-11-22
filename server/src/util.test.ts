@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { startLoop } from './util.ts';
+import { envOf, startLoop } from './util.ts';
 
 describe('startLoop', () => {
   it('runs at once, never twice at a time, and keeps going after an error', async () => {
@@ -21,5 +21,15 @@ describe('startLoop', () => {
     await loop.runNow();
     expect(run).toHaveBeenCalledTimes(3);
     loop.stop();
+  });
+});
+
+describe('envOf', () => {
+  it('takes a variable set but empty, or blank, for an absent one', () => {
+    const env = { EMPTY: '', BLANK: ' 	', SET: ' ./data/x.db ' };
+    expect(envOf('EMPTY', env)).toBeUndefined();
+    expect(envOf('BLANK', env)).toBeUndefined();
+    expect(envOf('ABSENT', env)).toBeUndefined();
+    expect(envOf('SET', env)).toBe('./data/x.db');
   });
 });
