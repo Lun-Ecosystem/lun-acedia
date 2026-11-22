@@ -170,7 +170,7 @@ describe('startSyncLoop', () => {
 });
 
 describe('syncIntervalMs', () => {
-  it.each(['abc', '0', '-5', '1.5'])(
+  it.each(['abc', '0', '-5', '1.5', '1e3', '0x10', '1', '999', '2147483648'])(
     'takes SYNC_INTERVAL_MS=%s for a minute and says so: never a sync without a pause',
     (value) => {
       const log = vi.fn();
@@ -181,9 +181,11 @@ describe('syncIntervalMs', () => {
     },
   );
 
-  it('keeps a whole number of milliseconds above zero as it is, and says nothing', () => {
+  it('keeps digits from a second to the limit of a Node timer as they are, and says nothing', () => {
     const log = vi.fn();
+    expect(syncIntervalMs({ SYNC_INTERVAL_MS: '1000' }, log)).toBe(1000);
     expect(syncIntervalMs({ SYNC_INTERVAL_MS: '5000' }, log)).toBe(5000);
+    expect(syncIntervalMs({ SYNC_INTERVAL_MS: '2147483647' }, log)).toBe(2_147_483_647);
     expect(syncIntervalMs({ SYNC_INTERVAL_MS: '' }, log)).toBe(60_000);
     expect(syncIntervalMs({}, log)).toBe(60_000);
     expect(log).not.toHaveBeenCalled();

@@ -60,8 +60,10 @@ npm run pair-code       # dans un autre terminal, le code à saisir dans le fron
 ```
 
 Aucune dépendance au NAS : tout tourne sur le poste. Le serveur écoute sur `127.0.0.1` par défaut (`HOST` dans `.env`
-pour une autre adresse). Une variable laissée vide dans `.env` vaut absente : sa valeur par défaut s'applique. Le
-code d'appareil est à usage unique et vaut 10 minutes.
+pour une autre adresse). Une variable laissée vide dans `.env` vaut absente : sa valeur par défaut s'applique.
+`SYNC_INTERVAL_MS` règle la synchro de Gmail et de l'agenda, en millisecondes : de 1000 à 2147483647, en chiffres
+seulement ; toute autre valeur donne une minute, et le journal le dit. Le code d'appareil est à usage unique et vaut
+10 minutes.
 
 Le premier appareil : tant que rien n'est relié, la page ouverte à `http://localhost:8787` sur la machine qui héberge
 affiche son code, déjà saisi. Elle le demande par `POST /first-code`, hors de `/api` et du contrat, qui ne répond que
