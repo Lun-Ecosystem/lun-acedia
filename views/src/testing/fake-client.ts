@@ -90,8 +90,10 @@ export function fakeClient(opts: { mails?: MailSummary[]; journal?: JournalEntry
   const journaled = (change: LabelChange): JournaledChange => ({ ...change, journalId: nextJournalId++ });
   const boxes = () => LABELS.filter((l) => l.role === 'box').map((l) => l.id);
   const inView = (view: string, m: MailSummary) => {
-    if (view === 'inbox') return m.labels.includes('INBOX');
-    if (view === 'pending') return m.labels.includes('INBOX') && m.proposal?.status === 'pending';
+    // Like the server: INBOX without TRASH or SPAM (the trash may keep INBOX).
+    const inInbox = m.labels.includes('INBOX') && !m.labels.includes('TRASH') && !m.labels.includes('SPAM');
+    if (view === 'inbox') return inInbox;
+    if (view === 'pending') return inInbox && m.proposal?.status === 'pending';
     if (view.startsWith('box:')) return m.labels.includes(view.slice(4));
     return false;
   };
@@ -148,6 +150,12 @@ export function fakeClient(opts: { mails?: MailSummary[]; journal?: JournalEntry
       m.proposal = { boxId, tagIds, confidence: m.proposal?.confidence ?? 0, status: 'corrected' };
       return { ...m.proposal, journalId: nextJournalId++ };
     }),
+    // A refusal moves nothing: the mail stays in the inbox, its proposal leaves the queue.
+    refuse: vi.fn<AcediaClient['refuse']>(async (id: string) => {
+      const m = mails.find((x) => x.id === id)!;
+      m.proposal = { ...m.proposal!, status: 'refused' };
+      return { ...m.proposal, journalId: nextJournalId++ };
+    }),
     listLabels: vi.fn<AcediaClient['listLabels']>(async () => structuredClone(LABELS)),
     createLabel: vi.fn<AcediaClient['createLabel']>(notUsed),
     updateLabel: vi.fn<AcediaClient['updateLabel']>(notUsed),
@@ -156,7 +164,15 @@ export function fakeClient(opts: { mails?: MailSummary[]; journal?: JournalEntry
     deleteRule: vi.fn<AcediaClient['deleteRule']>(notUsed),
     journal: vi.fn<AcediaClient['journal']>(async () => ({ items: structuredClone(journal) })),
     undo: vi.fn<AcediaClient['undo']>(notUsed),
-    todayStats: vi.fn<AcediaClient['todayStats']>(async () => ({ autoFiled: 0, validated: 0, corrected: 0 })),
+    todayStats: vi.fn<AcediaClient['todayStats']>(async () => ({
+      autoFiled: 0,
+      ai: 0,
+      rule: 0,
+      validated: 0,
+      corrected: 0,
+      refused: 0,
+      agent: 0,
+    })),
     getSettings: vi.fn<AcediaClient['getSettings']>(async () => ({ threshold: 100, bulkThreshold: 85 })),
     updateSettings: vi.fn<AcediaClient['updateSettings']>(async (patch) => ({
       threshold: patch.threshold ?? 100,
