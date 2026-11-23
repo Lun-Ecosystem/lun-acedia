@@ -417,6 +417,8 @@ export async function refuse(deps: ActionDeps, id: string): Promise<Proposal & {
   const labels = current.labelIds ?? [];
   if (!labels.includes('INBOX') || labels.includes('TRASH') || labels.includes('SPAM'))
     throw new ConflictError('Ce mail n’est plus en boîte de réception');
+  // Read again after the await: the proposal may have been settled meanwhile (a double click).
+  pendingProposal(deps.db, id);
   const previous = snapshot(deps.db, id);
   setProposalStatus(deps.db, id, 'refused');
   const journalId = logUser(deps.db, changeOf(deps, id, undefined), 'refuse', deps.now(), previous);

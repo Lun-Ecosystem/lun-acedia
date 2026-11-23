@@ -16,6 +16,7 @@
     Clock,
     Eye,
     ICON_STROKE,
+    Pencil,
     Sparkles,
     Trash,
     X,
@@ -26,6 +27,8 @@
   import { bindShortcuts } from '../ui/shortcuts.ts';
   import Skeleton from '../ui/Skeleton.svelte';
   import TextInput from '../ui/TextInput.svelte';
+  import Tooltip from '../ui/Tooltip.svelte';
+  import { mergeProps } from 'svelte-toolbelt';
   import { toast } from '../ui/toasts.svelte.ts';
   import Avatar from './Avatar.svelte';
   import CorrectPanel from './CorrectPanel.svelte';
@@ -572,9 +575,7 @@
                 </div>
                 <div class="actions">
                   <span class="propo-m">
-                    <Sparkles size={13} strokeWidth={ICON_STROKE} aria-hidden="true" /><span
-                      >{name} · {c}&nbsp;%</span
-                    >
+                    <Sparkles size={13} strokeWidth={ICON_STROKE} aria-hidden="true" />{name} · {c}&nbsp;%
                   </span>
                   <span class="jauge">
                     <span class="barre" aria-hidden="true"><span style:width="{c}%"></span></span>
@@ -597,15 +598,30 @@
                       onclick={() => refuse(m)}
                     />
                   {/if}
-                  <Button
-                    variant="secondaire"
-                    size="petit"
-                    class="corriger"
-                    aria-haspopup="dialog"
-                    aria-keyshortcuts="C"
-                    onclick={(event) => openCorrect([m], event.currentTarget)}
-                    >Corriger<ChevronDown size={14} strokeWidth={ICON_STROKE} aria-hidden="true" /></Button
-                  >
+                  <Tooltip label="Corriger" shortcut="C">
+                    {#snippet children({ props })}
+                      <Button
+                        {...mergeProps(props, {
+                          onclick: (event: MouseEvent & { currentTarget: HTMLElement }) =>
+                            openCorrect([m], event.currentTarget),
+                        })}
+                        variant="secondaire"
+                        size="petit"
+                        class="corriger"
+                        aria-label="Corriger"
+                        aria-haspopup="dialog"
+                        aria-keyshortcuts="C"
+                        ><Pencil size={15} strokeWidth={ICON_STROKE} class="crayon" aria-hidden="true" /><span
+                          class="mot">Corriger</span
+                        ><ChevronDown
+                          size={14}
+                          strokeWidth={ICON_STROKE}
+                          class="chevron"
+                          aria-hidden="true"
+                        /></Button
+                      >
+                    {/snippet}
+                  </Tooltip>
                   {#if onopen}
                     <IconButton
                       icon={Eye}
@@ -880,7 +896,8 @@
     clip-path: inset(50%);
     white-space: nowrap;
   }
-  .propo-m {
+  .propo-m,
+  .actions :global(.corriger .crayon) {
     display: none;
   }
   .fond {
@@ -1019,21 +1036,22 @@
       color: var(--ia);
       font-size: 11.5px;
       white-space: nowrap;
-      /* Four controls at 390 px: a long box name gives way, the buttons keep their width. */
-      min-width: 0;
-    }
-    .propo-m :global(svg) {
-      flex: none;
-    }
-    .propo-m span {
-      overflow: hidden;
-      text-overflow: ellipsis;
     }
     .actions :global(.valider) {
       order: 2;
     }
-    .actions :global(.corriger svg) {
+    /* Four controls do not fit at 390 px: « Corriger » keeps its name for screen readers and the tooltip. */
+    .actions :global(.corriger) {
+      justify-content: center;
+      width: 28px;
+      padding: 0;
+    }
+    .actions :global(.corriger .mot),
+    .actions :global(.corriger .chevron) {
       display: none;
+    }
+    .actions :global(.corriger .crayon) {
+      display: block;
     }
     .fond {
       position: absolute;

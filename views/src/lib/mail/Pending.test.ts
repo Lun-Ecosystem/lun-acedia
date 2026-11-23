@@ -261,7 +261,8 @@ describe('Pending', () => {
     });
   });
 
-  it('does not list a pending mail that went to the trash or spam while keeping INBOX', async () => {
+  // The server's own proof is in `routes.test.ts`: this one keeps the fake client in line with it.
+  it('the fake client leaves out of the queue a mail in the trash or spam that keeps INBOX', async () => {
     const trashed = proposed(1, 'L-ecole', 72);
     trashed.labels = ['INBOX', 'TRASH'];
     const spammed = proposed(2, 'L-ecole', 80);

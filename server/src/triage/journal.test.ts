@@ -4,8 +4,8 @@ import { getStoredMessage } from '../gmail/store.ts';
 import { message } from '../testing/fake-gmail.ts';
 import { makeGmailHarness } from '../testing/gmail-harness.ts';
 import { getExample } from './examples.ts';
-import { logAuto, parisDayStart, todayStats } from './journal.ts';
-import { getProposal } from './pipeline.ts';
+import { ConflictError, logAuto, parisDayStart, todayStats } from './journal.ts';
+import { getProposal, refuse } from './pipeline.ts';
 import { claim, saveProposal } from './proposals.ts';
 
 async function setup() {
@@ -432,6 +432,24 @@ describe('refuse a proposal', () => {
     expect(res.status).toBe(409);
     expect(getProposal(s.h.db, 'm1')?.status).toBe('pending');
     expect(await lines(s)).toEqual([]);
+  });
+
+  // A double click: a second refusal settles the proposal while the first one reads Gmail.
+  it('answers 409 when the proposal is settled while Gmail is read, and writes nothing', async () => {
+    const s = await pending();
+    const google = s.h.deps.google;
+    let slipped = false;
+    const racing = Object.create(google) as typeof google;
+    racing.request = (async (...args: Parameters<typeof google.request>) => {
+      if (!slipped) {
+        slipped = true;
+        expect((await s.h.call('POST', '/api/mail/m1/refuse')).status).toBe(200);
+      }
+      return google.request(...args);
+    }) as typeof google.request;
+    await expect(refuse({ ...s.h.deps, google: racing }, 'm1')).rejects.toBeInstanceOf(ConflictError);
+    expect(getProposal(s.h.db, 'm1')?.status).toBe('refused');
+    expect((await lines(s)).map((l) => l.action)).toEqual(['refuse']);
   });
 
   it('undo puts the proposal back in the queue without touching Gmail', async () => {
