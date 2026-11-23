@@ -572,7 +572,9 @@
                 </div>
                 <div class="actions">
                   <span class="propo-m">
-                    <Sparkles size={13} strokeWidth={ICON_STROKE} aria-hidden="true" />{name} · {c}&nbsp;%
+                    <Sparkles size={13} strokeWidth={ICON_STROKE} aria-hidden="true" /><span
+                      >{name} · {c}&nbsp;%</span
+                    >
                   </span>
                   <span class="jauge">
                     <span class="barre" aria-hidden="true"><span style:width="{c}%"></span></span>
@@ -1017,6 +1019,15 @@
       color: var(--ia);
       font-size: 11.5px;
       white-space: nowrap;
+      /* Four controls at 390 px: a long box name gives way, the buttons keep their width. */
+      min-width: 0;
+    }
+    .propo-m :global(svg) {
+      flex: none;
+    }
+    .propo-m span {
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
     .actions :global(.valider) {
       order: 2;
