@@ -1,8 +1,9 @@
 import { render, screen, waitFor, within } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ApiError } from '../client.ts';
-import { fakeClient } from '../../testing/fake-client.ts';
+import { agentIdentity } from '../pina/identity.svelte.ts';
+import { fakeClient, LABELS } from '../../testing/fake-client.ts';
 import type { JournalEntry, Origin } from '../types.ts';
 import Journal from './Journal.svelte';
 
@@ -237,5 +238,222 @@ describe('Journal', () => {
     await user.click(await screen.findByRole('button', { name: 'Réessayer' }));
     expect(screen.getByLabelText('Chargement du journal')).toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: 'Rien pour l’instant' })).toBeNull();
+  });
+});
+
+/* Who decided, and what happened: plan 2026-11-23-journal-acedia, « Les textes, validés par CrOliX ». */
+const BOXES = [
+  ...LABELS,
+  { id: 'L-factures', name: 'Factures', type: 'user' as const, role: 'box' as const },
+  { id: 'L-voyages', name: 'Voyages', type: 'user' as const, role: 'box' as const },
+  { id: 'L-news', name: 'Newsletters', type: 'user' as const, role: 'box' as const },
+];
+
+async function openWithBoxes(journal: JournalEntry[]) {
+  const fake = fakeClient({ journal });
+  fake.client.listLabels.mockResolvedValue(structuredClone(BOXES));
+  const user = userEvent.setup();
+  render(Journal, { props: { client: fake.client } });
+  await screen.findByText(journal[0]!.subject);
+  // The labels arrive after the lines: let them land before reading a box name.
+  await waitFor(() => expect(fake.client.listLabels).toHaveBeenCalled());
+  await new Promise((r) => setTimeout(r, 0));
+  return { ...fake, user };
+}
+
+afterEach(() => {
+  agentIdentity.name = 'Agent';
+});
+
+const to = (box: string) => ({ before: ['INBOX'], after: [box] });
+type Row = [string, Origin, string, Partial<JournalEntry>, string, string];
+const CASES: Row[] = [
+  ['1 AI files', 'ai', 'file', to('L-voyages'), 'Rangé dans Voyages par l’IA', 'IA'],
+  ['1 AI spam', 'ai', 'spam', to('SPAM'), 'Envoyé en Spam par l’IA', 'IA'],
+  ['1 AI trash', 'ai', 'trash', to('TRASH'), 'Mis à la corbeille par l’IA', 'IA'],
+  [
+    '2 validated to a box',
+    'user',
+    'validate',
+    to('L-factures'),
+    'Rangé dans Factures, proposition de l’IA validée',
+    'IA',
+  ],
+  [
+    '2 validated to spam',
+    'user',
+    'validate',
+    to('SPAM'),
+    'Envoyé en Spam, proposition de l’IA validée',
+    'IA',
+  ],
+  [
+    '2 validated, left in the inbox',
+    'user',
+    'validate',
+    { before: ['INBOX'], after: ['INBOX'] },
+    'Laissé en boîte de réception, proposition de l’IA validée',
+    'IA',
+  ],
+  [
+    '3 corrected to a box',
+    'user',
+    'correct',
+    to('L-perso'),
+    'Rangé dans Perso, proposition de l’IA corrigée',
+    'À la main',
+  ],
+  [
+    '3 corrected to the trash (INBOX kept)',
+    'user',
+    'correct',
+    { before: ['INBOX'], after: ['INBOX', 'TRASH'] },
+    'Mis à la corbeille, proposition de l’IA corrigée',
+    'À la main',
+  ],
+  ['4 direct file', 'user', 'file', to('L-perso'), 'Rangé dans Perso à la main', 'À la main'],
+  ['4 direct archive', 'user', 'archive', { before: ['INBOX'], after: [] }, 'Archivé à la main', 'À la main'],
+  [
+    '4 direct trash',
+    'user',
+    'trash',
+    { before: ['INBOX'], after: ['INBOX', 'TRASH'] },
+    'Mis à la corbeille à la main',
+    'À la main',
+  ],
+  ['4 direct spam', 'user', 'spam', to('SPAM'), 'Envoyé en Spam à la main', 'À la main'],
+  ['5 rule', 'rule', 'file', to('L-news'), 'Rangé dans Newsletters par une règle', 'Règle'],
+  ['6 agent files', 'pina', 'file', to('L-perso'), 'Rangé dans Perso par Agent', 'Agent'],
+  [
+    '6 agent validates',
+    'pina',
+    'validate',
+    to('L-factures'),
+    'Rangé dans Factures, proposition de l’IA validée par Agent',
+    'Agent',
+  ],
+  [
+    '6 agent corrects',
+    'pina',
+    'correct',
+    to('L-perso'),
+    'Rangé dans Perso, proposition de l’IA corrigée par Agent',
+    'Agent',
+  ],
+];
+
+describe('Journal: who decided', () => {
+  it.each(CASES)('%s', async (_name, origin, action, extra, text, icon) => {
+    await openWithBoxes([entry(1, origin, { action, ...extra })]);
+    expect(rowOf('Sujet 1')).toHaveTextContent(text);
+    expect(within(rowOf('Sujet 1')).getByRole('img', { name: icon })).toBeInTheDocument();
+  });
+
+  it('7 an undone validation shows the time and the badge', async () => {
+    await openWithBoxes([
+      entry(1, 'user', {
+        action: 'validate',
+        ...to('L-factures'),
+        at: at(0, 18, 30),
+        undoneAt: at(0, 18, 41),
+      }),
+    ]);
+    expect(rowOf('Sujet 1')).toHaveTextContent(
+      'Rangé dans Factures, proposition de l’IA validée · annulé à 18:41',
+    );
+    expect(within(rowOf('Sujet 1')).getByText('Annulé')).toBeInTheDocument();
+  });
+
+  it('7 an undone line of a later day shows the date', async () => {
+    await openWithBoxes([
+      entry(1, 'user', { action: 'validate', ...to('L-factures'), at: at(3, 18, 30), undoneAt: at(0, 9, 0) }),
+    ]);
+    const day = new Date(at(0, 9, 0)).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' });
+    expect(rowOf('Sujet 1')).toHaveTextContent(
+      `Rangé dans Factures, proposition de l’IA validée · annulé le ${day}`,
+    );
+  });
+
+  it('a correction to the box the mail came from is a filing, not an archive', async () => {
+    await openWithBoxes([
+      entry(1, 'user', { action: 'correct', before: ['INBOX', 'L-ecole'], after: ['L-ecole'] }),
+    ]);
+    expect(rowOf('Sujet 1')).toHaveTextContent('Rangé dans École, proposition de l’IA corrigée');
+    expect(rowOf('Sujet 1')).not.toHaveTextContent('Archivé');
+  });
+
+  it('a validation that loses INBOX without a box is an archive, not « Laissé »', async () => {
+    await openWithBoxes([entry(1, 'user', { action: 'validate', before: ['INBOX'], after: [] })]);
+    expect(rowOf('Sujet 1')).toHaveTextContent('Archivé, proposition de l’IA validée');
+    expect(rowOf('Sujet 1')).not.toHaveTextContent('Laissé en boîte de réception');
+  });
+
+  it('a manual file to the proposed box stays a direct gesture', async () => {
+    await openWithBoxes([entry(1, 'user', { action: 'file', before: ['INBOX'], after: ['L-ecole'] })]);
+    expect(rowOf('Sujet 1')).toHaveTextContent('Rangé dans École à la main');
+    expect(rowOf('Sujet 1')).not.toHaveTextContent('proposition');
+    expect(within(rowOf('Sujet 1')).getByRole('img', { name: 'À la main' })).toBeInTheDocument();
+  });
+
+  it('reads out the same text, word for word', async () => {
+    await openWithBoxes([
+      entry(1, 'user', {
+        subject: 'Facture d’octobre',
+        action: 'validate',
+        ...to('L-factures'),
+        at: at(0, 18, 30),
+        undoneAt: at(0, 18, 41),
+      }),
+      entry(2, 'user', {
+        subject: 'Nouveautés d’octobre',
+        action: 'correct',
+        before: ['INBOX'],
+        after: ['INBOX', 'TRASH'],
+      }),
+      entry(3, 'pina', { subject: 'Photos du week-end', action: 'file', ...to('L-perso') }),
+    ]);
+    for (const name of [
+      'Facture d’octobre : rangé dans Factures, proposition de l’IA validée, annulé à 18:41',
+      'Nouveautés d’octobre : mis à la corbeille, proposition de l’IA corrigée',
+      'Photos du week-end : rangé dans Perso par Agent',
+    ])
+      expect(screen.getByRole('group', { name })).toBeInTheDocument();
+  });
+
+  describe('filters', () => {
+    const rows = () => [
+      entry(1, 'ai'),
+      entry(2, 'user', { action: 'validate' }),
+      entry(3, 'user', { action: 'correct' }),
+      entry(4, 'user', { action: 'file' }),
+      entry(5, 'user', { action: 'archive', after: [] }),
+      entry(6, 'rule'),
+      entry(7, 'pina'),
+      entry(8, 'pina', { action: 'validate' }),
+      entry(9, 'pina', { action: 'correct' }),
+      entry(10, 'ai', { undoneAt: at(0, 10, 59) }),
+    ];
+    const group = () => screen.getByRole('group', { name: 'Filtrer le journal' });
+
+    it('has six chips in order, the agent under its own name', async () => {
+      agentIdentity.name = 'Lune';
+      await openWithBoxes(rows());
+      const names = within(group())
+        .getAllByRole('button')
+        .map((b) => b.textContent?.trim());
+      expect(names).toEqual(['Tout', 'IA', 'À la main', 'Règles', 'Lune', 'Annulés']);
+    });
+
+    it.each([
+      ['IA', ['Sujet 1', 'Sujet 2', 'Sujet 10']],
+      ['À la main', ['Sujet 3', 'Sujet 4', 'Sujet 5']],
+      ['Règles', ['Sujet 6']],
+      ['Agent', ['Sujet 7', 'Sujet 8', 'Sujet 9']],
+      ['Annulés', ['Sujet 10']],
+    ])('%s keeps only its own lines', async (label, expected) => {
+      const { user } = await openWithBoxes(rows());
+      await user.click(within(group()).getByRole('button', { name: label }));
+      expect(subjects()).toEqual(expected);
+    });
   });
 });
