@@ -146,9 +146,15 @@
 
   /** Who, after the place: « par l’IA », or for a proposal « , proposition de l’IA validée[ par Agent] ». */
   function by(e: JournalEntry) {
-    if (e.action !== 'validate' && e.action !== 'correct') return ` ${ORIGINS[e.origin].by}`;
+    const verdicts: Record<string, string | undefined> = {
+      validate: 'validée',
+      correct: 'corrigée',
+      refuse: 'refusée',
+    };
+    const verdict = verdicts[e.action ?? ''];
+    if (!verdict) return ` ${ORIGINS[e.origin].by}`;
     const agent = e.origin === 'pina' ? ` ${ORIGINS.pina.by}` : '';
-    return `, proposition de l’IA ${e.action === 'validate' ? 'validée' : 'corrigée'}${agent}`;
+    return `, proposition de l’IA ${verdict}${agent}`;
   }
 
   /** What a screen reader says of a focused row: « Sujet 1 : rangé dans École par l’IA ». */

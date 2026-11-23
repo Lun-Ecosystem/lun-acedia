@@ -110,6 +110,8 @@ export interface AcediaClient {
   sendDraft(id: string): Promise<{ id: string; threadId: string }>;
   sendAs(replyTo?: string): Promise<{ addresses: SendAsAddress[]; default: string }>;
   validate(id: string): Promise<ProposalView & { journalId: number }>;
+  /** Says no to the proposal: the mail stays in the inbox, the proposal leaves the queue. */
+  refuse(id: string): Promise<ProposalView & { journalId: number }>;
   correct(
     id: string,
     boxId: string,
@@ -320,6 +322,7 @@ export function httpClient(opts: { baseUrl: string; token: string; fetch?: typeo
     sendDraft: (id) => call('POST', `/api/drafts/${enc(id)}/send`, {}),
     sendAs: (replyTo) => call('GET', `/api/send-as${replyTo ? `?replyTo=${enc(replyTo)}` : ''}`),
     validate: (id) => call('POST', `/api/mail/${enc(id)}/validate`, {}),
+    refuse: (id) => call('POST', `/api/mail/${enc(id)}/refuse`, {}),
     correct: (id, boxId, tagIds, opts) =>
       call('POST', `/api/mail/${enc(id)}/correct`, { boxId, tagIds, ...opts }),
     listLabels: async () => (await call<{ labels: LabelView[] }>('GET', '/api/labels')).labels,

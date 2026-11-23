@@ -7,7 +7,19 @@
   import Dialog from '../ui/Dialog.svelte';
   import EmptyState from '../ui/EmptyState.svelte';
   import Field from '../ui/Field.svelte';
-  import { Ban, Check, ChevronDown, Clock, Eye, ICON_STROKE, Sparkles, Trash, X } from '../ui/Icon.ts';
+  import { agentIdentity } from '../pina/identity.svelte.ts';
+  import {
+    Ban,
+    Check,
+    ChevronDown,
+    CircleSlash,
+    Clock,
+    Eye,
+    ICON_STROKE,
+    Sparkles,
+    Trash,
+    X,
+  } from '../ui/Icon.ts';
   import IconButton from '../ui/IconButton.svelte';
   import Menu from '../ui/Menu.svelte';
   import { setScreenContext, shellOf } from '../ui/shell.ts';
@@ -246,6 +258,25 @@
     return act(mails, (m) => client.correct(m.id, boxId, tagIds, { rememberSender }), message);
   }
 
+  /** « Non, pas ça »: the mail stays in the inbox, nothing is learnt. */
+  function refuse(m: MailSummary) {
+    return act([m], (x) => client.refuse(x.id), `Proposition refusée : ${sender(m.from)}`);
+  }
+
+  /** The tiles of the emptied queue, those at zero left out. */
+  const tiles = $derived.by(() => {
+    if (!stats) return [];
+    const all: [number, string][] = [
+      [stats.ai, plural(stats.ai, 'rangé seul par l’IA', 'rangés seuls par l’IA')],
+      [stats.rule, 'par une règle'],
+      [stats.validated, plural(stats.validated, 'validé', 'validés')],
+      [stats.corrected, plural(stats.corrected, 'corrigé', 'corrigés')],
+      [stats.refused, plural(stats.refused, 'refusé', 'refusés')],
+      [stats.agent, `par ${agentIdentity.name}`],
+    ];
+    return all.filter(([n]) => n > 0);
+  });
+
   function openCorrect(mails: MailSummary[], anchor: HTMLElement | null) {
     correcting = { open: true, anchor, mails };
   }
@@ -432,13 +463,11 @@
         message="Toutes les propositions sont traitées. Les prochains mails incertains arriveront ici."
         size="grand"
       >
-        {#if stats}
+        {#if tiles.length}
           <div class="stats">
-            <div class="stat">
-              <b>{stats.autoFiled}</b>{plural(stats.autoFiled, 'rangé seul', 'rangés seuls')} aujourd’hui
-            </div>
-            <div class="stat"><b>{stats.validated}</b>{plural(stats.validated, 'validé', 'validés')}</div>
-            <div class="stat"><b>{stats.corrected}</b>{plural(stats.corrected, 'corrigé', 'corrigés')}</div>
+            {#each tiles as [n, label], i (i)}
+              <div class="stat"><b>{n}</b>{label}{i === 0 ? ' aujourd’hui' : ''}</div>
+            {/each}
           </div>
         {/if}
         {#if onjournal}
@@ -505,7 +534,10 @@
                 tabindex={m === active ? 0 : -1}
                 style:transform={dx ? `translateX(${dx}px)` : undefined}
                 onfocus={() => (current = m.id)}
-                onclick={() => (current = m.id)}
+                onclick={() => {
+                  // A click on its own button has already taken the card out and moved the keyboard on.
+                  if (items.some((x) => x.id === m.id)) current = m.id;
+                }}
                 onkeydown={(event) => {
                   if (event.target !== event.currentTarget) return;
                   if (event.key === 'Enter') onopen?.(m.id);
@@ -554,6 +586,15 @@
                     aria-keyshortcuts="V"
                     onclick={() => validate([m])}>Valider</Button
                   >
+                  {#if m.proposal?.boxId}
+                    <IconButton
+                      icon={CircleSlash}
+                      label="Refuser la proposition"
+                      size="petit"
+                      class="refuser"
+                      onclick={() => refuse(m)}
+                    />
+                  {/if}
                   <Button
                     variant="secondaire"
                     size="petit"

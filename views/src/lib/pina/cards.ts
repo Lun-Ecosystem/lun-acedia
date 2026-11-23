@@ -21,6 +21,7 @@ const ICONS: Record<string, IconComponent> = {
   'mail.untrash': icons.Inbox,
   'mail.spam': icons.Ban,
   'mail.validate': icons.Check,
+  'mail.refuse': icons.CircleSlash,
   'mail.markRead': icons.Mail,
   'mail.tags': icons.Tag,
   'event.create': icons.Calendar,
