@@ -406,7 +406,7 @@ describe('Settings', () => {
     const card = screen.getByRole('region', { name: 'Compte Google' });
     expect(
       await within(card).findByText(
-        /Seul le compte Google qui a créé le projet d'Acedia peut se connecter\./,
+        /Seul le compte Google qui a créé le projet d’Acedia peut se connecter\./,
       ),
     ).toBeInTheDocument();
     expect(within(card).getByRole('button', { name: 'Connecter un compte Google' })).toBeInTheDocument();

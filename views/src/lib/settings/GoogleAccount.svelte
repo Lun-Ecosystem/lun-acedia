@@ -68,7 +68,7 @@
   {:else if status}
     <SettingsRow
       label="Aucun compte"
-      hint="Gmail, Agenda et Tâches sont inaccessibles. Seul le compte Google qui a créé le projet d'Acedia peut se connecter."
+      hint="Gmail, Agenda et Tâches sont inaccessibles. Seul le compte Google qui a créé le projet d’Acedia peut se connecter."
     >
       <Button variant="principal" size="petit" onclick={connect}>Connecter un compte Google</Button>
     </SettingsRow>
