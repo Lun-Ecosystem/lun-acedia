@@ -389,12 +389,27 @@ describe('Settings', () => {
     const card = screen.getByRole('region', { name: 'Compte Google' });
     expect(await within(card).findByText('moi@example.com')).toBeInTheDocument();
     expect(within(card).getByText('Connecté')).toBeInTheDocument();
+    expect(
+      within(card).getByText('Gmail (lecture, modification, envoi, adresses d’envoi) · Agenda · Tâches'),
+    ).toBeInTheDocument();
     client.googleStatus.mockResolvedValueOnce({ connected: false });
     await user.click(within(card).getByRole('button', { name: 'Déconnecter' }));
     expect(client.googleDisconnect).not.toHaveBeenCalled();
     await user.click(within(await dialog()).getByRole('button', { name: 'Déconnecter le compte' }));
     expect(client.googleDisconnect).toHaveBeenCalled();
     expect(await within(card).findByText('Non connecté')).toBeInTheDocument();
+  });
+
+  it('without an account, says which Google account can connect before any click', async () => {
+    const { go } = await open((c) => c.googleStatus.mockResolvedValue({ connected: false }));
+    await go('Compte Google');
+    const card = screen.getByRole('region', { name: 'Compte Google' });
+    expect(
+      await within(card).findByText(
+        /Seul le compte Google qui a créé le projet d’Acedia peut se connecter\./,
+      ),
+    ).toBeInTheDocument();
+    expect(within(card).getByRole('button', { name: 'Connecter un compte Google' })).toBeInTheDocument();
   });
 
   it('a refused key shows a banner with « Remplacer la clé » on the sorting pages', async () => {
