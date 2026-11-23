@@ -21,7 +21,7 @@ import { header, upsertMessage, viewFilter } from '../gmail/store.ts';
 import type { MailDetail } from '../types.ts';
 import { listJournal, todayStats, undo } from '../triage/journal.ts';
 import { createLabel, listLabels, setRole } from '../triage/labels.ts';
-import { afterUserAction, correct, validate, withProposal } from '../triage/pipeline.ts';
+import { afterUserAction, correct, refuse, validate, withProposal } from '../triage/pipeline.ts';
 import { createRule, deleteRule, listRules, updateRule } from '../triage/rules.ts';
 import { RoleSchema, RuleSchema } from '../triage/routes.ts';
 import { cardText } from '../pina/lines.ts';
@@ -146,6 +146,13 @@ export function registerCatalog(
     'Range un mail autrement que proposé (boîte, `trash` ou `spam`, et étiquettes).',
     z.object({ id: Id, boxId: Id, tagIds: z.array(Id).default([]) }),
     ({ id, boxId, tagIds }) => correct(mail(), id, boxId, tagIds),
+  );
+  add(
+    'write',
+    'mail.refuse',
+    'Refuse la proposition de tri d’un mail : il reste en boîte de réception.',
+    z.object({ id: Id }),
+    ({ id }) => refuse(mail(), id),
   );
 
   add(

@@ -45,6 +45,7 @@ export const PARITY: Record<string, Parity> = {
   'POST /api/mail/:id/tags': { action: 'mail.tags' },
   'POST /api/mail/:id/validate': { action: 'mail.validate' },
   'POST /api/mail/:id/correct': { action: 'mail.correct' },
+  'POST /api/mail/:id/refuse': { action: 'mail.refuse' },
   'POST /api/drafts': { action: 'draft.create' },
   'GET /api/drafts/:id': { action: 'draft.read' },
   'PUT /api/drafts/:id': { action: 'draft.update' },

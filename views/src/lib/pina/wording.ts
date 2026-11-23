@@ -162,6 +162,8 @@ export function describe(card: { action: string; input: unknown }, names: Names)
         fields: mail(),
         done: 'Proposition validée',
       };
+    case 'mail.refuse':
+      return { title: 'Refuser la proposition de tri', fields: mail(), done: 'Proposition refusée' };
     case 'mail.markRead':
       return input.read === false
         ? { title: 'Marquer comme non lu', fields: mail(), done: 'Marqué comme non lu' }

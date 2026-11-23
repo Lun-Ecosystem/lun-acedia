@@ -119,11 +119,14 @@ export const PAGE_SIZE = 50;
 
 const has = (label: string) => `EXISTS (SELECT 1 FROM json_each(label_ids) WHERE value = '${label}')`;
 
+/** In the inbox as Gmail lists it: the trash and the spam are left out, whatever became of `INBOX`. */
+const inInbox = `${has('INBOX')} AND NOT ${has('TRASH')} AND NOT ${has('SPAM')}`;
+
 /** SQL condition and parameters for each view of the mailbox. */
 export function viewFilter(view: string): { where: string; params: string[] } | undefined {
   switch (view) {
     case 'inbox':
-      return { where: has('INBOX'), params: [] };
+      return { where: inInbox, params: [] };
     case 'trash':
       return { where: has('TRASH'), params: [] };
     case 'spam':
@@ -132,7 +135,7 @@ export function viewFilter(view: string): { where: string; params: string[] } | 
       return { where: `${has('SENT')} AND NOT ${has('TRASH')}`, params: [] };
     case 'pending':
       return {
-        where: `${has('INBOX')} AND EXISTS (SELECT 1 FROM proposals p WHERE p.message_id = messages.id AND p.status = 'pending')`,
+        where: `${inInbox} AND EXISTS (SELECT 1 FROM proposals p WHERE p.message_id = messages.id AND p.status = 'pending')`,
         params: [],
       };
     case 'drafts':

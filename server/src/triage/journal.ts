@@ -16,7 +16,7 @@ import { setProposalStatus, type ProposalStatus } from './proposals.ts';
 
 export type { Origin, JournalEntry };
 
-export type UserAction = 'validate' | 'correct' | 'file' | 'archive' | 'trash' | 'spam';
+export type UserAction = 'validate' | 'correct' | 'refuse' | 'file' | 'archive' | 'trash' | 'spam';
 
 /** The state an undo puts back besides the labels. */
 export interface Previous {
@@ -230,12 +230,24 @@ export function todayStats(db: DatabaseSync, now: Date): TodayStats {
     action: string;
     n: number;
   }[];
-  const stats: TodayStats = { autoFiled: 0, validated: 0, corrected: 0 };
+  const stats: TodayStats = {
+    autoFiled: 0,
+    ai: 0,
+    rule: 0,
+    validated: 0,
+    corrected: 0,
+    refused: 0,
+    agent: 0,
+  };
   for (const r of rows) {
     if (r.origin === 'user') {
       if (r.action === 'validate') stats.validated += r.n;
       if (r.action === 'correct') stats.corrected += r.n;
-    } else if (r.origin !== 'pina') stats.autoFiled += r.n;
+      if (r.action === 'refuse') stats.refused += r.n;
+    } else if (r.origin === 'pina') {
+      if (r.action === 'validate' || r.action === 'correct' || r.action === 'refuse') stats.agent += r.n;
+    } else stats[r.origin] += r.n;
   }
+  stats.autoFiled = stats.ai + stats.rule;
   return stats;
 }

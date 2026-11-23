@@ -192,8 +192,8 @@ const MAILS: Mail[] = [
   },
 ];
 
-// Only for the screens (not `pina: false`): m17 waits in « À valider » until validated, m16 arrives after the triage
-// and goes to the trash by hand. The evaluation's inbox stays as its scenarios were written against.
+// Only for the screens (not `pina: false`): m17 waits in « À valider » until validated, m18 until refused, m16 arrives
+// after the triage and goes to the trash by hand. The evaluation's inbox stays as its scenarios were written against.
 const JOURNAL_MAILS: Mail[] = [
   {
     id: 'm16',
@@ -212,6 +212,18 @@ const JOURNAL_MAILS: Mail[] = [
       box: SPAM,
       confidence: 80,
       reason: 'Promesse d’argent d’un inconnu, coordonnées bancaires demandées.',
+    },
+  },
+  {
+    id: 'm18',
+    from: 'Atelier Bois <contact@atelier-bois.example.org>',
+    subject: 'Votre devis pour la terrasse',
+    body: 'Voici le devis demandé pour la terrasse. Il reste valable un mois.',
+    ago: 3 * D,
+    ai: {
+      box: 'Factures',
+      confidence: 72,
+      reason: 'Montant et artisan : ressemble à une facture.',
     },
   },
 ];
@@ -532,7 +544,7 @@ export async function createDemo(opts: { staticDir?: string; keyRefused?: boolea
       }),
     );
   };
-  for (const m of screens ? [...MAILS, JOURNAL_MAILS[1]!] : MAILS) deliver(m);
+  for (const m of screens ? [...MAILS, ...JOURNAL_MAILS.slice(1)] : MAILS) deliver(m);
   const { added } = await syncGmail(deps);
   await triageNew({ ...deps, classifier: scriptedClassifier }, added);
   if (screens) {
@@ -551,6 +563,7 @@ export async function createDemo(opts: { staticDir?: string; keyRefused?: boolea
     await call('POST', '/api/mail/m17/validate');
     await call('POST', '/api/mail/m15/correct', { boxId: 'trash' });
     await call('POST', '/api/mail/batch', { ids: ['m16'], op: { kind: 'trash' } });
+    await call('POST', '/api/mail/m18/refuse');
     const journal = (await call('GET', '/api/journal')).items as { id: number; messageId: string }[];
     await call('POST', `/api/journal/${journal.find((e) => e.messageId === 'm08')!.id}/undo`);
   }

@@ -14,7 +14,7 @@ export interface ProposalView {
   boxId: string | null;
   tagIds: string[];
   confidence: number;
-  status: 'pending' | 'auto' | 'accepted' | 'corrected';
+  status: 'pending' | 'auto' | 'accepted' | 'corrected' | 'refused';
   /** Why the AI proposed this box (160 characters at most); absent for a rule or an older proposal. */
   reason?: string;
 }
@@ -194,10 +194,20 @@ export interface GoogleStatus {
 
 /** What happened today (a calendar day in `Europe/Paris`), from the journal minus the undone entries. */
 export interface TodayStats {
-  /** Mails filed by a rule or by the AI. */
+  /** Mails filed by a rule or by the AI (`ai` + `rule`). */
   autoFiled: number;
+  /** Mails filed by the AI on its own. */
+  ai: number;
+  /** Mails filed by a rule. */
+  rule: number;
+  /** Proposals CrOliX accepted. */
   validated: number;
+  /** Proposals CrOliX filed elsewhere. */
   corrected: number;
+  /** Proposals CrOliX refused, the mail left in the inbox. */
+  refused: number;
+  /** Proposals the agent accepted, corrected or refused; its direct gestures do not count. */
+  agent: number;
 }
 
 /** A label change recorded in the journal, so that it can be undone. */

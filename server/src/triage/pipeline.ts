@@ -16,8 +16,9 @@ import {
   type LabelChange,
 } from '../gmail/actions.ts';
 import { plainText } from '../gmail/body.ts';
-import { getStoredMessage, header, type StoredMessage } from '../gmail/store.ts';
+import { getStoredMessage, header, upsertMessage, type StoredMessage } from '../gmail/store.ts';
 import { fetchFull } from '../gmail/read.ts';
+import { fetchMetadata } from '../gmail/sync.ts';
 import { GoogleApiError, GoogleNotConnectedError, GoogleReauthError } from '../google/client.ts';
 import { costOf, priceOf } from '../llm/models.ts';
 import { keyRefused, keyWorks } from '../llm/keys.ts';
@@ -402,6 +403,23 @@ export async function validate(deps: ActionDeps, id: string): Promise<Proposal &
   setProposalStatus(deps.db, id, 'accepted');
   remember(deps, id, p.boxId, p.tagIds);
   const journalId = logUser(deps.db, changeOf(deps, id, change), 'validate', deps.now(), previous);
+  return { ...getProposal(deps.db, id)!, journalId };
+}
+
+/** CrOliX says « not that »: the mail stays in the inbox, nothing is learnt, the line can be undone. */
+export async function refuse(deps: ActionDeps, id: string): Promise<Proposal & { journalId: number }> {
+  const p = pendingProposal(deps.db, id);
+  if (!p.boxId) throw new BadRequestError('Cette proposition ne range le mail nulle part');
+  // Gmail is the truth, as for an undo: the cache may still say INBOX.
+  const current = await fetchMetadata(deps.google, id);
+  if (!current) throw new NotFoundError();
+  upsertMessage(deps.db, current);
+  const labels = current.labelIds ?? [];
+  if (!labels.includes('INBOX') || labels.includes('TRASH') || labels.includes('SPAM'))
+    throw new ConflictError('Ce mail n’est plus en boîte de réception');
+  const previous = snapshot(deps.db, id);
+  setProposalStatus(deps.db, id, 'refused');
+  const journalId = logUser(deps.db, changeOf(deps, id, undefined), 'refuse', deps.now(), previous);
   return { ...getProposal(deps.db, id)!, journalId };
 }
 
