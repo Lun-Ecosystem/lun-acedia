@@ -55,7 +55,10 @@
   {/snippet}
   {#if status?.connected}
     <SettingsRow label="Adresse" hint={status.email ?? 'compte Google'} />
-    <SettingsRow label="Autorisations" hint="Gmail (lecture, modification) · Agenda · Tâches" />
+    <SettingsRow
+      label="Autorisations"
+      hint="Gmail (lecture, modification, envoi, adresses d’envoi) · Agenda · Tâches"
+    />
     <SettingsRow
       label="Déconnecter le compte"
       hint="Le tri et la synchronisation s’arrêtent jusqu’à une reconnexion."
@@ -63,7 +66,10 @@
       <Button variant="danger" size="petit" onclick={() => (disconnecting = true)}>Déconnecter</Button>
     </SettingsRow>
   {:else if status}
-    <SettingsRow label="Aucun compte" hint="Gmail, Agenda et Tâches sont inaccessibles.">
+    <SettingsRow
+      label="Aucun compte"
+      hint="Gmail, Agenda et Tâches sont inaccessibles. Seul le compte Google qui a créé le projet d'Acedia peut se connecter."
+    >
       <Button variant="principal" size="petit" onclick={connect}>Connecter un compte Google</Button>
     </SettingsRow>
   {:else}
