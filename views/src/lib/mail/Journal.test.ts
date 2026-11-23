@@ -1,5 +1,6 @@
 import { render, screen, waitFor, within } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
+import { tick } from 'svelte';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ApiError } from '../client.ts';
 import { agentIdentity } from '../pina/identity.svelte.ts';
@@ -255,9 +256,10 @@ async function openWithBoxes(journal: JournalEntry[]) {
   const user = userEvent.setup();
   render(Journal, { props: { client: fake.client } });
   await screen.findByText(journal[0]!.subject);
-  // The labels arrive after the lines: let them land before reading a box name.
+  // The labels arrive after the lines: the journal's own `.then` runs first, then the DOM updates.
   await waitFor(() => expect(fake.client.listLabels).toHaveBeenCalled());
-  await new Promise((r) => setTimeout(r, 0));
+  await fake.client.listLabels.mock.results[0]!.value;
+  await tick();
   return { ...fake, user };
 }
 
@@ -393,6 +395,12 @@ describe('Journal: who decided', () => {
     expect(rowOf('Sujet 1')).toHaveTextContent('Rangé dans École à la main');
     expect(rowOf('Sujet 1')).not.toHaveTextContent('proposition');
     expect(within(rowOf('Sujet 1')).getByRole('img', { name: 'À la main' })).toBeInTheDocument();
+  });
+
+  it('falls back to « Rangé » when the labels show no move', async () => {
+    // Already in the trash, out of the inbox: nothing added, nothing removed.
+    await openWithBoxes([entry(1, 'user', { action: 'trash', before: ['TRASH'], after: ['TRASH'] })]);
+    expect(rowOf('Sujet 1')).toHaveTextContent('Rangé à la main');
   });
 
   it('reads out the same text, word for word', async () => {

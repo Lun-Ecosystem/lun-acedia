@@ -446,11 +446,8 @@
     color: var(--texte-3);
     text-decoration: line-through;
   }
+  /* Plain text flow: « , proposition… » and « · annulé » sit right after the box, spaces do the rest. */
   .quoi {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 6px;
     margin-top: 2px;
     font-size: 12.5px;
     color: var(--texte-3);
@@ -468,6 +465,7 @@
     background: var(--surface-2);
     color: var(--texte-2);
     font-size: 11.5px;
+    vertical-align: middle;
   }
   .vers.spam {
     background: var(--danger-doux);
