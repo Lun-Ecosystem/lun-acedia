@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { getStoredMessage } from '../gmail/store.ts';
 import { makeAgendaHarness } from '../testing/agenda-harness.ts';
 import { message } from '../testing/fake-gmail.ts';
+import { claim, saveProposal } from '../triage/proposals.ts';
 import { setPaused } from './state.ts';
 
 const NAMES = [
@@ -13,6 +14,7 @@ const NAMES = [
   'mail.tags',
   'mail.validate',
   'mail.correct',
+  'mail.refuse',
   'agenda.list',
   'event.create',
   'event.update',
@@ -86,7 +88,7 @@ describe('contract actions', () => {
     expect(names.filter((n) => /send/i.test(n))).toEqual([]);
   });
 
-  it('lists the 38 actions, each with an object JSON Schema', async () => {
+  it('lists the 39 actions, each with an object JSON Schema', async () => {
     const { h } = await setup();
     const { actions } = (await h.call('GET', '/lun/v1/actions')).body as {
       actions: { name: string; description: string; input: { type: string } }[];
@@ -113,6 +115,26 @@ describe('contract actions', () => {
     const res = await act('mail.file', { id: 'm1', boxId: box });
     expect(res.body.ok).toBe(true);
     expect(getStoredMessage(h.db, 'm1')?.labels).toContain(box);
+  });
+
+  it('mail.refuse leaves the mail in the inbox, settles the proposal and returns the journal line', async () => {
+    const { h, act } = await setup();
+    const box = (await h.call('POST', '/api/labels', { name: 'École', role: 'box' })).body.id as string;
+    claim(h.db, 'm1', h.clock());
+    saveProposal(h.db, {
+      messageId: 'm1',
+      boxId: box,
+      tagIds: [],
+      importance: 'none',
+      confidence: 50,
+      source: 'ai',
+      status: 'pending',
+    });
+    const res = await act('mail.refuse', { id: 'm1' });
+    expect(res.body.ok).toBe(true);
+    expect(typeof res.body.result.journalId).toBe('number');
+    expect(getStoredMessage(h.db, 'm1')?.labels).toContain('INBOX');
+    expect((await act('mail.refuse', { id: 'm1' })).body.ok).toBe(false);
   });
 
   it('reads a mail as text, and answers ok:false for an unknown id', async () => {

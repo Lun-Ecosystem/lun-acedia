@@ -67,6 +67,21 @@ describe('demo', () => {
     expect(of('m08')).toEqual([
       expect.objectContaining({ origin: 'rule', action: 'file', undoneAt: expect.any(String) }),
     ]);
+    expect(of('m18')).toEqual([
+      expect.objectContaining({
+        origin: 'user',
+        action: 'refuse',
+        before: expect.arrayContaining(['INBOX']),
+      }),
+    ]);
+    expect(of('m18')[0]!.after).toEqual(of('m18')[0]!.before);
+    const ids = async (view: string) =>
+      ((await get(`/api/mail?view=${view}`)).items as { id: string }[]).map((m) => m.id);
+    expect(await ids('pending')).not.toContain('m18');
+    expect((await ids('pending')).sort()).toEqual(['m02', 'm03', 'm06', 'm11']);
+    expect(await ids('inbox')).not.toContain('m15');
+    expect(await ids('inbox')).not.toContain('m16');
+    expect(await ids('trash')).toEqual(expect.arrayContaining(['m15', 'm16']));
     // The scenarios of the agent's evaluation start from these: still in the inbox.
     const labels = (id: string) =>
       (db.prepare('SELECT label_ids FROM messages WHERE id = ?').get(id) as { label_ids: string }).label_ids;
@@ -87,6 +102,7 @@ describe('demo', () => {
     expect(actions).not.toContain('validate');
     expect(actions).not.toContain('correct');
     expect(actions).not.toContain('trash');
+    expect(actions).not.toContain('refuse');
   });
 
   it('shows the two cards of conflict: one that proposes a move, one that only signals', async () => {

@@ -19,6 +19,7 @@ import {
   type PinaDeps,
 } from './agent.ts';
 import { listLabels } from '../triage/labels.ts';
+import { claim, saveProposal } from '../triage/proposals.ts';
 import { inverseOf } from './inverse.ts';
 import { systemPrompt } from './prompt.ts';
 import { describe as describeCard } from './wording.ts';
@@ -323,6 +324,30 @@ describe('Pina turns with several cards', () => {
     expect(s.h.calls.filter((c) => c.method === 'POST' && c.url.includes('tasks'))).toHaveLength(1);
   });
 
+  it('a validated mail.refuse card leaves a journal line of the agent, undone by journal.undo', async () => {
+    const s = await setup([calls(tool('mail.refuse', { id: 'm1' }))]);
+    const box = (await s.h.actions.get('label.create')!.run({ name: 'École', role: 'box' })) as {
+      id: string;
+    };
+    claim(s.h.db, 'm1', s.h.clock());
+    saveProposal(s.h.db, {
+      messageId: 'm1',
+      boxId: box.id,
+      tagIds: [],
+      importance: 'none',
+      confidence: 50,
+      source: 'ai',
+      status: 'pending',
+    });
+    await ask(s.deps, 'Refuse la proposition pour m1', { screen: 'mail' });
+    const [card] = cardsOf(s.h.db, s.day);
+    expect(card).toMatchObject({ action: 'mail.refuse', status: 'pending' });
+    expect((await runCard(s.deps, card!.id))?.status).toBe('done');
+    const items = (await s.h.call('GET', '/api/journal')).body.items as { origin: string; action: string }[];
+    expect(items[0]).toMatchObject({ origin: 'pina', action: 'refuse' });
+    expect(getCard(s.h.db, card!.id)?.inverse).toMatchObject({ action: 'journal.undo' });
+  });
+
   it('label.setRole keeps the role read before, so its done card can be undone', async () => {
     const s = await setup();
     const box = (await s.h.actions.get('label.create')!.run({ name: 'École', role: 'box' })) as {
@@ -402,7 +427,7 @@ describe('inverseOf', () => {
   });
 
   it('any result with a journal line is undone by it, validation and correction included', () => {
-    for (const action of ['mail.validate', 'mail.correct'])
+    for (const action of ['mail.validate', 'mail.correct', 'mail.refuse'])
       expect(inverseOf(action, { id: 'm1' }, { id: 'm1', journalId: 9 }, undefined)).toEqual({
         action: 'journal.undo',
         input: { id: 9 },

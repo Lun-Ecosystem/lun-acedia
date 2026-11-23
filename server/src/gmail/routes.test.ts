@@ -4,6 +4,7 @@ import { createGoogleClient, saveTokens } from '../google/client.ts';
 import { fakeFetch } from '../testing/fake-fetch.ts';
 import { b64url, FakeGmail, message, multipart, textPart } from '../testing/fake-gmail.ts';
 import { makeHarness } from '../testing/harness.ts';
+import { claim, saveProposal } from '../triage/proposals.ts';
 import { syncGmail } from './sync.ts';
 
 const secretKey = randomBytes(32).toString('base64');
@@ -62,6 +63,33 @@ describe('GET /api/mail', () => {
     expect(await ids('archive')).toEqual(['archived']);
     expect(await ids('sent')).toEqual(['sent']);
     expect(await ids('pending')).toEqual([]);
+  });
+
+  it('keeps a mail of the trash or of the spam out of the inbox and the queue, even with INBOX', async () => {
+    const gmail = new FakeGmail([
+      message({ id: 'ok', date: at(1) }),
+      message({ id: 'trashed', date: at(2), labelIds: ['INBOX', 'TRASH'] }),
+      message({ id: 'spam', date: at(3), labelIds: ['INBOX', 'SPAM'] }),
+    ]);
+    const { h, get } = await setup(gmail);
+    for (const id of ['ok', 'trashed', 'spam']) {
+      claim(h.db, id, h.clock());
+      saveProposal(h.db, {
+        messageId: id,
+        boxId: 'Label_1',
+        tagIds: [],
+        importance: 'none',
+        confidence: 50,
+        source: 'ai',
+        status: 'pending',
+      });
+    }
+    const ids = async (view: string) =>
+      (await get(`/api/mail?view=${view}`)).body.items.map((m: { id: string }) => m.id);
+    expect(await ids('inbox')).toEqual(['ok']);
+    expect(await ids('pending')).toEqual(['ok']);
+    expect(await ids('trash')).toEqual(['trashed']);
+    expect(await ids('spam')).toEqual(['spam']);
   });
 
   it('lists a box by its label id', async () => {

@@ -21,6 +21,14 @@ group('describe: every write card names what it acts on', () => {
     expect(fields('mail.archive', { id: 'm1' })).toEqual(['Identifiant : m1']);
   });
 
+  it('mail.refuse says what it refuses, and that the mail stays', () => {
+    expect(text('mail.refuse', { id: 'm1' }, names([['m1', 'Rendu décalé']]))).toMatchObject({
+      title: 'Refuser la proposition de tri',
+      fields: [{ label: 'Mail', value: 'Rendu décalé' }],
+      done: 'Proposition refusée',
+    });
+  });
+
   it('task.complete names the task', () => {
     expect(fields('task.complete', { listId: 'l', id: 't1' }, names([['t1', 'Appeler la banque']]))).toEqual([
       'Tâche : Appeler la banque',
