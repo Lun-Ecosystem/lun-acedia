@@ -192,6 +192,30 @@ const MAILS: Mail[] = [
   },
 ];
 
+// Only for the screens (not `pina: false`): m17 waits in « À valider » until validated, m16 arrives after the triage
+// and goes to the trash by hand. The evaluation's inbox stays as its scenarios were written against.
+const JOURNAL_MAILS: Mail[] = [
+  {
+    id: 'm16',
+    from: 'Club Lecture <club@lecture.example.org>',
+    subject: 'Votre sélection de la semaine',
+    body: 'Trois romans choisis pour vous cette semaine.',
+    ago: 30,
+  },
+  {
+    id: 'm17',
+    from: 'Héritage Rapide <notaire@gain.example.org>',
+    subject: 'Un héritage vous attend',
+    body: 'Un parent éloigné vous a légué une somme importante. Répondez avec vos coordonnées bancaires.',
+    ago: 6 * D,
+    ai: {
+      box: SPAM,
+      confidence: 80,
+      reason: 'Promesse d’argent d’un inconnu, coordonnées bancaires demandées.',
+    },
+  },
+];
+
 const BOXES = ['Factures', 'Administratif', 'Newsletters', 'Voyages', 'Perso'];
 const TAGS = ['Urgent', 'Opérateur', 'Énergie', 'Logement'];
 
@@ -199,7 +223,7 @@ const TAGS = ['Urgent', 'Opérateur', 'Énergie', 'Logement'];
 const scriptedClassifier: Classifier = {
   model: 'claude-haiku-5-5',
   async classify({ mail, boxes, tags }) {
-    const ai = MAILS.find((m) => m.subject === mail.subject)?.ai;
+    const ai = [...MAILS, ...JOURNAL_MAILS].find((m) => m.subject === mail.subject)?.ai;
     const idOf = (list: { id: string; name: string }[], name: string) =>
       list.find((l) => l.name === name)?.id;
     const result: Classification = {
@@ -489,7 +513,8 @@ export async function createDemo(opts: { staticDir?: string; keyRefused?: boolea
   await call('PATCH', `/api/labels/${encodeURIComponent(ids['Logement']!)}`, { role: null });
 
   const now = clock().getTime();
-  for (const m of MAILS) {
+  const screens = opts.pina !== false;
+  const deliver = (m: Mail) => {
     const html = m.body.startsWith('<');
     const text = html ? m.body.replace(/<[^>]+>/g, ' ') : m.body;
     gmail.deliver(
@@ -506,15 +531,29 @@ export async function createDemo(opts: { staticDir?: string; keyRefused?: boolea
           : textPart('text/plain', m.body),
       }),
     );
-  }
+  };
+  for (const m of screens ? [...MAILS, JOURNAL_MAILS[1]!] : MAILS) deliver(m);
   const { added } = await syncGmail(deps);
   await triageNew({ ...deps, classifier: scriptedClassifier }, added);
+  if (screens) {
+    deliver(JOURNAL_MAILS[0]!);
+    await syncGmail(deps); // after the triage: m16 has no proposal
+  }
   // A gesture by hand, so the journal also shows « À la main »; the second one is Pina's.
   await call('POST', '/api/mail/batch', { ids: ['m07'], op: { kind: 'archive' } });
   const filed = (
     await call('POST', '/api/mail/batch', { ids: ['m12'], op: { kind: 'file', boxId: ids['Perso'] } })
   )[0].journalId as number;
   markPina(db, filed);
+  // Each case of the journal, by the screens' own routes; never a mail of seedPina or of the evaluation.
+  if (screens) {
+    await call('POST', '/api/mail/m01/validate');
+    await call('POST', '/api/mail/m17/validate');
+    await call('POST', '/api/mail/m15/correct', { boxId: 'trash' });
+    await call('POST', '/api/mail/batch', { ids: ['m16'], op: { kind: 'trash' } });
+    const journal = (await call('GET', '/api/journal')).items as { id: number; messageId: string }[];
+    await call('POST', `/api/journal/${journal.find((e) => e.messageId === 'm08')!.id}/undo`);
+  }
   // The reply Pina drafted exists in Gmail's drafts: « Ouvrir le brouillon » reads it.
   const camille = await call('GET', '/api/mail/m06');
   const drafted = await call('POST', '/api/drafts', {
@@ -526,7 +565,7 @@ export async function createDemo(opts: { staticDir?: string; keyRefused?: boolea
     threadId: camille.threadId,
   });
   // `pina: false` (the evaluation script) starts Pina's day empty.
-  if (opts.pina !== false) {
+  if (screens) {
     seedPina(db, clock(), { journalId: filed, perso: ids['Perso']!, draftId: drafted.id as string });
     // What those turns cost today: Réglages › Pina shows it against the daily cap.
     recordCost(

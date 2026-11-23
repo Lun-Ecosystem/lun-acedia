@@ -270,6 +270,26 @@ describe('a batch action', () => {
   });
 });
 
+describe('the journal keeps one line per gesture', () => {
+  it('a batch of two mails writes two lines', async () => {
+    const h = await makeGmailHarness(
+      ['m1', 'm2'].map((id) => message({ id, labelIds: ['INBOX', 'UNREAD'] })),
+    );
+    await h.call('POST', '/api/mail/batch', { ids: ['m1', 'm2'], op: { kind: 'trash' } });
+    const items = (await h.call('GET', '/api/journal')).body.items as { messageId: string }[];
+    expect(items.map((e) => e.messageId).sort()).toEqual(['m1', 'm2']);
+  });
+
+  it('an undo adds no line, it dates the one undone', async () => {
+    const h = await makeGmailHarness([message({ id: 'm1', labelIds: ['INBOX', 'UNREAD'] })]);
+    const res = await h.call('POST', '/api/mail/batch', { ids: ['m1'], op: { kind: 'trash' } });
+    await h.call('POST', `/api/journal/${res.body[0].journalId}/undo`);
+    const items = (await h.call('GET', '/api/journal')).body.items as { undoneAt: string | null }[];
+    expect(items).toHaveLength(1);
+    expect(items[0]!.undoneAt).not.toBeNull();
+  });
+});
+
 describe('stats/today', () => {
   const change = { id: 'm1', before: ['INBOX'], after: ['X'] };
   const log = (h: Awaited<ReturnType<typeof setup>>['h'], origin: 'rule' | 'ai', at: string) =>

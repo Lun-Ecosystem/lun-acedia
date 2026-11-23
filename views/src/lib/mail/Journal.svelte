@@ -58,12 +58,23 @@
     user: { label: 'À la main', by: 'à la main', icon: Hand },
   } as const);
 
-  const FILTERS = [
+  /** Who decided: a validation says yes to the AI's proposal; the agent's validations stay its own. */
+  const decider = (e: JournalEntry) => (e.origin === 'user' && e.action === 'validate' ? 'ai' : e.origin);
+
+  /** One filter per decider, plus the undone lines. */
+  const FILTERS = $derived([
     { id: 'tout', label: 'Tout', icon: undefined, keep: () => true },
-    { id: 'ia', label: 'IA', icon: Sparkles, keep: (e: JournalEntry) => e.origin === 'ai' },
-    { id: 'regles', label: 'Règles', icon: Funnel, keep: (e: JournalEntry) => e.origin === 'rule' },
+    { id: 'ia', label: 'IA', icon: Sparkles, keep: (e: JournalEntry) => decider(e) === 'ai' },
+    { id: 'main', label: 'À la main', icon: Hand, keep: (e: JournalEntry) => decider(e) === 'user' },
+    { id: 'regles', label: 'Règles', icon: Funnel, keep: (e: JournalEntry) => decider(e) === 'rule' },
+    {
+      id: 'agent',
+      label: ORIGINS.pina.label,
+      icon: ORIGINS.pina.icon,
+      keep: (e: JournalEntry) => decider(e) === 'pina',
+    },
     { id: 'annules', label: 'Annulés', icon: undefined, keep: (e: JournalEntry) => e.undoneAt !== null },
-  ] as const;
+  ] as const);
 
   let items = $state.raw<JournalEntry[]>([]);
   let cursor = $state<number | undefined>();
@@ -117,24 +128,34 @@
 
   type Where = { verb: string; box?: { id: string; name: string } | undefined; spam?: boolean };
 
-  /** Where the mail went: « Rangé dans [École] », « Envoyé en [Spam] ». */
+  /**
+   * Where the mail went, read in `after` whatever the gesture: the trash first (it may keep INBOX),
+   * the spam, a box added or kept as INBOX leaves, an archive, else still in the inbox.
+   */
   function where(e: JournalEntry): Where {
-    if (e.action === 'trash') return { verb: 'Mis à la corbeille' };
-    if (e.action === 'spam') return { verb: 'Envoyé en', spam: true };
-    const box = e.after.find((l) => !e.before.includes(l) && labels.find((x) => x.id === l)?.role === 'box');
+    const added = (l: string) => e.after.includes(l) && !e.before.includes(l);
+    if (added('TRASH')) return { verb: 'Mis à la corbeille' };
+    if (added('SPAM')) return { verb: 'Envoyé en', spam: true };
+    const gone = e.before.includes('INBOX') && !e.after.includes('INBOX');
+    const box = e.after.find((l) => (gone || added(l)) && labels.find((x) => x.id === l)?.role === 'box');
     if (box) return { verb: 'Rangé dans', box: { id: box, name: labels.find((x) => x.id === box)!.name } };
-    if (e.action === 'archive' || (e.before.includes('INBOX') && !e.after.includes('INBOX')))
-      return { verb: 'Archivé' };
-    if (e.action === 'validate') return { verb: 'Proposition validée' };
-    if (e.action === 'correct') return { verb: 'Proposition corrigée' };
+    if (gone) return { verb: 'Archivé' };
+    if (e.after.includes('INBOX')) return { verb: 'Laissé en boîte de réception' };
     return { verb: 'Rangé' };
+  }
+
+  /** Who, after the place: « par l’IA », or for a proposal « , proposition de l’IA validée[ par Agent] ». */
+  function by(e: JournalEntry) {
+    if (e.action !== 'validate' && e.action !== 'correct') return ` ${ORIGINS[e.origin].by}`;
+    const agent = e.origin === 'pina' ? ` ${ORIGINS.pina.by}` : '';
+    return `, proposition de l’IA ${e.action === 'validate' ? 'validée' : 'corrigée'}${agent}`;
   }
 
   /** What a screen reader says of a focused row: « Sujet 1 : rangé dans École par l’IA ». */
   function rowLabel(e: JournalEntry, w: Where) {
     const target = w.box ? ` ${w.box.name}` : w.spam ? ' Spam' : '';
     const undone = e.undoneAt ? `, ${undoneText(e, e.undoneAt)}` : '';
-    return `${e.subject || 'Sans objet'} : ${w.verb.toLowerCase()}${target} ${ORIGINS[e.origin].by}${undone}`;
+    return `${e.subject || 'Sans objet'} : ${w.verb.toLowerCase()}${target}${by(e)}${undone}`;
   }
 
   /** « annulé à 18:41 » the same day, « annulé le 21 oct. » later. */
@@ -229,7 +250,8 @@
         <DayGroup label={day.label} level={2}>
           <ul>
             {#each day.entries as e (e.id)}
-              {@const origin = ORIGINS[e.origin]}
+              {@const who = decider(e)}
+              {@const origin = ORIGINS[who]}
               {@const w = where(e)}
               <li>
                 <ListRow
@@ -245,7 +267,7 @@
                   {#snippet start()}
                     <span class="heure">{time(e.at)}</span>
                     <span
-                      class={['origine', e.origin, { annule: e.undoneAt }]}
+                      class={['origine', who, { annule: e.undoneAt }]}
                       role="img"
                       aria-label={origin.label}
                     >
@@ -256,18 +278,13 @@
                     <div class="texte">
                       <div class={['objet', { annule: e.undoneAt }]}>{e.subject || 'Sans objet'}</div>
                       <div class="quoi">
-                        {w.verb}
-                        {#if w.box}
-                          <span class="vers"
+                        <!-- No space before « , proposition… »: by() carries its own. -->
+                        {w.verb}{#if w.box}{' '}<span class="vers"
                             ><span class="pastille" style:background={boxColor(w.box.id)}></span>{w.box
                               .name}</span
-                          >
-                        {:else if w.spam}
-                          <span class="vers spam"
+                          >{:else if w.spam}{' '}<span class="vers spam"
                             ><Ban size={12} strokeWidth={ICON_STROKE} aria-hidden="true" />Spam</span
-                          >
-                        {/if}
-                        {origin.by}{#if e.undoneAt}<span class="quand"
+                          >{/if}{by(e)}{#if e.undoneAt}<span class="quand"
                             >&nbsp;· {undoneText(e, e.undoneAt)}</span
                           >{/if}
                       </div>
@@ -364,7 +381,8 @@
     margin-bottom: 6px;
     overflow-x: auto;
   }
-  .filtres :global(.ia svg) {
+  .filtres :global(.ia svg),
+  .filtres :global(.agent svg) {
     color: var(--ia);
   }
   .aucun {
@@ -428,11 +446,8 @@
     color: var(--texte-3);
     text-decoration: line-through;
   }
+  /* Plain text flow: « , proposition… » and « · annulé » sit right after the box, spaces do the rest. */
   .quoi {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 6px;
     margin-top: 2px;
     font-size: 12.5px;
     color: var(--texte-3);
@@ -450,6 +465,7 @@
     background: var(--surface-2);
     color: var(--texte-2);
     font-size: 11.5px;
+    vertical-align: middle;
   }
   .vers.spam {
     background: var(--danger-doux);
