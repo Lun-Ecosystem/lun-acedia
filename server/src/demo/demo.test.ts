@@ -1,4 +1,4 @@
-﻿import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { createDemo } from './demo.ts';
 
 describe('demo', () => {
