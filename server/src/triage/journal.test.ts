@@ -4,8 +4,8 @@ import { getStoredMessage } from '../gmail/store.ts';
 import { message } from '../testing/fake-gmail.ts';
 import { makeGmailHarness } from '../testing/gmail-harness.ts';
 import { getExample } from './examples.ts';
-import { logAuto, parisDayStart, todayStats } from './journal.ts';
-import { getProposal } from './pipeline.ts';
+import { ConflictError, logAuto, parisDayStart, todayStats } from './journal.ts';
+import { getProposal, refuse } from './pipeline.ts';
 import { claim, saveProposal } from './proposals.ts';
 
 async function setup() {
@@ -310,12 +310,18 @@ describe('stats/today', () => {
     ins.run('2026-11-02T07:01:00.000Z', 'validate');
     ins.run('2026-11-02T07:02:00.000Z', 'correct');
     ins.run('2026-11-02T07:03:00.000Z', 'archive');
-    expect(todayStats(h.db, h.clock())).toEqual({ autoFiled: 2, validated: 2, corrected: 1 });
-    expect((await h.call('GET', '/api/stats/today')).body).toEqual({
-      autoFiled: 2,
-      validated: 2,
-      corrected: 1,
-    });
+    ins.run('2026-11-02T07:04:00.000Z', 'refuse');
+    // The agent counts for its proposals only (validate, correct, refuse), not for its direct gestures.
+    const pina = h.db.prepare(
+      "INSERT INTO journal (at, message_id, origin, action, before, after) VALUES (?, 'm1', 'pina', ?, '[]', '[]')",
+    );
+    for (const a of ['file', 'archive', 'validate', 'correct', 'refuse'])
+      pina.run('2026-11-02T07:05:00.000Z', a);
+    const undonePina = pina.run('2026-11-02T07:06:00.000Z', 'refuse').lastInsertRowid;
+    h.db.prepare('UPDATE journal SET undone_at = ? WHERE id = ?').run('2026-11-02T07:50:00.000Z', undonePina);
+    const expected = { autoFiled: 2, ai: 1, rule: 1, validated: 2, corrected: 1, refused: 1, agent: 3 };
+    expect(todayStats(h.db, h.clock())).toEqual(expected);
+    expect((await h.call('GET', '/api/stats/today')).body).toEqual(expected);
   });
 
   it('23:30 in Paris is yesterday, in winter time (UTC+1)', () => {
@@ -344,5 +350,116 @@ describe('stats/today', () => {
     expect(parisDayStart(new Date('2026-10-26T12:00:00.000Z')).toISOString()).toBe(
       '2026-10-25T23:00:00.000Z',
     );
+  });
+});
+
+describe('refuse a proposal', () => {
+  const OLD = [
+    'INSERT INTO examples (message_id, from_addr, from_domain, subject, box_id, tag_ids, at)',
+    "VALUES ('m1','prof@ecole.fr','ecole.fr','Sujet m1','old','[]','2026-01-01T00:00:00.000Z')",
+  ].join(' ');
+
+  async function pending(boxOf: (s: Awaited<ReturnType<typeof setup>>) => string | null = (s) => s.ecole) {
+    const s = await setup();
+    claim(s.h.db, 'm1', s.h.clock());
+    saveProposal(s.h.db, {
+      messageId: 'm1',
+      boxId: boxOf(s),
+      tagIds: [],
+      importance: 'none',
+      confidence: 50,
+      source: 'ai',
+      status: 'pending',
+    });
+    return s;
+  }
+  type S = Awaited<ReturnType<typeof pending>>;
+  const writes = (s: S) => s.h.calls.filter((c) => c.method !== 'GET').length;
+  const lines = (s: S) =>
+    s.h.call('GET', '/api/journal').then((r) => r.body.items as Record<string, unknown>[]);
+
+  it('leaves the mail as it is, settles the proposal, writes no example and one line', async () => {
+    const s = await pending();
+    s.h.db.prepare(OLD).run();
+    const example = getExample(s.h.db, 'm1');
+    const before = writes(s);
+    const res = await s.h.call('POST', '/api/mail/m1/refuse');
+    expect(res.status).toBe(200);
+    expect(typeof res.body.journalId).toBe('number');
+    expect(writes(s)).toBe(before);
+    expect(s.h.gmail.messages.get('m1')!.labelIds.sort()).toEqual(['INBOX', 'UNREAD']);
+    expect(getStoredMessage(s.h.db, 'm1')?.labels.sort()).toEqual(['INBOX', 'UNREAD']);
+    expect(getProposal(s.h.db, 'm1')?.status).toBe('refused');
+    expect(getExample(s.h.db, 'm1')).toEqual(example);
+    const [line, ...rest] = await lines(s);
+    expect(rest).toEqual([]);
+    expect(line).toMatchObject({ messageId: 'm1', origin: 'user', action: 'refuse' });
+    expect(line!.before).toEqual(line!.after);
+    expect(line!.before).toContain('INBOX');
+    expect((await s.h.call('GET', '/api/mail?view=pending')).body.items).toEqual([]);
+  });
+
+  it('writes no example when there was none either', async () => {
+    const s = await pending();
+    await s.h.call('POST', '/api/mail/m1/refuse');
+    expect(getExample(s.h.db, 'm1')).toBeNull();
+  });
+
+  it('answers 404 without a proposal and 409 for one already settled', async () => {
+    const s = await setup();
+    expect((await s.h.call('POST', '/api/mail/m1/refuse')).status).toBe(404);
+    const p = await pending();
+    await p.h.call('POST', '/api/mail/m1/validate');
+    expect((await p.h.call('POST', '/api/mail/m1/refuse')).status).toBe(409);
+  });
+
+  it('answers 400 for a proposal without a box, and changes nothing', async () => {
+    const s = await pending(() => null);
+    expect((await s.h.call('POST', '/api/mail/m1/refuse')).status).toBe(400);
+    expect(getProposal(s.h.db, 'm1')?.status).toBe('pending');
+    expect(await lines(s)).toEqual([]);
+  });
+
+  it.each([
+    ['without INBOX', [] as string[], ['INBOX']],
+    ['in the trash', ['TRASH'], [] as string[]],
+    ['in the spam', ['SPAM'], [] as string[]],
+  ])('answers 409 when Gmail says the mail is %s, though the cache says INBOX', async (_n, add, remove) => {
+    const s = await pending();
+    s.h.gmail.relabel('m1', add, remove);
+    expect(getStoredMessage(s.h.db, 'm1')?.labels).toContain('INBOX');
+    const res = await s.h.call('POST', '/api/mail/m1/refuse');
+    expect(res.status).toBe(409);
+    expect(getProposal(s.h.db, 'm1')?.status).toBe('pending');
+    expect(await lines(s)).toEqual([]);
+  });
+
+  // A double click: a second refusal settles the proposal while the first one reads Gmail.
+  it('answers 409 when the proposal is settled while Gmail is read, and writes nothing', async () => {
+    const s = await pending();
+    const google = s.h.deps.google;
+    let slipped = false;
+    const racing = Object.create(google) as typeof google;
+    racing.request = (async (...args: Parameters<typeof google.request>) => {
+      if (!slipped) {
+        slipped = true;
+        expect((await s.h.call('POST', '/api/mail/m1/refuse')).status).toBe(200);
+      }
+      return google.request(...args);
+    }) as typeof google.request;
+    await expect(refuse({ ...s.h.deps, google: racing }, 'm1')).rejects.toBeInstanceOf(ConflictError);
+    expect(getProposal(s.h.db, 'm1')?.status).toBe('refused');
+    expect((await lines(s)).map((l) => l.action)).toEqual(['refuse']);
+  });
+
+  it('undo puts the proposal back in the queue without touching Gmail', async () => {
+    const s = await pending();
+    const { body } = await s.h.call('POST', '/api/mail/m1/refuse');
+    const before = writes(s);
+    expect((await s.h.call('POST', `/api/journal/${body.journalId}/undo`)).status).toBe(200);
+    expect(writes(s)).toBe(before);
+    expect(getProposal(s.h.db, 'm1')?.status).toBe('pending');
+    expect(s.h.gmail.messages.get('m1')!.labelIds.sort()).toEqual(['INBOX', 'UNREAD']);
+    expect((await s.h.call('GET', '/api/mail?view=pending')).body.items).toHaveLength(1);
   });
 });

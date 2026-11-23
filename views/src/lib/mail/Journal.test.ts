@@ -342,6 +342,22 @@ const CASES: Row[] = [
     'Rangé dans Perso, proposition de l’IA corrigée par Agent',
     'Agent',
   ],
+  [
+    '8 refused by CrOliX',
+    'user',
+    'refuse',
+    { before: ['INBOX'], after: ['INBOX'] },
+    'Laissé en boîte de réception, proposition de l’IA refusée',
+    'À la main',
+  ],
+  [
+    '8 refused by the agent',
+    'pina',
+    'refuse',
+    { before: ['INBOX'], after: ['INBOX'] },
+    'Laissé en boîte de réception, proposition de l’IA refusée par Agent',
+    'Agent',
+  ],
 ];
 
 describe('Journal: who decided', () => {
@@ -440,6 +456,9 @@ describe('Journal: who decided', () => {
       entry(8, 'pina', { action: 'validate' }),
       entry(9, 'pina', { action: 'correct' }),
       entry(10, 'ai', { undoneAt: at(0, 10, 59) }),
+      entry(11, 'user', { action: 'refuse', after: ['INBOX'] }),
+      entry(12, 'pina', { action: 'refuse', after: ['INBOX'] }),
+      entry(13, 'user', { action: 'refuse', after: ['INBOX'], undoneAt: at(0, 10, 59) }),
     ];
     const group = () => screen.getByRole('group', { name: 'Filtrer le journal' });
 
@@ -454,14 +473,58 @@ describe('Journal: who decided', () => {
 
     it.each([
       ['IA', ['Sujet 1', 'Sujet 2', 'Sujet 10']],
-      ['À la main', ['Sujet 3', 'Sujet 4', 'Sujet 5']],
+      ['À la main', ['Sujet 3', 'Sujet 4', 'Sujet 5', 'Sujet 11', 'Sujet 13']],
       ['Règles', ['Sujet 6']],
-      ['Agent', ['Sujet 7', 'Sujet 8', 'Sujet 9']],
-      ['Annulés', ['Sujet 10']],
+      ['Agent', ['Sujet 7', 'Sujet 8', 'Sujet 9', 'Sujet 12']],
+      ['Annulés', ['Sujet 10', 'Sujet 13']],
     ])('%s keeps only its own lines', async (label, expected) => {
       const { user } = await openWithBoxes(rows());
       await user.click(within(group()).getByRole('button', { name: label }));
       expect(subjects()).toEqual(expected);
     });
+  });
+});
+
+describe('Journal: a refused proposal', () => {
+  const refusal = (id: number, origin: Origin, extra: Partial<JournalEntry> = {}) =>
+    entry(id, origin, { action: 'refuse', before: ['INBOX'], after: ['INBOX'], ...extra });
+
+  it('reads out the same text, word for word', async () => {
+    agentIdentity.name = 'Lune';
+    await openWithBoxes([
+      refusal(1, 'user', { subject: 'Facture d’octobre' }),
+      refusal(2, 'pina', { subject: 'Photos du week-end' }),
+    ]);
+    for (const name of [
+      'Facture d’octobre : laissé en boîte de réception, proposition de l’IA refusée',
+      'Photos du week-end : laissé en boîte de réception, proposition de l’IA refusée par Lune',
+    ])
+      expect(screen.getByRole('group', { name })).toBeInTheDocument();
+    expect(rowOf('Photos du week-end')).toHaveTextContent('proposition de l’IA refusée par Lune');
+  });
+
+  it('is a line of CrOliX under « À la main » only, and the agent’s under its own chip only', async () => {
+    agentIdentity.name = 'Lune';
+    const { user } = await openWithBoxes([refusal(1, 'user'), refusal(2, 'pina')]);
+    const filters = screen.getByRole('group', { name: 'Filtrer le journal' });
+    await user.click(within(filters).getByRole('button', { name: 'À la main' }));
+    expect(subjects()).toEqual(['Sujet 1']);
+    await user.click(within(filters).getByRole('button', { name: 'Lune' }));
+    expect(subjects()).toEqual(['Sujet 2']);
+    await user.click(within(filters).getByRole('button', { name: 'IA' }));
+    expect(subjects()).toEqual([]);
+  });
+
+  it('can be undone, which then shows as undone under its filter and « Annulés »', async () => {
+    const { client, user } = await openWithBoxes([refusal(1, 'user')]);
+    client.undo.mockResolvedValueOnce({ id: 'm1', before: ['INBOX'], after: ['INBOX'] });
+    await user.click(action('Sujet 1', 'Annuler'));
+    expect(client.undo).toHaveBeenCalledWith(1);
+    await waitFor(() => expect(rowOf('Sujet 1')).toHaveTextContent(/annulé à \d\d:\d\d/));
+    const filters = screen.getByRole('group', { name: 'Filtrer le journal' });
+    await user.click(within(filters).getByRole('button', { name: 'À la main' }));
+    expect(subjects()).toEqual(['Sujet 1']);
+    await user.click(within(filters).getByRole('button', { name: 'Annulés' }));
+    expect(subjects()).toEqual(['Sujet 1']);
   });
 });

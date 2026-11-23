@@ -1,6 +1,7 @@
 import { render, screen, waitFor, within } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it } from 'vitest';
+import { agentIdentity } from '../pina/identity.svelte.ts';
 import { fakeClient } from '../../testing/fake-client.ts';
 import type { LunEvent, MailSummary } from '../types.ts';
 import { dismissAll } from '../ui/toasts.svelte.ts';
@@ -61,10 +62,22 @@ const remember = (panel: HTMLElement) =>
     .getByText('Retenir pour cet expéditeur')
     .closest('label')!
     .querySelector('[role="checkbox"]')!;
+const ZERO = { autoFiled: 0, ai: 0, rule: 0, validated: 0, corrected: 0, refused: 0, agent: 0 };
+// « 14 » and its words, glued: `<b>` and the text are siblings.
+const tiles = () =>
+  [...document.querySelectorAll('.stat')].map((t) =>
+    t.textContent
+      ?.replace(/\s+/g, ' ')
+      .trim()
+      .replace(/^(\d+) /, '$1'),
+  );
 const card = (subject: string) => screen.getByText(subject).closest('article') as HTMLElement;
 
 describe('Pending', () => {
-  afterEach(() => dismissAll());
+  afterEach(() => {
+    dismissAll();
+    agentIdentity.name = 'Agent';
+  });
 
   it('groups the proposals by proposed box, each group sorted by confidence', async () => {
     await open();
@@ -141,15 +154,125 @@ describe('Pending', () => {
 
   it('an empty queue says « Rien à valider » with the figures of the day', async () => {
     const { client } = fakeClient({ mails: [] });
-    client.todayStats.mockResolvedValue({ autoFiled: 14, validated: 4, corrected: 1 });
+    client.todayStats.mockResolvedValue({ ...ZERO, autoFiled: 14, ai: 14, validated: 4, corrected: 1 });
     render(Pending, { props: { client } });
     expect(await screen.findByText('Rien à valider')).toBeInTheDocument();
-    await waitFor(() => expect(screen.getByText('14')).toBeInTheDocument());
-    expect(screen.getByText('rangés seuls aujourd’hui')).toBeInTheDocument();
-    expect(screen.getByText('4')).toBeInTheDocument();
-    expect(screen.getByText('validés')).toBeInTheDocument();
-    expect(screen.getByText('1')).toBeInTheDocument();
-    expect(screen.getByText('corrigé')).toBeInTheDocument();
+    await waitFor(() => expect(tiles()).toHaveLength(3));
+    expect(tiles()).toEqual(['14rangés seuls par l’IA aujourd’hui', '4validés', '1corrigé']);
+  });
+
+  it('shows the six tiles in order, the agent under its own name, « aujourd’hui » on the first', async () => {
+    agentIdentity.name = 'Lune';
+    const { client } = fakeClient({ mails: [] });
+    client.todayStats.mockResolvedValue({
+      autoFiled: 9,
+      ai: 5,
+      rule: 4,
+      validated: 3,
+      corrected: 2,
+      refused: 6,
+      agent: 7,
+    });
+    render(Pending, { props: { client } });
+    await waitFor(() => expect(tiles()).toHaveLength(6));
+    expect(tiles()).toEqual([
+      '5rangés seuls par l’IA aujourd’hui',
+      '4par une règle',
+      '3validés',
+      '2corrigés',
+      '6refusés',
+      '7par Lune',
+    ]);
+  });
+
+  it('puts the singular on the tiles at one', async () => {
+    const { client } = fakeClient({ mails: [] });
+    client.todayStats.mockResolvedValue({ ...ZERO, ai: 1, validated: 1, corrected: 1, refused: 1 });
+    render(Pending, { props: { client } });
+    await waitFor(() => expect(tiles()).toHaveLength(4));
+    expect(tiles()).toEqual(['1rangé seul par l’IA aujourd’hui', '1validé', '1corrigé', '1refusé']);
+  });
+
+  it('hides the tiles at zero: « aujourd’hui » moves to the first one shown', async () => {
+    const { client } = fakeClient({ mails: [] });
+    client.todayStats.mockResolvedValue({ ...ZERO, validated: 4, refused: 2 });
+    render(Pending, { props: { client } });
+    await waitFor(() => expect(tiles()).toHaveLength(2));
+    expect(tiles()).toEqual(['4validés aujourd’hui', '2refusés']);
+  });
+
+  it('shows no tile when everything is at zero', async () => {
+    const { client } = fakeClient({ mails: [] });
+    render(Pending, { props: { client } });
+    await screen.findByText('Rien à valider');
+    await waitFor(() => expect(client.todayStats).toHaveBeenCalled());
+    await client.todayStats.mock.results[0]!.value;
+    expect(tiles()).toEqual([]);
+  });
+
+  describe('« Refuser la proposition »', () => {
+    const refuseButton = (subject: string) =>
+      within(card(subject)).queryByRole('button', { name: 'Refuser la proposition' });
+
+    it('is on every card proposed to a box, the trash or spam', async () => {
+      await open();
+      for (const n of [1, 2, 3, 4, 5]) expect(refuseButton(`Sujet ${n}`)).toBeInTheDocument();
+    });
+
+    it('is absent from a card without a proposed box, which keeps « Valider » and « Corriger »', async () => {
+      const bare = proposed(1, 'L-ecole', 72);
+      bare.proposal = { ...bare.proposal!, boxId: null };
+      await open([bare, proposed(2, 'L-ecole', 90)]);
+      expect(refuseButton('Sujet 1')).toBeNull();
+      expect(refuseButton('Sujet 2')).toBeInTheDocument();
+      expect(within(card('Sujet 1')).getByRole('button', { name: 'Valider' })).toBeInTheDocument();
+      expect(within(card('Sujet 1')).getByRole('button', { name: /Corriger/ })).toBeInTheDocument();
+    });
+
+    it('refuses, takes the card off the queue and says so', async () => {
+      const { client, user } = await open();
+      await user.click(refuseButton('Sujet 3')!);
+      expect(client.refuse).toHaveBeenCalledWith('m3');
+      expect(client.validate).not.toHaveBeenCalled();
+      expect(await screen.findByText('Proposition refusée : Expéditeur 3')).toBeInTheDocument();
+      await waitFor(() => expect(screen.queryByText('Sujet 3')).toBeNull());
+    });
+
+    it('« Annuler » in the toast undoes the journal line and brings the proposal back', async () => {
+      const { client, mails, user } = await open();
+      client.undo.mockImplementation(async () => {
+        mails.find((m) => m.id === 'm3')!.proposal!.status = 'pending';
+        return { id: 'm3', before: ['INBOX'], after: ['INBOX'] };
+      });
+      await user.click(refuseButton('Sujet 3')!);
+      await screen.findByText('Proposition refusée : Expéditeur 3');
+      // The journal id the refusal answered with.
+      const { journalId } = await client.refuse.mock.results[0]!.value;
+      await user.click(screen.getByRole('button', { name: 'Annuler' }));
+      expect(client.undo).toHaveBeenCalledWith(journalId);
+      expect(await screen.findByText('Sujet 3')).toBeInTheDocument();
+    });
+
+    it('leaves the keyboard on the next card, as after V', async () => {
+      const { user } = await open([proposed(1, 'L-ecole', 72), proposed(2, 'L-ecole', 90)]);
+      expect(card('Sujet 2')).toHaveAttribute('aria-current', 'true');
+      await user.click(refuseButton('Sujet 2')!);
+      await waitFor(() => expect(document.activeElement).toBe(card('Sujet 1')));
+    });
+  });
+
+  // The server's own proof is in `routes.test.ts`: this one keeps the fake client in line with it.
+  it('the fake client leaves out of the queue a mail in the trash or spam that keeps INBOX', async () => {
+    const trashed = proposed(1, 'L-ecole', 72);
+    trashed.labels = ['INBOX', 'TRASH'];
+    const spammed = proposed(2, 'L-ecole', 80);
+    spammed.labels = ['INBOX', 'SPAM'];
+    const { client } = fakeClient({ mails: [trashed, spammed, proposed(3, 'L-ecole', 90)] });
+    client.getSettings.mockResolvedValue({ threshold: 95, bulkThreshold: 85 });
+    render(Pending, { props: { client } });
+    await screen.findByText('Sujet 3');
+    expect(screen.queryByText('Sujet 1')).toBeNull();
+    expect(screen.queryByText('Sujet 2')).toBeNull();
   });
 
   it('« Tout valider » compares the real confidence: 84.5 % is under 85 %', async () => {

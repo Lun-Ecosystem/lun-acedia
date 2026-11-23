@@ -7,6 +7,10 @@ describe('screen and catalog parity', () => {
     expect(missingFromParity(makeHarness().app)).toEqual([]);
   });
 
+  it('the refusal of a proposal is served by mail.refuse', () => {
+    expect(PARITY['POST /api/mail/:id/refuse']).toEqual({ action: 'mail.refuse' });
+  });
+
   it('every PARITY action exists in the catalog', () => {
     const names = new Set(
       makeHarness()

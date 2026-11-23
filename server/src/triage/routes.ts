@@ -8,7 +8,7 @@ import type { GoogleClient } from '../google/client.ts';
 import { ConflictError, listJournal, todayStats, undo } from './journal.ts';
 import { createLabel, listLabels, setRole } from './labels.ts';
 import { getSetting, putSetting } from '../db.ts';
-import { correct, DEFAULT_BULK_THRESHOLD, DEFAULT_THRESHOLD, validate } from './pipeline.ts';
+import { correct, DEFAULT_BULK_THRESHOLD, DEFAULT_THRESHOLD, refuse, validate } from './pipeline.ts';
 import { createRule, deleteRule, listRules, updateRule } from './rules.ts';
 
 export const RoleSchema = z.enum(['box', 'tag']);
@@ -93,6 +93,7 @@ export function triageRoutes(deps: AppDeps, google: GoogleClient | undefined): H
   r.get('/stats/today', (c) => c.json(todayStats(deps.db, deps.clock())));
 
   r.post('/mail/:id/validate', (c) => answer(c, () => validate(actionDeps(), c.req.param('id'))));
+  r.post('/mail/:id/refuse', (c) => answer(c, () => refuse(actionDeps(), c.req.param('id'))));
   r.post('/mail/:id/correct', async (c) => {
     const input = await body(
       c,

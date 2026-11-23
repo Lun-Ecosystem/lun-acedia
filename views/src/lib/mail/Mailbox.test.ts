@@ -37,7 +37,15 @@ describe('Mailbox', () => {
   it('an empty inbox says what the sort filed today and links to the Journal', async () => {
     const fake = fakeClient();
     fake.client.listMail.mockResolvedValue({ items: [] });
-    fake.client.todayStats.mockResolvedValue({ autoFiled: 3, validated: 0, corrected: 0 });
+    fake.client.todayStats.mockResolvedValue({
+      autoFiled: 3,
+      ai: 3,
+      rule: 0,
+      validated: 0,
+      corrected: 0,
+      refused: 0,
+      agent: 0,
+    });
     const onjournal = vi.fn();
     render(Mailbox, { props: { client: fake.client, onjournal } });
     expect(await screen.findByText('La réception est vide')).toBeInTheDocument();
