@@ -353,30 +353,48 @@ describe('stats/today', () => {
   });
 });
 
+async function pending(boxOf: (s: Awaited<ReturnType<typeof setup>>) => string | null = (s) => s.ecole) {
+  const s = await setup();
+  claim(s.h.db, 'm1', s.h.clock());
+  saveProposal(s.h.db, {
+    messageId: 'm1',
+    boxId: boxOf(s),
+    tagIds: [],
+    importance: 'none',
+    confidence: 50,
+    source: 'ai',
+    status: 'pending',
+  });
+  return s;
+}
+type S = Awaited<ReturnType<typeof pending>>;
+const writes = (s: S) => s.h.calls.filter((c) => c.method !== 'GET').length;
+const lines = (s: S) =>
+  s.h.call('GET', '/api/journal').then((r) => r.body.items as Record<string, unknown>[]);
+
+/** The deps with a Gmail that, at its first call, runs `first` (a gesture slipping in) and then answers. */
+function gated(s: S, first: () => Promise<unknown>) {
+  const google = s.h.deps.google;
+  let done = false;
+  const racing = Object.create(google) as typeof google;
+  racing.request = (async (...args: Parameters<typeof google.request>) => {
+    if (!done) {
+      done = true;
+      await first();
+    }
+    return google.request(...args);
+  }) as typeof google.request;
+  return { ...s.h.deps, google: racing };
+}
+const failing = (s: S) => gated(s, () => Promise.reject(new Error('Gmail is down')));
+const LOCK = 'Un geste est déjà en cours sur ce mail';
+const labelsOf = (s: S) => s.h.gmail.messages.get('m1')!.labelIds.sort();
+
 describe('refuse a proposal', () => {
   const OLD = [
     'INSERT INTO examples (message_id, from_addr, from_domain, subject, box_id, tag_ids, at)',
     "VALUES ('m1','prof@ecole.fr','ecole.fr','Sujet m1','old','[]','2026-01-01T00:00:00.000Z')",
   ].join(' ');
-
-  async function pending(boxOf: (s: Awaited<ReturnType<typeof setup>>) => string | null = (s) => s.ecole) {
-    const s = await setup();
-    claim(s.h.db, 'm1', s.h.clock());
-    saveProposal(s.h.db, {
-      messageId: 'm1',
-      boxId: boxOf(s),
-      tagIds: [],
-      importance: 'none',
-      confidence: 50,
-      source: 'ai',
-      status: 'pending',
-    });
-    return s;
-  }
-  type S = Awaited<ReturnType<typeof pending>>;
-  const writes = (s: S) => s.h.calls.filter((c) => c.method !== 'GET').length;
-  const lines = (s: S) =>
-    s.h.call('GET', '/api/journal').then((r) => r.body.items as Record<string, unknown>[]);
 
   it('leaves the mail as it is, settles the proposal, writes no example and one line', async () => {
     const s = await pending();
@@ -434,24 +452,6 @@ describe('refuse a proposal', () => {
     expect(await lines(s)).toEqual([]);
   });
 
-  /** The deps with a Gmail that, at its first call, runs `first` (a gesture slipping in) and then answers. */
-  function gated(s: S, first: () => Promise<unknown>) {
-    const google = s.h.deps.google;
-    let done = false;
-    const racing = Object.create(google) as typeof google;
-    racing.request = (async (...args: Parameters<typeof google.request>) => {
-      if (!done) {
-        done = true;
-        await first();
-      }
-      return google.request(...args);
-    }) as typeof google.request;
-    return { ...s.h.deps, google: racing };
-  }
-  const failing = (s: S) => gated(s, () => Promise.reject(new Error('Gmail is down')));
-  const LOCK = 'Un geste est déjà en cours sur ce mail';
-  const labelsOf = (s: S) => s.h.gmail.messages.get('m1')!.labelIds.sort();
-
   // A double click: a second refusal comes in while the first one reads Gmail; the lock stops it.
   it('answers 409 to a refusal slipped in during a refusal, which still passes', async () => {
     const s = await pending();
@@ -473,6 +473,19 @@ describe('refuse a proposal', () => {
     expect(await lines(s)).toEqual([]);
   });
 
+  it('undo puts the proposal back in the queue without touching Gmail', async () => {
+    const s = await pending();
+    const { body } = await s.h.call('POST', '/api/mail/m1/refuse');
+    const before = writes(s);
+    expect((await s.h.call('POST', `/api/journal/${body.journalId}/undo`)).status).toBe(200);
+    expect(writes(s)).toBe(before);
+    expect(getProposal(s.h.db, 'm1')?.status).toBe('pending');
+    expect(s.h.gmail.messages.get('m1')!.labelIds.sort()).toEqual(['INBOX', 'UNREAD']);
+    expect((await s.h.call('GET', '/api/mail?view=pending')).body.items).toHaveLength(1);
+  });
+});
+
+describe('one gesture at a time per mail', () => {
   it('answers 409 to a validation slipped in during a validation: one line, one write, one count', async () => {
     const s = await pending();
     const before = writes(s);
@@ -554,14 +567,29 @@ describe('refuse a proposal', () => {
     expect((await lines(s)).map((l) => l.action)).toEqual(['correct']);
   });
 
-  it('undo puts the proposal back in the queue without touching Gmail', async () => {
+  it('does not hold a gesture on another mail', async () => {
     const s = await pending();
-    const { body } = await s.h.call('POST', '/api/mail/m1/refuse');
-    const before = writes(s);
-    expect((await s.h.call('POST', `/api/journal/${body.journalId}/undo`)).status).toBe(200);
-    expect(writes(s)).toBe(before);
-    expect(getProposal(s.h.db, 'm1')?.status).toBe('pending');
-    expect(s.h.gmail.messages.get('m1')!.labelIds.sort()).toEqual(['INBOX', 'UNREAD']);
-    expect((await s.h.call('GET', '/api/mail?view=pending')).body.items).toHaveLength(1);
+    s.h.gmail.deliver(message({ id: 'm2', labelIds: ['INBOX', 'UNREAD'] }));
+    await s.h.sync();
+    claim(s.h.db, 'm2', s.h.clock());
+    saveProposal(s.h.db, {
+      messageId: 'm2',
+      boxId: s.perso,
+      tagIds: [],
+      importance: 'none',
+      confidence: 50,
+      source: 'ai',
+      status: 'pending',
+    });
+    let other: Awaited<ReturnType<typeof s.h.call>> | undefined;
+    const deps = gated(s, async () => {
+      other = await s.h.call('POST', '/api/mail/m2/validate');
+    });
+    await expect(validate(deps, 'm1')).resolves.toMatchObject({ status: 'accepted' });
+    expect(other?.status).toBe(200);
+    expect((await lines(s)).map((l) => [l.messageId, l.action]).sort()).toEqual([
+      ['m1', 'validate'],
+      ['m2', 'validate'],
+    ]);
   });
 });
