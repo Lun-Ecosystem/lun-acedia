@@ -18,6 +18,7 @@ if (!existsSync(resolve(staticDir, 'index.html'))) {
 const { app, token, deps } = await createDemo({
   staticDir,
   keyRefused: process.env.DEMO_KEY === 'refused',
+  googleUnreadable: process.env.DEMO_GOOGLE === 'unreadable',
 });
 // The agenda passes every minute, as on the server: a conflict settled by hand takes its card away.
 startLoop(() => syncAgenda(deps), {

@@ -65,13 +65,27 @@ export function loadTokens(db: DatabaseSync, secretKey: string): Tokens | undefi
   const row = db.prepare('SELECT * FROM google_tokens WHERE id = 1').get() as
     { access_token: string; refresh_token: string; expires_at: string; email: string | null } | undefined;
   if (!row) return undefined;
-  const t: Tokens = {
-    accessToken: decrypt(row.access_token, secretKey),
-    refreshToken: decrypt(row.refresh_token, secretKey),
-    expiresAt: row.expires_at,
-  };
+  let t: Tokens;
+  try {
+    t = {
+      accessToken: decrypt(row.access_token, secretKey),
+      refreshToken: decrypt(row.refresh_token, secretKey),
+      expiresAt: row.expires_at,
+    };
+  } catch {
+    // Stored with another ACEDIA_SECRET_KEY, or damaged: taken as not connected, so a new consent rewrites
+    // the row. No log here, it runs at every pass: the start says it once. Only decryption is caught.
+    return undefined;
+  }
   if (row.email) t.email = row.email;
   return t;
+}
+
+/** A token row is stored but does not decrypt with this key. */
+export function tokensUnreadable(db: DatabaseSync, secretKey: string): boolean {
+  return (
+    db.prepare('SELECT 1 FROM google_tokens WHERE id = 1').get() !== undefined && !loadTokens(db, secretKey)
+  );
 }
 
 export function forgetTokens(db: DatabaseSync): void {

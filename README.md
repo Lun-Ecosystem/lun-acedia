@@ -83,6 +83,7 @@ dans lun-docs.
 | Ce que tu vois | Quoi faire |
 |---|---|
 | Le serveur dit qu'il démarre sans Google | Renseigner `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` et `ACEDIA_SECRET_KEY` dans `.env` : [Brancher Google](docs/brancher-google.md). |
+| La carte Compte Google dit que le compte enregistré ne se lit pas | Les jetons ont été rangés avec une autre `ACEDIA_SECRET_KEY` (une base restaurée, une clé changée) : remettre l'ancienne clé dans `.env` et relancer, ou reconnecter le compte (Réglages › Compte Google). |
 | Il faut reconnecter Google chaque semaine | Le projet est un projet Externe resté en statut « Test » : créer un projet en mode Personnel ([Brancher Google](docs/brancher-google.md)), ou, en repli, le publier en « Production » sans vérification. |
 | Le serveur ne trouve pas le front | Lancer `npm run build`, qui construit `app/dist`. |
 | Le code d'appareil est refusé | Il a expiré, ou 5 codes faux en 10 minutes ont annulé ceux en cours. Sur une installation neuve, « Nouveau code », sur la page ouverte sur la machine qui héberge Acedia, en remet un ; sinon, un appareil relié en donne un (Réglages › Appareils et applications › Relier un appareil). En recours : `npm run pair-code`. |

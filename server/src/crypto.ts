@@ -1,5 +1,10 @@
 import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto';
 
+/** ACEDIA_SECRET_KEY has the right shape: 32 bytes in base64. */
+export function isSecretKey(base64: string): boolean {
+  return Buffer.from(base64, 'base64').length === 32;
+}
+
 function keyFrom(base64: string): Buffer {
   const key = Buffer.from(base64, 'base64');
   if (key.length !== 32) throw new Error('ACEDIA_SECRET_KEY doit faire 32 octets (en base64)');

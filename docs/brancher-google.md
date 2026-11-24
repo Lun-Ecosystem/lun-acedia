@@ -38,7 +38,15 @@ reconnecter le compte (Réglages → Compte Google). Les jetons rangés appartie
 ## 3. Se connecter
 
 Depuis le front (Réglages → Compte Google) : « Connecter » ouvre la page de consentement de Google,
-puis revient sur Acedia. Les jetons sont chiffrés dans la base.
+puis revient sur Acedia, dans Réglages → Compte Google. Les jetons sont chiffrés dans la base.
+
+Un retour en échec revient au même endroit, avec un message (connexion annulée, retour périmé, ou
+Google n'a pas confirmé) ; le compte déjà branché ne change pas. Si ça échoue encore, vérifier que les
+trois API du § 1 sont activées : le journal du serveur garde le code court de Google
+(`accessNotConfigured`, par exemple).
+
+Un jeton rangé avec une autre `ACEDIA_SECRET_KEY` ne se lit pas : la carte dit « Non connecté » et
+pourquoi. Remettre l'ancienne clé dans `.env` et relancer, ou reconnecter le compte.
 
 ## Si Google refuse le renouvellement
 

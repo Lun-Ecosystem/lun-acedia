@@ -127,8 +127,7 @@ describe('demo', () => {
     });
 
     it('is unreadable on demand (DEMO_GOOGLE=unreadable)', async () => {
-      // An option the demo does not know yet: the cast keeps the typecheck green until it does.
-      const opts = { googleUnreadable: true } as Parameters<typeof createDemo>[0];
+      const opts = { googleUnreadable: true };
       expect(await status(opts)).toEqual({ code: 200, body: { connected: false, unreadable: true } });
     });
   });
