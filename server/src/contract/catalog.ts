@@ -470,9 +470,12 @@ export function registerCatalog(
         .map((c) => ({ type: `card.${c.action}`, title: cardText(deps.db, c).title, at: c.decidedAt! }));
       const done = [...journal, ...cards].sort((a, b) => b.at.localeCompare(a.at)).slice(0, LIMIT);
       expireCards(deps.db, dayOf(deps.clock()));
-      const count = (sql: string) => (deps.db.prepare(sql).get() as { n: number }).n;
+      const count = (sql: string, params: string[] = []) =>
+        (deps.db.prepare(sql).get(...params) as { n: number }).n;
+      // What « À valider » shows: a proposal whose mail left the inbox waits for nobody.
+      const waiting = viewFilter('pending')!;
       const pending =
-        count("SELECT COUNT(*) AS n FROM proposals WHERE status = 'pending'") +
+        count(`SELECT COUNT(*) AS n FROM messages WHERE ${waiting.where}`, waiting.params) +
         count("SELECT COUNT(*) AS n FROM pina_cards WHERE status = 'pending'");
       return { since, until, received, done, pending };
     },
