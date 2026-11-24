@@ -24,7 +24,7 @@
   import IconButton from '../ui/IconButton.svelte';
   import Menu from '../ui/Menu.svelte';
   import { setScreenContext, shellOf } from '../ui/shell.ts';
-  import { bindShortcuts } from '../ui/shortcuts.ts';
+  import { bindShortcuts, comboOf } from '../ui/shortcuts.ts';
   import Skeleton from '../ui/Skeleton.svelte';
   import TextInput from '../ui/TextInput.svelte';
   import Tooltip from '../ui/Tooltip.svelte';
@@ -37,9 +37,10 @@
 
   /*
    * The queue of the AI's proposals under the threshold (plate 04), grouped by proposed box: validated
-   * one by one from the keyboard (J, K, V, C, Maj+V), by group, or all above the « Tout valider »
-   * threshold. Each action leaves the queue at once and offers to undo (5 s, or Ctrl Z). Emptied, the
-   * screen says what the sorting did today.
+   * one by one from the keyboard, by group, or all above the « Tout valider » threshold. V, Maj+V and C
+   * settle the card holding the focus, and only it: without a card in focus, they do nothing. J and K
+   * move from that card, or give the focus to the queue's Tab stop. Each action leaves the queue at once
+   * and offers to undo (5 s, or Ctrl Z). Emptied, the screen says what the sorting did today.
    */
 
   interface Props {
@@ -63,8 +64,10 @@
   let loading = $state(true);
   let error = $state<string | null>(null);
   let sort = $state<'confiance' | 'date'>('confiance');
-  /** The card of the keyboard. */
+  /** The queue's Tab stop: the card that last held the focus. No key settles it unless it holds the focus. */
   let current = $state<string | null>(null);
+  /** The card holding the focus, for the eye only (background, aria-current, hints): it decides nothing. */
+  let focused = $state<string | null>(null);
   let correcting = $state<{ open: boolean; anchor: HTMLElement | null; mails: MailSummary[] }>({
     open: false,
     anchor: null,
@@ -216,6 +219,8 @@
       const rest = ordered.filter((m) => !ids.includes(m.id));
       current = (ordered.slice(index).find((m) => !ids.includes(m.id)) ?? rest.at(-1))?.id ?? null;
     }
+    // Not every browser says « focusout » for a card taken out with the focus: brought back, it is not lit.
+    if (focused && ids.includes(focused)) focused = null;
     items = items.filter((m) => !ids.includes(m.id));
     void refocus();
     busy++;
@@ -298,19 +303,35 @@
   /** A menu or a window has the keyboard: the screen's shortcuts wait. */
   const overlay = () => Boolean(document.activeElement?.closest('[role="menu"], [role="dialog"]'));
 
-  $effect(() => {
-    const on = (run: (m: MailSummary) => void) => () => {
-      const m = active;
-      if (m && !overlay() && !correcting.open) run(m);
-    };
-    return bindShortcuts({
-      j: on(() => move(1)),
-      k: on(() => move(-1)),
-      v: on((m) => validate([m])),
-      'Shift+v': on((m) => validate(groupOf(m)?.mails ?? [m])),
-      c: on((m) => openCorrect([m], cardOf(m)?.querySelector<HTMLElement>('.corriger') ?? cardOf(m))),
-    });
-  });
+  /** J and K settle nothing: from the card holding the focus they move; else they focus the Tab stop. */
+  function step(by: number) {
+    if (!active || overlay() || correcting.open) return;
+    const card = cardOf(active);
+    if (card?.contains(document.activeElement)) move(by);
+    else card?.focus();
+  }
+
+  $effect(() => bindShortcuts({ j: () => step(1), k: () => step(-1) }));
+
+  /** V, Maj+V and C settle this card, from it or its buttons; Enter and the arrows, from the card itself. */
+  function keydown(event: KeyboardEvent & { currentTarget: HTMLElement }, m: MailSummary) {
+    const combo = comboOf(event);
+    if (combo === 'v' || combo === 'Shift+v' || combo === 'c') {
+      // Held down, a key settles one card, not the queue after it.
+      if (event.repeat || overlay() || correcting.open) return;
+      event.preventDefault();
+      if (combo === 'c')
+        openCorrect([m], event.currentTarget.querySelector<HTMLElement>('.corriger') ?? event.currentTarget);
+      else void validate(combo === 'v' ? [m] : (groupOf(m)?.mails ?? [m]));
+      return;
+    }
+    if (event.target !== event.currentTarget) return;
+    if (event.key === 'Enter') onopen?.(m.id);
+    else if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+      event.preventDefault();
+      move(event.key === 'ArrowDown' ? 1 : -1);
+    }
+  }
 
   // ---- Touch: a card slid to the right is validated, to the left it opens the correction.
   const SWIPE = 96;
@@ -505,12 +526,8 @@
                   onclick={(event) => openCorrect(group.mails, event.currentTarget)}>Tout corriger…</Button
                 >
               {/if}
-              <Button
-                variant="doux"
-                size="petit"
-                icon={Check}
-                aria-keyshortcuts="Shift+V"
-                onclick={() => validate(group.mails)}>{n > 1 ? `Valider les ${n}` : 'Valider'}</Button
+              <Button variant="doux" size="petit" icon={Check} onclick={() => validate(group.mails)}
+                >{n > 1 ? `Valider les ${n}` : 'Valider'}</Button
               >
             </div>
           </header>
@@ -527,28 +544,30 @@
                   {/if}
                 </div>
               {/if}
-              <!-- One Tab stop for the queue (roving tabindex); J, K, V, C come from the window. -->
+              <!-- One Tab stop for the queue (roving tabindex): the card that last held the focus.
+                   V, Maj+V and C settle the card holding the focus, from it or its buttons; J and K come
+                   from the window. -->
               <!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_noninteractive_element_interactions -->
               <article
                 id="propo-{m.id}"
-                class={['carte', { actif: m === active, glisse: dx !== 0 }]}
-                aria-current={m === active}
+                class={['carte', { actif: m.id === focused, glisse: dx !== 0 }]}
+                aria-current={m.id === focused}
                 aria-label="{sender(m.from)} : {m.subject}"
+                aria-keyshortcuts="V Shift+V C"
                 tabindex={m === active ? 0 : -1}
                 style:transform={dx ? `translateX(${dx}px)` : undefined}
-                onfocus={() => (current = m.id)}
+                onfocusin={() => {
+                  current = m.id;
+                  focused = m.id;
+                }}
+                onfocusout={(event) => {
+                  if (!event.currentTarget.contains(event.relatedTarget as Node | null)) focused = null;
+                }}
                 onclick={() => {
                   // A click on its own button has already taken the card out and moved the keyboard on.
                   if (items.some((x) => x.id === m.id)) current = m.id;
                 }}
-                onkeydown={(event) => {
-                  if (event.target !== event.currentTarget) return;
-                  if (event.key === 'Enter') onopen?.(m.id);
-                  else if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
-                    event.preventDefault();
-                    move(event.key === 'ArrowDown' ? 1 : -1);
-                  }
-                }}
+                onkeydown={(event) => keydown(event, m)}
                 onpointerdown={(event) => swipeStart(event, m)}
                 onpointermove={swipeMove}
                 onpointerup={(event) => swipeEnd(m, event.currentTarget)}
@@ -598,7 +617,7 @@
                       onclick={() => refuse(m)}
                     />
                   {/if}
-                  <Tooltip label="Corriger" shortcut="C">
+                  <Tooltip label="Corriger" shortcut={m.id === focused ? 'C' : undefined}>
                     {#snippet children({ props })}
                       <Button
                         {...mergeProps(props, {
@@ -626,7 +645,7 @@
                     <IconButton
                       icon={Eye}
                       label="Ouvrir le mail"
-                      shortcut="↵"
+                      shortcut={m.id === focused ? '↵' : undefined}
                       size="petit"
                       class="ouvrir"
                       onclick={() => onopen(m.id)}
