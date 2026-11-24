@@ -229,13 +229,43 @@ describe('Google return', () => {
 
   it('copies nothing Google sends: one of four fixed addresses, no markup in the body', async () => {
     const s = scripted();
-    const tail = 'error=<b>x</b>&error_description=<b>y</b>';
+    const tail = 'error=<b>x</b>&error_description=<b>SECRETDESC</b>';
     const fresh = (await s.back((st) => `${tail}&state=${st}`)).res;
     const stale = await s.h.app.request(`/oauth/callback?${tail}&state=old`);
     for (const res of [fresh, stale]) {
       expect(ADDRESSES).toContain(res.headers.get('location'));
-      expect(await res.text()).not.toMatch(/<b>|<\/b>/);
+      expect(await res.text()).not.toMatch(/<b>|<\/b>|SECRETDESC/);
     }
+    expect(s.h.logs.join('\n')).not.toMatch(/<b>|<\/b>|SECRETDESC|error_description/);
+  });
+
+  describe('the server log keeps only a short code from Google', () => {
+    it('an exchange refused: the status and the error code, exactly', async () => {
+      const s = scripted();
+      s.script.exchange = { status: 400, json: { error: 'invalid_grant', error_description: 'SECRETDESC' } };
+      const { res } = await s.back(s.code);
+      expect(res.headers.get('location')).toBe('/?google=failed');
+      expect(s.h.logs).toEqual(['Retour Google en échec : échange 400 (invalid_grant)']);
+    });
+
+    it('a profile refused with a reason: failed, the reason in the log', async () => {
+      const s = scripted();
+      s.script.profile = {
+        status: 403,
+        json: { error: { message: 'SECRETDESC', errors: [{ reason: 'accessNotConfigured' }] } },
+      };
+      const { res } = await s.back(s.code);
+      expect(res.headers.get('location')).toBe('/?google=failed');
+      expect(s.h.logs).toEqual(['Retour Google en échec : profil 403 (accessNotConfigured)']);
+    });
+
+    it('a reason outside the pattern is not logged', async () => {
+      const s = scripted();
+      s.script.profile = { status: 403, json: { error: { errors: [{ reason: '<b>SECRETDESC</b>' }] } } };
+      const { res } = await s.back(s.code);
+      expect(res.headers.get('location')).toBe('/?google=failed');
+      expect(s.h.logs).toEqual(['Retour Google en échec : profil 403']);
+    });
   });
 
   describe('a failure leaves the connected account as it was', () => {
