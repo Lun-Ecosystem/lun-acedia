@@ -37,7 +37,7 @@ export interface AppDeps {
   google?: GoogleDeps | undefined;
   /** The built standalone app (app/dist), served at the root when present. */
   staticDir?: string | undefined;
-  /** Where warnings go (the pairing lock); `console.warn` by default. */
+  /** Where warnings go (the pairing lock, a failed Google return); `console.warn` by default. */
   log?: ((line: string) => void) | undefined;
   /** ACEDIA_SECRET_KEY: without it, no provider key can be saved. */
   secretKey?: string | undefined;
