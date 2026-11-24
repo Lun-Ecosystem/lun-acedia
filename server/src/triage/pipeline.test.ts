@@ -449,6 +449,17 @@ describe('triageNew', () => {
     expect(pickExamples(s.h.db, getStoredMessage(s.h.db, 'm1')!)).toHaveLength(1);
   });
 
+  it.each([['core'], ['local']] as const)('%s pause: validating still files the mail', async (by) => {
+    let box = '';
+    const s = await setup(() => ({ boxId: box, confidence: 50 }));
+    box = s.ecole;
+    await s.triage(await s.deliver({ id: 'm1' }));
+    setPaused(s.h.db, true, by);
+    expect((await s.h.call('POST', '/api/mail/m1/validate')).status).toBe(200);
+    expect(getStoredMessage(s.h.db, 'm1')?.labels).toContain(s.ecole);
+    expect(getProposal(s.h.db, 'm1')?.status).toBe('accepted');
+  });
+
   it('a mail filed by hand settles its proposal and becomes an example', async () => {
     let box = '';
     const s = await setup(() => ({ boxId: box, confidence: 50 }));

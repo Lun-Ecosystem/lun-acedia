@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { ChatResult, LlmProvider, ToolCall } from '../llm/types.ts';
 import { makeAgendaHarness } from '../testing/agenda-harness.ts';
 import { message } from '../testing/fake-gmail.ts';
+import { setPaused } from '../contract/state.ts';
 import { recordCost } from '../contract/costs.ts';
 import { dayOf, getCard } from './store.ts';
 
@@ -223,5 +224,25 @@ describe('Pina routes', () => {
     expect((await s.h.call('PUT', '/api/pina/settings', { instructions: 'x'.repeat(4001) })).status).toBe(
       400,
     );
+  });
+});
+
+// Spec: the pause stops the automatic, not what CrOliX asks of Pina (Pina § 5, contract « Deux pauses »).
+describe.each([['core'], ['local']] as const)('Pina under a %s pause', (by) => {
+  it(`${by} pause: Pina answers`, async () => {
+    const s = await setup([answer('Bonjour !')]);
+    setPaused(s.h.db, true, by);
+    const res = await s.h.call('POST', '/api/pina/messages', { text: 'Salut', context: CONTEXT });
+    expect(res.status).toBe(200);
+    expect(s.requests).toHaveLength(1);
+    expect(res.body.messages.at(-1).message).toMatchObject({ role: 'assistant', text: 'Bonjour !' });
+  });
+
+  it(`${by} pause: Pina proposes a card`, async () => {
+    const s = await setup([event(), answer('Prêt.')]);
+    setPaused(s.h.db, true, by);
+    const id = await s.withCard();
+    expect(getCard(s.h.db, id)).toMatchObject({ status: 'pending' });
+    expect(s.requests).toHaveLength(1);
   });
 });
