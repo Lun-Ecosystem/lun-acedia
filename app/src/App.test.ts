@@ -264,8 +264,8 @@ describe('App', () => {
   describe('back from Google', () => {
     const NOTICES = {
       refused: 'Connexion annulée sur la page de Google. Rien n’a changé.',
-      failed: 'Google n’a pas confirmé la connexion. Rien n’a changé : recommencer.',
-      expired: 'Ce retour de Google n’est plus valable. Rien n’a changé : recommencer la connexion.',
+      failed: 'Google n’a pas confirmé la connexion. Rien n’a changé.',
+      expired: 'Ce retour de Google n’est plus valable. Rien n’a changé.',
     };
     const back = async (code: string) => {
       fakeServer();
@@ -300,6 +300,7 @@ describe('App', () => {
         expect(within(card).queryByRole('alert')).toBeNull();
         expect(within(card).queryByRole('status')).toBeNull();
         expect(card.textContent).not.toMatch(/<b>|function|undefined/);
+        expect(card.querySelector('b')).toBeNull();
       },
     );
 

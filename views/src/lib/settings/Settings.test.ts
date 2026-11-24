@@ -420,31 +420,63 @@ describe('Settings', () => {
 
   it.each([
     ['refused', 'status', 'Connexion annulée sur la page de Google. Rien n’a changé.'],
-    ['failed', 'alert', 'Google n’a pas confirmé la connexion. Rien n’a changé : recommencer.'],
-    [
-      'expired',
-      'alert',
-      'Ce retour de Google n’est plus valable. Rien n’a changé : recommencer la connexion.',
-    ],
+    ['failed', 'alert', 'Google n’a pas confirmé la connexion. Rien n’a changé.'],
+    ['expired', 'alert', 'Ce retour de Google n’est plus valable. Rien n’a changé.'],
   ])('googleNotice « %s » shows its message as a %s', async (googleNotice, role, text) => {
     const { client } = fakeClient();
     client.googleStatus.mockResolvedValue({ connected: false });
     render(Settings, { props: { client, start: 'google', googleNotice } });
     const card = await screen.findByRole('region', { name: 'Compte Google' });
-    expect(await within(card).findByRole(role, {}, { timeout: 2000 })).toHaveTextContent(text);
+    expect(await within(card).findByRole(role)).toHaveTextContent(text);
   });
 
   it('clicking « Connecter un compte Google » clears the message', async () => {
     const { client } = fakeClient();
     client.googleStatus.mockResolvedValue({ connected: false });
     client.googleAuthUrl.mockResolvedValue({ url: 'https://accounts.example.com/auth' });
-    vi.spyOn(window, 'open').mockReturnValue(null);
+    const open = vi.spyOn(window, 'open').mockReturnValue(null);
     const user = userEvent.setup();
     render(Settings, { props: { client, start: 'google', googleNotice: 'failed' } });
     const card = await screen.findByRole('region', { name: 'Compte Google' });
     expect(await within(card).findByRole('alert')).toBeInTheDocument();
     await user.click(await within(card).findByRole('button', { name: 'Connecter un compte Google' }));
     await waitFor(() => expect(within(card).queryByRole('alert')).toBeNull());
+    open.mockRestore();
+  });
+
+  it('the message stays gone after another theme and back (bound, not copied)', async () => {
+    const { client } = fakeClient();
+    client.googleStatus.mockResolvedValue({ connected: false });
+    client.googleAuthUrl.mockResolvedValue({ url: 'https://accounts.example.com/auth' });
+    const open = vi.spyOn(window, 'open').mockReturnValue(null);
+    const user = userEvent.setup();
+    render(Settings, { props: { client, start: 'google', googleNotice: 'failed' } });
+    const card = await screen.findByRole('region', { name: 'Compte Google' });
+    await user.click(await within(card).findByRole('button', { name: 'Connecter un compte Google' }));
+    await waitFor(() => expect(within(card).queryByRole('alert')).toBeNull());
+    const themes = screen.getByRole('navigation', { name: 'Thèmes des réglages' });
+    await user.click(within(themes).getByRole('link', { name: 'Appareils et applications' }));
+    await screen.findByRole('heading', { name: 'Appareils et applications', level: 2 });
+    await user.click(within(themes).getByRole('link', { name: 'Compte Google' }));
+    const back = await screen.findByRole('region', { name: 'Compte Google' });
+    await within(back).findByRole('button', { name: 'Connecter un compte Google' });
+    expect(within(back).queryByRole('alert')).toBeNull();
+    open.mockRestore();
+  });
+
+  it('« Déconnecter » removes a return message shown on a connected card', async () => {
+    const { client } = fakeClient();
+    client.googleDisconnect.mockResolvedValueOnce();
+    const user = userEvent.setup();
+    render(Settings, { props: { client, start: 'google', googleNotice: 'refused' } });
+    const card = await screen.findByRole('region', { name: 'Compte Google' });
+    expect(await within(card).findByText('Connecté')).toBeInTheDocument();
+    expect(within(card).getByRole('status')).toBeInTheDocument();
+    client.googleStatus.mockResolvedValueOnce({ connected: false });
+    await user.click(within(card).getByRole('button', { name: 'Déconnecter' }));
+    await user.click(within(await dialog()).getByRole('button', { name: 'Déconnecter le compte' }));
+    expect(await within(card).findByText('Non connecté')).toBeInTheDocument();
+    expect(within(card).queryByRole('status')).toBeNull();
   });
 
   it('an unreadable account says so, with « Non connecté » and the connect button', async () => {
@@ -459,6 +491,8 @@ describe('Settings', () => {
     expect(within(card).getByText('Non connecté')).toBeInTheDocument();
     expect(within(card).getByRole('button', { name: 'Connecter un compte Google' })).toBeInTheDocument();
     expect(within(card).queryByText(/Seul le compte Google qui a créé/)).toBeNull();
+    expect(within(card).getByText('Compte illisible')).toBeInTheDocument();
+    expect(within(card).queryByText('Aucun compte')).toBeNull();
   });
 
   it('a refused key shows a banner with « Remplacer la clé » on the sorting pages', async () => {
