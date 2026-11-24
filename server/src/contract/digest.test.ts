@@ -115,10 +115,11 @@ describe('day.digest, what waits (only the mails still in the inbox)', () => {
     for (const id of ['in', 'arch', 'bin', 'junk', 'ghost']) propose(h.db, id);
     const body = (await act(DAY)).body.result;
     expect(body.pending).toBe(1);
-    expect(body.received.map((m: { ref: { id: string } }) => m.ref.id)).toEqual([
-      'in',
+    // Same date for the four: their order is the index's tie-break, not what this test pins.
+    expect(body.received.map((m: { ref: { id: string } }) => m.ref.id).sort()).toEqual([
       'arch',
       'bin',
+      'in',
       'junk',
     ]);
     expect(body.done).toEqual([]);
