@@ -5,8 +5,8 @@ import { message } from '../testing/fake-gmail.ts';
 import { makeGmailHarness } from '../testing/gmail-harness.ts';
 import { getExample } from './examples.ts';
 import { ConflictError, logAuto, parisDayStart, todayStats } from './journal.ts';
-import { getProposal, refuse } from './pipeline.ts';
-import { claim, saveProposal } from './proposals.ts';
+import { correct, getProposal, refuse, validate } from './pipeline.ts';
+import { claim, saveProposal, setProposalStatus } from './proposals.ts';
 
 async function setup() {
   const h = await makeGmailHarness([message({ id: 'm1', labelIds: ['INBOX', 'UNREAD'] })]);
@@ -353,30 +353,48 @@ describe('stats/today', () => {
   });
 });
 
+async function pending(boxOf: (s: Awaited<ReturnType<typeof setup>>) => string | null = (s) => s.ecole) {
+  const s = await setup();
+  claim(s.h.db, 'm1', s.h.clock());
+  saveProposal(s.h.db, {
+    messageId: 'm1',
+    boxId: boxOf(s),
+    tagIds: [],
+    importance: 'none',
+    confidence: 50,
+    source: 'ai',
+    status: 'pending',
+  });
+  return s;
+}
+type S = Awaited<ReturnType<typeof pending>>;
+const writes = (s: S) => s.h.calls.filter((c) => c.method !== 'GET').length;
+const lines = (s: S) =>
+  s.h.call('GET', '/api/journal').then((r) => r.body.items as Record<string, unknown>[]);
+
+/** The deps with a Gmail that, at its first call, runs `first` (a gesture slipping in) and then answers. */
+function gated(s: S, first: () => Promise<unknown>) {
+  const google = s.h.deps.google;
+  let done = false;
+  const racing = Object.create(google) as typeof google;
+  racing.request = (async (...args: Parameters<typeof google.request>) => {
+    if (!done) {
+      done = true;
+      await first();
+    }
+    return google.request(...args);
+  }) as typeof google.request;
+  return { ...s.h.deps, google: racing };
+}
+const failing = (s: S) => gated(s, () => Promise.reject(new Error('Gmail is down')));
+const LOCK = 'Un geste est déjà en cours sur ce mail';
+const labelsOf = (s: S) => s.h.gmail.messages.get('m1')!.labelIds.sort();
+
 describe('refuse a proposal', () => {
   const OLD = [
     'INSERT INTO examples (message_id, from_addr, from_domain, subject, box_id, tag_ids, at)',
     "VALUES ('m1','prof@ecole.fr','ecole.fr','Sujet m1','old','[]','2026-01-01T00:00:00.000Z')",
   ].join(' ');
-
-  async function pending(boxOf: (s: Awaited<ReturnType<typeof setup>>) => string | null = (s) => s.ecole) {
-    const s = await setup();
-    claim(s.h.db, 'm1', s.h.clock());
-    saveProposal(s.h.db, {
-      messageId: 'm1',
-      boxId: boxOf(s),
-      tagIds: [],
-      importance: 'none',
-      confidence: 50,
-      source: 'ai',
-      status: 'pending',
-    });
-    return s;
-  }
-  type S = Awaited<ReturnType<typeof pending>>;
-  const writes = (s: S) => s.h.calls.filter((c) => c.method !== 'GET').length;
-  const lines = (s: S) =>
-    s.h.call('GET', '/api/journal').then((r) => r.body.items as Record<string, unknown>[]);
 
   it('leaves the mail as it is, settles the proposal, writes no example and one line', async () => {
     const s = await pending();
@@ -434,22 +452,25 @@ describe('refuse a proposal', () => {
     expect(await lines(s)).toEqual([]);
   });
 
-  // A double click: a second refusal settles the proposal while the first one reads Gmail.
-  it('answers 409 when the proposal is settled while Gmail is read, and writes nothing', async () => {
+  // A double click: a second refusal comes in while the first one reads Gmail; the lock stops it.
+  it('answers 409 to a refusal slipped in during a refusal, which still passes', async () => {
     const s = await pending();
-    const google = s.h.deps.google;
-    let slipped = false;
-    const racing = Object.create(google) as typeof google;
-    racing.request = (async (...args: Parameters<typeof google.request>) => {
-      if (!slipped) {
-        slipped = true;
-        expect((await s.h.call('POST', '/api/mail/m1/refuse')).status).toBe(200);
-      }
-      return google.request(...args);
-    }) as typeof google.request;
-    await expect(refuse({ ...s.h.deps, google: racing }, 'm1')).rejects.toBeInstanceOf(ConflictError);
-    expect(getProposal(s.h.db, 'm1')?.status).toBe('refused');
+    let slipped: Awaited<ReturnType<typeof s.h.call>> | undefined;
+    const deps = gated(s, async () => {
+      slipped = await s.h.call('POST', '/api/mail/m1/refuse');
+    });
+    await expect(refuse(deps, 'm1')).resolves.toMatchObject({ status: 'refused' });
+    expect(slipped?.status).toBe(409);
+    expect(slipped?.body.error).toBe(LOCK);
     expect((await lines(s)).map((l) => l.action)).toEqual(['refuse']);
+  });
+
+  it('answers 409 when the proposal is settled while Gmail is read, and writes no line', async () => {
+    const s = await pending();
+    const deps = gated(s, async () => setProposalStatus(s.h.db, 'm1', 'refused'));
+    await expect(refuse(deps, 'm1')).rejects.toBeInstanceOf(ConflictError);
+    expect(getProposal(s.h.db, 'm1')?.status).toBe('refused');
+    expect(await lines(s)).toEqual([]);
   });
 
   it('undo puts the proposal back in the queue without touching Gmail', async () => {
@@ -461,5 +482,114 @@ describe('refuse a proposal', () => {
     expect(getProposal(s.h.db, 'm1')?.status).toBe('pending');
     expect(s.h.gmail.messages.get('m1')!.labelIds.sort()).toEqual(['INBOX', 'UNREAD']);
     expect((await s.h.call('GET', '/api/mail?view=pending')).body.items).toHaveLength(1);
+  });
+});
+
+describe('one gesture at a time per mail', () => {
+  it('answers 409 to a validation slipped in during a validation: one line, one write, one count', async () => {
+    const s = await pending();
+    const before = writes(s);
+    let slipped: Awaited<ReturnType<typeof s.h.call>> | undefined;
+    const deps = gated(s, async () => {
+      slipped = await s.h.call('POST', '/api/mail/m1/validate');
+    });
+    await expect(validate(deps, 'm1')).resolves.toMatchObject({ status: 'accepted' });
+    expect(slipped?.status).toBe(409);
+    expect(slipped?.body.error).toBe(LOCK);
+    expect((await lines(s)).map((l) => l.action)).toEqual(['validate']);
+    expect(writes(s) - before).toBe(1);
+    expect(labelsOf(s)).toEqual(['UNREAD', s.ecole].sort());
+    expect((await s.h.call('GET', '/api/stats/today')).body).toMatchObject({ validated: 1, corrected: 0 });
+    expect(getProposal(s.h.db, 'm1')?.status).toBe('accepted');
+  });
+
+  it('answers 409 to a correction slipped in during a correction: one line, the first box, no rule', async () => {
+    const s = await pending();
+    let slipped: Awaited<ReturnType<typeof s.h.call>> | undefined;
+    const deps = gated(s, async () => {
+      slipped = await s.h.call('POST', '/api/mail/m1/correct', {
+        boxId: s.perso,
+        tagIds: [],
+        rememberSender: true,
+      });
+    });
+    await expect(correct(deps, 'm1', s.ecole, [])).resolves.toMatchObject({ status: 'corrected' });
+    expect(slipped?.status).toBe(409);
+    expect(slipped?.body.error).toBe(LOCK);
+    expect((await lines(s)).map((l) => l.action)).toEqual(['correct']);
+    expect(labelsOf(s)).toEqual(['UNREAD', s.ecole].sort());
+    expect((await s.h.call('GET', '/api/rules')).body.rules).toEqual([]);
+    expect((await s.h.call('GET', '/api/stats/today')).body).toMatchObject({ corrected: 1, validated: 0 });
+  });
+
+  it('answers 409 to a correction then a refusal slipped in during a validation: nothing of theirs in Gmail', async () => {
+    const s = await pending();
+    const before = writes(s);
+    const statuses: number[] = [];
+    const deps = gated(s, async () => {
+      statuses.push((await s.h.call('POST', '/api/mail/m1/correct', { boxId: s.perso, tagIds: [] })).status);
+      statuses.push((await s.h.call('POST', '/api/mail/m1/refuse')).status);
+    });
+    await expect(validate(deps, 'm1')).resolves.toMatchObject({ status: 'accepted' });
+    expect(statuses).toEqual([409, 409]);
+    expect((await lines(s)).map((l) => l.action)).toEqual(['validate']);
+    expect(writes(s) - before).toBe(1);
+    expect(labelsOf(s)).toEqual(['UNREAD', s.ecole].sort());
+  });
+
+  it.each([
+    ['validate', (s: S) => validate(failing(s), 'm1')],
+    ['correct', (s: S) => correct(failing(s), 'm1', s.perso, [])],
+  ])('writes nothing when Gmail fails during %s, and the next gesture passes', async (name, gesture) => {
+    const s = await pending();
+    await expect(gesture(s)).rejects.toThrow('Gmail is down');
+    expect(getProposal(s.h.db, 'm1')?.status).toBe('pending');
+    expect(await lines(s)).toEqual([]);
+    expect((await s.h.call('GET', '/api/mail?view=pending')).body.items).toHaveLength(1);
+    const again = name === 'validate' ? '/api/mail/m1/validate' : '/api/mail/m1/refuse';
+    expect((await s.h.call('POST', again)).status).toBe(200);
+  });
+
+  it('still corrects a mail the AI filed alone (an auto proposal)', async () => {
+    const s = await pending();
+    saveProposal(s.h.db, {
+      messageId: 'm1',
+      boxId: s.ecole,
+      tagIds: [],
+      importance: 'none',
+      confidence: 99,
+      source: 'ai',
+      status: 'auto',
+    });
+    const res = await s.h.call('POST', '/api/mail/m1/correct', { boxId: s.perso, tagIds: [] });
+    expect(res.status).toBe(200);
+    expect(getProposal(s.h.db, 'm1')?.status).toBe('corrected');
+    expect((await lines(s)).map((l) => l.action)).toEqual(['correct']);
+  });
+
+  it('does not hold a gesture on another mail', async () => {
+    const s = await pending();
+    s.h.gmail.deliver(message({ id: 'm2', labelIds: ['INBOX', 'UNREAD'] }));
+    await s.h.sync();
+    claim(s.h.db, 'm2', s.h.clock());
+    saveProposal(s.h.db, {
+      messageId: 'm2',
+      boxId: s.perso,
+      tagIds: [],
+      importance: 'none',
+      confidence: 50,
+      source: 'ai',
+      status: 'pending',
+    });
+    let other: Awaited<ReturnType<typeof s.h.call>> | undefined;
+    const deps = gated(s, async () => {
+      other = await s.h.call('POST', '/api/mail/m2/validate');
+    });
+    await expect(validate(deps, 'm1')).resolves.toMatchObject({ status: 'accepted' });
+    expect(other?.status).toBe(200);
+    expect((await lines(s)).map((l) => [l.messageId, l.action]).sort()).toEqual([
+      ['m1', 'validate'],
+      ['m2', 'validate'],
+    ]);
   });
 });
