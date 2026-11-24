@@ -31,12 +31,16 @@ const queue = () => [
   proposed(5, 'L-perso', 85),
 ];
 
-async function open(mails = queue(), prepare?: (fake: ReturnType<typeof fakeClient>) => void) {
+async function open(
+  mails = queue(),
+  prepare?: (fake: ReturnType<typeof fakeClient>) => void,
+  props: { onopen?: (id: string) => void } = {},
+) {
   const fake = fakeClient({ mails });
   fake.client.getSettings.mockResolvedValue({ threshold: 95, bulkThreshold: 85 });
   prepare?.(fake);
   const user = userEvent.setup();
-  render(Pending, { props: { client: fake.client } });
+  render(Pending, { props: { client: fake.client, ...props } });
   render(Toaster);
   if (mails.length) await screen.findByText('Sujet 1');
   return { ...fake, user };
@@ -483,7 +487,79 @@ describe('Pending', () => {
     });
   });
 
+  describe('the edges of the keyboard', () => {
+    it('a card brought back by « Annuler » is not lit', async () => {
+      const { client, mails, user } = await open([proposed(1, 'L-ecole', 72)]);
+      client.undo.mockImplementation(async () => {
+        mails.find((m) => m.id === 'm1')!.proposal!.status = 'pending';
+        return { id: 'm1', before: ['INBOX'], after: ['INBOX'] };
+      });
+      await focusCard('Sujet 1');
+      await user.click(button('Sujet 1', 'Refuser la proposition'));
+      await screen.findByText('Proposition refusée : Expéditeur 1');
+      await user.click(screen.getByRole('button', { name: 'Annuler' }));
+      await screen.findByText('Sujet 1');
+      expect(lit()).toHaveLength(0);
+    });
+
+    it('K without focus puts the focus back on the Tab stop and moves nothing', async () => {
+      const { client, user } = await open();
+      await focusCard('Sujet 3');
+      await user.click(group('Spam').querySelector('h2')!);
+      expect(document.activeElement).not.toBe(card('Sujet 3'));
+      await user.keyboard('k');
+      await waitFor(() => expect(document.activeElement).toBe(card('Sujet 3')));
+      expect(client.validate).not.toHaveBeenCalled();
+    });
+
+    it('with « Corriger » open, V calls nothing', async () => {
+      const { client, user } = await open();
+      await focusCard('Sujet 3');
+      await user.keyboard('c');
+      await correctPanel();
+      await fireEvent.keyDown(card('Sujet 3'), { key: 'v' });
+      await user.keyboard('v');
+      await settled();
+      expect(client.validate).not.toHaveBeenCalled();
+    });
+
+    it('V from a button outside the cards (the « Valider » of a group, focused) calls nothing', async () => {
+      const { client, user } = await open();
+      const head = group('Perso').querySelector('header') as HTMLElement;
+      within(head)
+        .getByRole('button', { name: /^Valider/ })
+        .focus();
+      await tick();
+      await user.keyboard('v');
+      await settled();
+      expect(client.validate).not.toHaveBeenCalled();
+    });
+
+    it('J from the « Valider » of a card goes to the next card', async () => {
+      const { client, user } = await open();
+      await focusCard('Sujet 2');
+      button('Sujet 2', 'Valider').focus();
+      await tick();
+      await user.keyboard('j');
+      await waitFor(() => expect(document.activeElement).toBe(card('Sujet 5')));
+      expect(client.validate).not.toHaveBeenCalled();
+    });
+  });
+
   describe('the hints say where a key acts', () => {
+    it('the « ↵ » of the eye is announced from the card or the eye, not from another button', async () => {
+      await open(queue(), undefined, { onopen: () => {} });
+      const eye = () => button('Sujet 2', 'Ouvrir le mail');
+      button('Sujet 2', 'Valider').focus();
+      await tick();
+      expect(eye()).not.toHaveAttribute('aria-keyshortcuts');
+      await focusCard('Sujet 2');
+      expect(eye()).toHaveAttribute('aria-keyshortcuts', '↵');
+      eye().focus();
+      await tick();
+      expect(eye()).toHaveAttribute('aria-keyshortcuts', '↵');
+    });
+
     it('every card announces « V Shift+V C »; its buttons keep « V » and « C »', async () => {
       await open();
       for (const n of [1, 2, 3, 4, 5]) {
