@@ -261,6 +261,60 @@ describe('App', () => {
     expect(look()).toEqual(before);
   });
 
+  describe('back from Google', () => {
+    const NOTICES = {
+      refused: 'Connexion annulée sur la page de Google. Rien n’a changé.',
+      failed: 'Google n’a pas confirmé la connexion. Rien n’a changé : recommencer.',
+      expired: 'Ce retour de Google n’est plus valable. Rien n’a changé : recommencer la connexion.',
+    };
+    const back = async (code: string) => {
+      fakeServer();
+      localStorage.setItem(TOKEN_KEY, 'tok-1');
+      history.replaceState(null, '', `/?google=${code}`);
+      render(App);
+      const card = await screen.findByRole('region', { name: 'Compte Google' });
+      expect(screen.getByRole('heading', { level: 2, name: 'Compte Google' })).toBeInTheDocument();
+      expect(window.location.search).toBe('');
+      expect(window.location.hash).toBe('#/reglages');
+      return card;
+    };
+
+    it.each(Object.entries(NOTICES))(
+      '« %s » opens the Google account page with its message',
+      async (code, text) => {
+        const card = await back(code);
+        expect(within(card).getByText(text)).toBeInTheDocument();
+      },
+    );
+
+    it('« connected » opens the Google account page, without a message', async () => {
+      const card = await back('connected');
+      expect(within(card).queryByRole('alert')).toBeNull();
+      expect(within(card).queryByRole('status')).toBeNull();
+    });
+
+    it.each(['constructor', '%3Cb%3Ex%3C%2Fb%3E'])(
+      'an unknown code « %s » shows the page, no message',
+      async (code) => {
+        const card = await back(code);
+        expect(within(card).queryByRole('alert')).toBeNull();
+        expect(within(card).queryByRole('status')).toBeNull();
+        expect(card.textContent).not.toMatch(/<b>|function|undefined/);
+      },
+    );
+
+    it('drops the message after leaving the settings', async () => {
+      const card = await back('failed');
+      expect(within(card).getByText(NOTICES.failed)).toBeInTheDocument();
+      location.hash = '#/agenda';
+      await waitFor(() => expect(screen.queryByRole('region', { name: 'Compte Google' })).toBeNull());
+      location.hash = '#/reglages';
+      await userEvent.setup().click(await screen.findByRole('link', { name: 'Compte Google' }));
+      const again = await screen.findByRole('region', { name: 'Compte Google' });
+      expect(within(again).queryByText(NOTICES.failed)).toBeNull();
+    });
+  });
+
   it('revoking the current device clears the token and shows pairing, once', async () => {
     const { calls } = fakeServer();
     localStorage.setItem(TOKEN_KEY, 'tok-1');
