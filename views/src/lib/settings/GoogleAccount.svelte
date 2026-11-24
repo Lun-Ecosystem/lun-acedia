@@ -21,11 +21,9 @@
   /** What a return from Google says, by its code; any other code says nothing (Google's word is never shown). */
   const NOTICES: Record<string, { text: string; alert: boolean }> = {
     refused: { text: 'Connexion annulée sur la page de Google. Rien n’a changé.', alert: false },
-    failed: { text: 'Google n’a pas confirmé la connexion. Rien n’a changé : recommencer.', alert: true },
-    expired: {
-      text: 'Ce retour de Google n’est plus valable. Rien n’a changé : recommencer la connexion.',
-      alert: true,
-    },
+    // No « recommencer »: the return can land on a connected card, which has no « Connecter ».
+    failed: { text: 'Google n’a pas confirmé la connexion. Rien n’a changé.', alert: true },
+    expired: { text: 'Ce retour de Google n’est plus valable. Rien n’a changé.', alert: true },
   };
   // Own keys only: `NOTICES.constructor` exists too.
   const said = $derived(notice !== undefined && Object.hasOwn(NOTICES, notice) ? NOTICES[notice] : undefined);
@@ -54,6 +52,7 @@
 
   async function disconnect() {
     await client.googleDisconnect();
+    notice = undefined;
     await refresh();
   }
 </script>
@@ -88,7 +87,7 @@
     </SettingsRow>
   {:else if status}
     <SettingsRow
-      label="Aucun compte"
+      label={status.unreadable ? 'Compte illisible' : 'Aucun compte'}
       hint={status.unreadable
         ? 'Le compte enregistré ne se lit pas avec la clé de ce serveur. Si elle a changé par erreur, remettre l’ancienne ; sinon, connecter le compte de nouveau.'
         : 'Gmail, Agenda et Tâches sont inaccessibles. Seul le compte Google qui a créé le projet d’Acedia peut se connecter.'}
@@ -126,5 +125,12 @@
     padding: 0 18px 14px;
     font-size: 12.5px;
     color: var(--danger);
+  }
+  /* Aligned with the card's title and rows, which narrow on a phone. */
+  @media (max-width: 767.98px) {
+    .avis,
+    .erreur {
+      padding-inline: 14px;
+    }
   }
 </style>
