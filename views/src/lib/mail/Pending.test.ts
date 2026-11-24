@@ -1,6 +1,8 @@
-import { render, screen, waitFor, within } from '@testing-library/svelte';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
+import { tick } from 'svelte';
 import { afterEach, describe, expect, it } from 'vitest';
+import { ApiError } from '../client.ts';
 import { agentIdentity } from '../pina/identity.svelte.ts';
 import { fakeClient } from '../../testing/fake-client.ts';
 import type { LunEvent, MailSummary } from '../types.ts';
@@ -72,6 +74,18 @@ const tiles = () =>
       .replace(/^(\d+) /, '$1'),
   );
 const card = (subject: string) => screen.getByText(subject).closest('article') as HTMLElement;
+/** Puts the focus on a card the way Tab or a click does, and lets the screen settle. */
+async function focusCard(subject: string) {
+  card(subject).focus();
+  await tick();
+}
+const button = (subject: string, name: string | RegExp) =>
+  within(card(subject)).getByRole('button', { name });
+/** A beat for something that must NOT happen to have had the time to happen. */
+const settled = () => new Promise((resolve) => setTimeout(resolve, 30));
+const noPanel = () =>
+  document.querySelector('[role="dialog"][aria-label="Corriger la proposition"]') === null;
+const lit = () => document.querySelectorAll('article[aria-current="true"]');
 
 describe('Pending', () => {
   afterEach(() => {
@@ -102,6 +116,7 @@ describe('Pending', () => {
 
   it('V validates the active card and moves to the next one', async () => {
     const { client, user } = await open();
+    await focusCard('Sujet 2');
     expect(card('Sujet 2')).toHaveAttribute('aria-current', 'true');
     await user.keyboard('v');
     expect(client.validate).toHaveBeenCalledWith('m2');
@@ -255,6 +270,7 @@ describe('Pending', () => {
 
     it('leaves the keyboard on the next card, as after V', async () => {
       const { user } = await open([proposed(1, 'L-ecole', 72), proposed(2, 'L-ecole', 90)]);
+      await focusCard('Sujet 2');
       expect(card('Sujet 2')).toHaveAttribute('aria-current', 'true');
       await user.click(refuseButton('Sujet 2')!);
       await waitFor(() => expect(document.activeElement).toBe(card('Sujet 1')));
@@ -285,6 +301,7 @@ describe('Pending', () => {
 
   it('after V the keyboard is on the next card; the last one leaves it on the emptied queue', async () => {
     const { user } = await open([proposed(1, 'L-ecole', 72), proposed(2, 'L-ecole', 90)]);
+    await focusCard('Sujet 2');
     await user.keyboard('v');
     await waitFor(() => expect(document.activeElement).toBe(card('Sujet 1')));
     await user.click(within(card('Sujet 1')).getByRole('button', { name: 'Valider' }));
@@ -331,5 +348,199 @@ describe('Pending', () => {
     expect(pending()).toBe(1);
     await user.click(within(panel).getByText('Annuler'));
     await waitFor(() => expect(pending()).toBe(2));
+  });
+
+  describe('the keyboard follows the focus', () => {
+    it('lights no card at load', async () => {
+      await open();
+      expect(lit()).toHaveLength(0);
+    });
+
+    it('at load, V, Shift+V and C do nothing', async () => {
+      const { client, user } = await open();
+      await user.keyboard('v');
+      await user.keyboard('{Shift>}V{/Shift}');
+      await user.keyboard('c');
+      await settled();
+      expect(client.validate).not.toHaveBeenCalled();
+      expect(client.correct).not.toHaveBeenCalled();
+      expect(noPanel()).toBe(true);
+    });
+
+    it('J without focus gives the focus to the first card, and calls nothing', async () => {
+      const { client, user } = await open();
+      await user.keyboard('j');
+      await waitFor(() => expect(document.activeElement).toBe(card('Sujet 2')));
+      expect(client.validate).not.toHaveBeenCalled();
+    });
+
+    it('K without focus gives the focus to the first card, and calls nothing', async () => {
+      const { client, user } = await open();
+      await user.keyboard('k');
+      await waitFor(() => expect(document.activeElement).toBe(card('Sujet 2')));
+      expect(client.validate).not.toHaveBeenCalled();
+    });
+
+    it('after a gesture then a click outside the cards, J brings the focus back to the Tab stop', async () => {
+      const { client, user } = await open();
+      await focusCard('Sujet 2');
+      await user.keyboard('v');
+      await waitFor(() => expect(document.activeElement).toBe(card('Sujet 5')));
+      await user.click(group('École').querySelector('h2')!);
+      expect(document.activeElement).not.toBe(card('Sujet 5'));
+      await user.keyboard('j');
+      await waitFor(() => expect(document.activeElement).toBe(card('Sujet 5')));
+      expect(client.validate).toHaveBeenCalledTimes(1);
+    });
+
+    it('V validates the card holding the focus, and only it', async () => {
+      const { client, user } = await open();
+      await focusCard('Sujet 3');
+      await user.keyboard('v');
+      await waitFor(() => expect(client.validate).toHaveBeenCalledTimes(1));
+      expect(client.validate).toHaveBeenCalledWith('m3');
+    });
+
+    it('Shift+V validates the group of the card holding the focus', async () => {
+      const { client, user } = await open();
+      await focusCard('Sujet 5');
+      await user.keyboard('{Shift>}V{/Shift}');
+      await waitFor(() => expect(client.validate).toHaveBeenCalledTimes(2));
+      expect(client.validate.mock.calls.map(([id]) => id)).toEqual(['m2', 'm5']);
+    });
+
+    it('C opens « Corriger » on the card holding the focus', async () => {
+      const { client, user } = await open();
+      await focusCard('Sujet 3');
+      await user.keyboard('c');
+      const panel = await correctPanel();
+      await user.click(option(panel, 'Perso'));
+      await user.click(within(panel).getByText('Appliquer'));
+      expect(client.correct).toHaveBeenCalledWith('m3', 'L-perso', [], { rememberSender: false });
+    });
+
+    it('J and K move the focus from the card holding it', async () => {
+      const { client, user } = await open();
+      await focusCard('Sujet 5');
+      await user.keyboard('j');
+      await waitFor(() => expect(document.activeElement).toBe(card('Sujet 3')));
+      expect(card('Sujet 3')).toHaveAttribute('aria-current', 'true');
+      await user.keyboard('k');
+      await waitFor(() => expect(document.activeElement).toBe(card('Sujet 5')));
+      expect(client.validate).not.toHaveBeenCalled();
+    });
+
+    it('with the focus out of the cards (a click on a title), V calls nothing', async () => {
+      const { client, user } = await open();
+      await focusCard('Sujet 2');
+      await user.click(group('École').querySelector('h2')!);
+      await user.keyboard('v');
+      await settled();
+      expect(client.validate).not.toHaveBeenCalled();
+    });
+
+    it('V from a button validates that button’s card; the next V the card after it, never the earlier one', async () => {
+      const { client, user } = await open();
+      await focusCard('Sujet 2');
+      button('Sujet 3', 'Valider').focus();
+      await tick();
+      await user.keyboard('v');
+      await waitFor(() => expect(client.validate).toHaveBeenCalledTimes(1));
+      expect(client.validate).toHaveBeenLastCalledWith('m3');
+      // École is now Sujet 1 alone: the card after Sujet 3.
+      await waitFor(() => expect(document.activeElement).toBe(card('Sujet 1')));
+      await user.keyboard('v');
+      await waitFor(() => expect(client.validate).toHaveBeenCalledTimes(2));
+      expect(client.validate).toHaveBeenLastCalledWith('m1');
+      expect(client.validate.mock.calls.map(([id]) => id)).not.toContain('m2');
+    });
+
+    it('a repeated V calls nothing: holding the key validates one card', async () => {
+      const { client, user } = await open();
+      await focusCard('Sujet 2');
+      await user.keyboard('v');
+      await waitFor(() => expect(document.activeElement).toBe(card('Sujet 5')));
+      for (let i = 0; i < 3; i++)
+        await fireEvent.keyDown(document.activeElement!, { key: 'v', repeat: true });
+      await settled();
+      expect(client.validate).toHaveBeenCalledTimes(1);
+    });
+
+    it('a card brought back by « Annuler » is not settled by V while the focus is not on it', async () => {
+      const { client, mails, user } = await open();
+      client.undo.mockImplementation(async () => {
+        mails.find((m) => m.id === 'm3')!.proposal!.status = 'pending';
+        return { id: 'm3', before: ['INBOX'], after: ['INBOX'] };
+      });
+      await focusCard('Sujet 3');
+      await user.click(button('Sujet 3', 'Refuser la proposition'));
+      await screen.findByText('Proposition refusée : Expéditeur 3');
+      await user.click(screen.getByRole('button', { name: 'Annuler' }));
+      await screen.findByText('Sujet 3');
+      await user.keyboard('v');
+      await settled();
+      expect(client.validate).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('the hints say where a key acts', () => {
+    it('every card announces « V Shift+V C »; its buttons keep « V » and « C »', async () => {
+      await open();
+      for (const n of [1, 2, 3, 4, 5]) {
+        const s = `Sujet ${n}`;
+        expect(card(s)).toHaveAttribute('aria-keyshortcuts', 'V Shift+V C');
+        expect(button(s, 'Valider')).toHaveAttribute('aria-keyshortcuts', 'V');
+        expect(button(s, 'Corriger')).toHaveAttribute('aria-keyshortcuts', 'C');
+      }
+    });
+
+    it('the « Valider » of a group no longer announces Shift+V', async () => {
+      await open();
+      for (const name of ['Perso', 'École', 'Spam']) {
+        const head = group(name).querySelector('header') as HTMLElement;
+        expect(within(head).getByRole('button', { name: /^Valider/ })).not.toHaveAttribute(
+          'aria-keyshortcuts',
+        );
+      }
+    });
+  });
+
+  describe('what the keyboard rule leaves as it was', () => {
+    it('« Valider » of a group validates the group, with no focus before', async () => {
+      const { client, user } = await open();
+      const head = group('Perso').querySelector('header') as HTMLElement;
+      await user.click(within(head).getByRole('button', { name: /^Valider/ }));
+      await waitFor(() => expect(client.validate).toHaveBeenCalledTimes(2));
+      expect(client.validate.mock.calls.map(([id]) => id)).toEqual(['m2', 'm5']);
+    });
+
+    it('« Valider » of a card validates that card, with no focus before', async () => {
+      const { client, user } = await open();
+      await user.click(button('Sujet 4', 'Valider'));
+      await waitFor(() => expect(client.validate).toHaveBeenCalledTimes(1));
+      expect(client.validate).toHaveBeenCalledWith('m4');
+    });
+
+    it('a card slid to the right validates, a finger on it (touch)', async () => {
+      const { client } = await open();
+      const el = card('Sujet 3');
+      const touch = { pointerType: 'touch', pointerId: 1, bubbles: true };
+      await fireEvent.pointerDown(el, { ...touch, clientX: 10 });
+      await fireEvent.pointerMove(el, { ...touch, clientX: 150 });
+      await fireEvent.pointerUp(el, { ...touch, clientX: 150 });
+      await waitFor(() => expect(client.validate).toHaveBeenCalledWith('m3'));
+    });
+
+    it('a 409 says the server’s words and takes the card off the queue', async () => {
+      const { client, mails, user } = await open();
+      client.validate.mockImplementationOnce(async (id) => {
+        // The other gesture settled it.
+        mails.find((m) => m.id === id)!.proposal!.status = 'accepted';
+        throw new ApiError(409, 'Un geste est déjà en cours sur ce mail');
+      });
+      await user.click(button('Sujet 3', 'Valider'));
+      expect(await screen.findByText('Un geste est déjà en cours sur ce mail')).toBeInTheDocument();
+      await waitFor(() => expect(screen.queryByText('Sujet 3')).toBeNull());
+    });
   });
 });
