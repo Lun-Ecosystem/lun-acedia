@@ -414,7 +414,7 @@ describe('Settings', () => {
 
   it('opens on the Google account page when asked (back from Google)', async () => {
     const { client } = fakeClient();
-    render(Settings, { props: { client, start: 'google' } as never });
+    render(Settings, { props: { client, start: 'google' } });
     expect(await screen.findByRole('heading', { name: 'Compte Google', level: 2 })).toBeInTheDocument();
   });
 
@@ -429,7 +429,7 @@ describe('Settings', () => {
   ])('googleNotice « %s » shows its message as a %s', async (googleNotice, role, text) => {
     const { client } = fakeClient();
     client.googleStatus.mockResolvedValue({ connected: false });
-    render(Settings, { props: { client, start: 'google', googleNotice } as never });
+    render(Settings, { props: { client, start: 'google', googleNotice } });
     const card = await screen.findByRole('region', { name: 'Compte Google' });
     expect(await within(card).findByRole(role, {}, { timeout: 2000 })).toHaveTextContent(text);
   });
@@ -440,7 +440,7 @@ describe('Settings', () => {
     client.googleAuthUrl.mockResolvedValue({ url: 'https://accounts.example.com/auth' });
     vi.spyOn(window, 'open').mockReturnValue(null);
     const user = userEvent.setup();
-    render(Settings, { props: { client, start: 'google', googleNotice: 'failed' } as never });
+    render(Settings, { props: { client, start: 'google', googleNotice: 'failed' } });
     const card = await screen.findByRole('region', { name: 'Compte Google' });
     expect(await within(card).findByRole('alert')).toBeInTheDocument();
     await user.click(await within(card).findByRole('button', { name: 'Connecter un compte Google' }));
@@ -449,7 +449,7 @@ describe('Settings', () => {
 
   it('an unreadable account says so, with « Non connecté » and the connect button', async () => {
     const { go } = await open((c) =>
-      c.googleStatus.mockResolvedValue({ connected: false, unreadable: true } as never),
+      c.googleStatus.mockResolvedValue({ connected: false, unreadable: true }),
     );
     await go('Compte Google');
     const card = screen.getByRole('region', { name: 'Compte Google' });

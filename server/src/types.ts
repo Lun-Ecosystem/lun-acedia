@@ -189,6 +189,8 @@ export interface Settings {
 export interface GoogleStatus {
   connected: boolean;
   email?: string;
+  /** Tokens are stored but do not decrypt with this server's `ACEDIA_SECRET_KEY`. */
+  unreadable?: boolean;
 }
 
 /** What happened today (a calendar day in `Europe/Paris`), from the journal minus the undone entries. */

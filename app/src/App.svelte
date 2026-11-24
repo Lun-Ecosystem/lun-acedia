@@ -30,8 +30,10 @@
   let token = $state(loadToken(localStorage));
   let notice = $state<string | null>(null);
 
-  // Back from Google's consent page: land on the settings, where the account shows as connected.
+  // Back from Google's consent page, success or not: land on the Google account, whose card says how it went.
   const params = new URLSearchParams(window.location.search);
+  /** The code of that return (`?google=failed`), read once; dropped on leaving the settings. */
+  let googleNotice = $state(params.get('google') ?? undefined);
   if (params.has('google')) history.replaceState(null, '', `${window.location.pathname}${HREF.reglages}`);
 
   /** The screen shown, from the hash of the page (`#/agenda`); the mail by default. */
@@ -55,8 +57,8 @@
   let mailView = $state<string | undefined>();
   /** Draft the composer opens (« Ouvrir le brouillon » of Pina); a new object each time. */
   let draftOpening = $state.raw<{ id: string } | undefined>();
-  /** Settings page shown first (the « Réglages » link of Pina's mode line opens hers). */
-  let settingsStart = $state<'pina' | undefined>();
+  /** Settings page shown first (the « Réglages » link of Pina's mode line opens hers, Google's return its own). */
+  let settingsStart = $state<'pina' | 'google' | undefined>(params.has('google') ? 'google' : undefined);
   $effect(() => {
     const follow = () => {
       screen = screenOf(window.location.hash);
@@ -67,7 +69,7 @@
       }
       // Opened once: back on the mail later, the list shows alone.
       if (screen !== 'mail') opening = mailView = draftOpening = undefined;
-      if (screen !== 'reglages') settingsStart = undefined;
+      if (screen !== 'reglages') settingsStart = googleNotice = undefined;
     };
     window.addEventListener('hashchange', follow);
     return () => window.removeEventListener('hashchange', follow);
@@ -272,6 +274,7 @@
             <Settings
               {client}
               start={settingsStart}
+              {googleNotice}
               onSelfRevoked={revokedSelf}
               onchange={() => refresh(client)}
             />

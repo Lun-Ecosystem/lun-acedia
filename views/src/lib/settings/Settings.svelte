@@ -52,12 +52,15 @@
   let {
     client,
     start = 'tri',
+    googleNotice = $bindable(),
     onSelfRevoked,
     onchange,
   }: {
     client: AcediaClient;
-    /** Page shown first (Pina's mode line opens hers). */
-    start?: 'tri' | 'pina' | undefined;
+    /** Page shown first (Pina's mode line opens hers, a return from Google the account's). */
+    start?: 'tri' | 'pina' | 'google' | undefined;
+    /** The code of a return from Google (`/?google=…`): the account's card says the known ones. */
+    googleNotice?: string | undefined;
     /** Called once this browser revoked its own access (Appareils et applications). */
     onSelfRevoked?: (() => void) | undefined;
     /** Something the service state depends on changed (the pause, the key). */
@@ -122,7 +125,7 @@
 
   // svelte-ignore state_referenced_locally
   let theme = $state<Theme>(start);
-  /** On a phone: a theme is open (else the list of themes shows); coming for Pina's page, it is. */
+  /** On a phone: a theme is open (else the list of themes shows); coming for a given page, it is. */
   // svelte-ignore state_referenced_locally
   let opened = $state(start !== 'tri');
   const page = $derived(PAGES.find((p) => p.id === theme)!);
@@ -315,7 +318,8 @@
       </header>
 
       {#if theme === 'google'}
-        <GoogleAccount {client} bind:status={google} />
+        <!-- Bound: cleared by « Connecter », the message does not come back with the page. -->
+        <GoogleAccount {client} bind:status={google} bind:notice={googleNotice} />
       {:else if theme === 'appareils'}
         <Devices {client} bind:clients {onSelfRevoked} />
       {:else if theme === 'fournisseurs'}
