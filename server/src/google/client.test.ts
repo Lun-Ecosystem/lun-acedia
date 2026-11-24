@@ -4,7 +4,14 @@ import { getState } from '../contract/state.ts';
 import { eventsSince } from '../contract/events.ts';
 import { openDb } from '../db.ts';
 import { fakeFetch, on, sequence } from '../testing/fake-fetch.ts';
-import { createGoogleClient, GoogleReauthError, saveTokens, TOKEN_URL } from './client.ts';
+import {
+  createGoogleClient,
+  GoogleNotConnectedError,
+  GoogleReauthError,
+  loadTokens,
+  saveTokens,
+  TOKEN_URL,
+} from './client.ts';
 
 const secretKey = randomBytes(32).toString('base64');
 const config = {
@@ -103,5 +110,35 @@ describe('Google client', () => {
     await expect(client.request('GET', API)).rejects.toBeInstanceOf(GoogleReauthError);
     saveTokens(db, secretKey, { accessToken: 'a', refreshToken: 'r', expiresAt: '2030-01-01T00:00:00.000Z' });
     expect(getState(db).degraded).toEqual([]);
+  });
+
+  describe('an unreadable stored token', () => {
+    const spoil = {
+      'another key': (db: ReturnType<typeof setup>['db']) =>
+        saveTokens(db, randomBytes(32).toString('base64'), {
+          accessToken: 'a',
+          refreshToken: 'r',
+          expiresAt: '2099-01-01T00:00:00.000Z',
+        }),
+      'a damaged text': (db: ReturnType<typeof setup>['db']) =>
+        db.prepare("UPDATE google_tokens SET refresh_token = 'x.y.z'").run(),
+    };
+
+    it.each(Object.entries(spoil))(
+      'stored with %s: not connected, no network call',
+      async (_name, spoilIt) => {
+        const { db, client, calls } = setup(3600_000, on('GET', API, { json: {} }));
+        spoilIt(db);
+        expect(loadTokens(db, secretKey)).toBeUndefined();
+        await expect(client.request('GET', API)).rejects.toBeInstanceOf(GoogleNotConnectedError);
+        expect(calls).toHaveLength(0);
+      },
+    );
+
+    it('is not mistaken for a database error: a missing table still throws', () => {
+      const { db } = setup(3600_000);
+      db.exec('DROP TABLE google_tokens');
+      expect(() => loadTokens(db, secretKey)).toThrow(/google_tokens/);
+    });
   });
 });

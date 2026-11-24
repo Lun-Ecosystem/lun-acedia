@@ -95,3 +95,69 @@ describe('day.digest', () => {
     expect((await act(input)).status).toBe(400);
   });
 });
+
+describe('day.digest, what waits (only the mails still in the inbox)', () => {
+  const propose = (db: Awaited<ReturnType<typeof setup>>['h']['db'], id: string) =>
+    db
+      .prepare(
+        "INSERT INTO proposals (message_id, box_id, tag_ids, importance, confidence, source, status, created_at) VALUES (?, NULL, '[]', 'normal', 80, 'ia', 'pending', '2026-11-01T09:00:00.000Z')",
+      )
+      .run(id);
+  const pendingOf = async (act: Awaited<ReturnType<typeof setup>>['act']) =>
+    (await act(DAY)).body.result.pending;
+
+  it('does not count the proposal of a mail archived, trashed, spammed or gone from the cache', async () => {
+    const { h, act } = await setup();
+    h.gmail.deliver(message({ id: 'arch', labelIds: ['UNREAD'] }));
+    h.gmail.deliver(message({ id: 'bin', labelIds: ['INBOX', 'TRASH'] }));
+    h.gmail.deliver(message({ id: 'junk', labelIds: ['SPAM'] }));
+    await h.sync();
+    for (const id of ['in', 'arch', 'bin', 'junk', 'ghost']) propose(h.db, id);
+    const body = (await act(DAY)).body.result;
+    expect(body.pending).toBe(1);
+    expect(body.received.map((m: { ref: { id: string } }) => m.ref.id)).toEqual([
+      'in',
+      'arch',
+      'bin',
+      'junk',
+    ]);
+    expect(body.done).toEqual([]);
+  });
+
+  it('drops by one when the mail is archived by hand, and comes back with the undo', async () => {
+    const { h, act } = await setup();
+    propose(h.db, 'in');
+    expect(await pendingOf(act)).toBe(1);
+    const res = await h.call('POST', '/api/mail/batch', { ids: ['in'], op: { kind: 'archive' } });
+    expect(res.status).toBe(200);
+    expect(await pendingOf(act)).toBe(0);
+    expect((await h.call('POST', `/api/journal/${res.body[0].journalId}/undo`)).status).toBe(200);
+    expect(await pendingOf(act)).toBe(1);
+  });
+
+  it('does not count the proposal of a mail Gmail took out of the inbox', async () => {
+    const { h, act } = await setup();
+    propose(h.db, 'in');
+    h.gmail.relabel('in', [], ['INBOX']);
+    await h.sync();
+    expect(await pendingOf(act)).toBe(0);
+  });
+
+  it('counts it again when the mail is back in the inbox', async () => {
+    const { h, act } = await setup();
+    propose(h.db, 'in');
+    h.gmail.relabel('in', [], ['INBOX']);
+    await h.sync();
+    h.gmail.relabel('in', ['INBOX'], []);
+    await h.sync();
+    expect(await pendingOf(act)).toBe(1);
+  });
+
+  it('does not count the proposal of a mail purged on Gmail', async () => {
+    const { h, act } = await setup();
+    propose(h.db, 'in');
+    h.gmail.purge('in');
+    await h.sync();
+    expect(await pendingOf(act)).toBe(0);
+  });
+});
