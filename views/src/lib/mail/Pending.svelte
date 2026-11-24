@@ -66,8 +66,10 @@
   let sort = $state<'confiance' | 'date'>('confiance');
   /** The queue's Tab stop: the card that last held the focus. No key settles it unless it holds the focus. */
   let current = $state<string | null>(null);
-  /** The card holding the focus, for the eye only (background, aria-current, hints): it decides nothing. */
+  /** The card holding the focus, for display only (background, aria-current, hints): it decides nothing. */
   let focused = $state<string | null>(null);
+  /** The focus is on that card itself or its eye, where Enter opens the mail: for the « ↵ » hint only. */
+  let enterOpens = $state(false);
   let correcting = $state<{ open: boolean; anchor: HTMLElement | null; mails: MailSummary[] }>({
     open: false,
     anchor: null,
@@ -556,9 +558,11 @@
                 aria-keyshortcuts="V Shift+V C"
                 tabindex={m === active ? 0 : -1}
                 style:transform={dx ? `translateX(${dx}px)` : undefined}
-                onfocusin={() => {
+                onfocusin={(event) => {
                   current = m.id;
                   focused = m.id;
+                  enterOpens =
+                    event.target === event.currentTarget || (event.target as Element).matches('.ouvrir');
                 }}
                 onfocusout={(event) => {
                   if (!event.currentTarget.contains(event.relatedTarget as Node | null)) focused = null;
@@ -645,7 +649,7 @@
                     <IconButton
                       icon={Eye}
                       label="Ouvrir le mail"
-                      shortcut={m.id === focused ? '↵' : undefined}
+                      shortcut={m.id === focused && enterOpens ? '↵' : undefined}
                       size="petit"
                       class="ouvrir"
                       onclick={() => onopen(m.id)}
