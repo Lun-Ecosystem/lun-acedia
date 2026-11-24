@@ -25,7 +25,8 @@ jamais le vrai compte).
 
 - Google est la source de vérité : la base SQLite n'est qu'un cache plus les données propres
   d'Acedia. Jamais de suppression définitive (corbeille seulement).
-- En pause, le tri s'arrête : rien n'est rangé seul, et la détection des conflits de l'agenda ne crée aucune carte.
+- En pause posée dans Lun'Acedia, le tri s'arrête : rien n'est rangé seul. Sous une pause du core, les règles seules
+  rangent, sans modèle. Dans les deux, la détection des conflits de l'agenda ne crée aucune carte.
   Ce qui est demandé à la main passe, et ce qui n'agit sur rien continue (synchro, rappels, copie de la base). Tout
   ce que fait l'agent se fait aussi à la main.
 - Une vue, un exemplaire : `app/` n'a aucun composant métier, tout vient de `views/`.
