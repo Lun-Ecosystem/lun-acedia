@@ -395,34 +395,52 @@ const changeOf = (deps: ActionDeps, id: string, change: LabelChange | undefined)
   return { id, before: labels, after: labels };
 };
 
+// The mails a gesture is working on: a second gesture slipped in while Gmail answers would file and log twice.
+const busy = new Set<string>();
+
+/** Runs a gesture on a mail, unless another one is already running on it (`ConflictError`). */
+async function oneAtATime<T>(id: string, gesture: () => Promise<T>): Promise<T> {
+  if (busy.has(id)) throw new ConflictError('Un geste est déjà en cours sur ce mail');
+  busy.add(id);
+  try {
+    return await gesture();
+  } finally {
+    busy.delete(id);
+  }
+}
+
 /** CrOliX accepts the proposal as it is. */
 export async function validate(deps: ActionDeps, id: string): Promise<Proposal & { journalId: number }> {
-  const p = pendingProposal(deps.db, id);
-  const previous = snapshot(deps.db, id);
-  const change = await applyTarget(deps, id, p.boxId, p.tagIds);
-  setProposalStatus(deps.db, id, 'accepted');
-  remember(deps, id, p.boxId, p.tagIds);
-  const journalId = logUser(deps.db, changeOf(deps, id, change), 'validate', deps.now(), previous);
-  return { ...getProposal(deps.db, id)!, journalId };
+  return oneAtATime(id, async () => {
+    const p = pendingProposal(deps.db, id);
+    const previous = snapshot(deps.db, id);
+    const change = await applyTarget(deps, id, p.boxId, p.tagIds);
+    setProposalStatus(deps.db, id, 'accepted');
+    remember(deps, id, p.boxId, p.tagIds);
+    const journalId = logUser(deps.db, changeOf(deps, id, change), 'validate', deps.now(), previous);
+    return { ...getProposal(deps.db, id)!, journalId };
+  });
 }
 
 /** CrOliX says « not that »: the mail stays in the inbox, nothing is learnt, the line can be undone. */
 export async function refuse(deps: ActionDeps, id: string): Promise<Proposal & { journalId: number }> {
-  const p = pendingProposal(deps.db, id);
-  if (!p.boxId) throw new BadRequestError('Cette proposition ne range le mail nulle part');
-  // Gmail is the truth, as for an undo: the cache may still say INBOX.
-  const current = await fetchMetadata(deps.google, id);
-  if (!current) throw new NotFoundError();
-  upsertMessage(deps.db, current);
-  const labels = current.labelIds ?? [];
-  if (!labels.includes('INBOX') || labels.includes('TRASH') || labels.includes('SPAM'))
-    throw new ConflictError('Ce mail n’est plus en boîte de réception');
-  // Read again after the await: the proposal may have been settled meanwhile (a double click).
-  pendingProposal(deps.db, id);
-  const previous = snapshot(deps.db, id);
-  setProposalStatus(deps.db, id, 'refused');
-  const journalId = logUser(deps.db, changeOf(deps, id, undefined), 'refuse', deps.now(), previous);
-  return { ...getProposal(deps.db, id)!, journalId };
+  return oneAtATime(id, async () => {
+    const p = pendingProposal(deps.db, id);
+    if (!p.boxId) throw new BadRequestError('Cette proposition ne range le mail nulle part');
+    // Gmail is the truth, as for an undo: the cache may still say INBOX.
+    const current = await fetchMetadata(deps.google, id);
+    if (!current) throw new NotFoundError();
+    upsertMessage(deps.db, current);
+    const labels = current.labelIds ?? [];
+    if (!labels.includes('INBOX') || labels.includes('TRASH') || labels.includes('SPAM'))
+      throw new ConflictError('Ce mail n’est plus en boîte de réception');
+    // Read again after the await: the proposal may have been settled meanwhile (a filing by hand, an undo).
+    pendingProposal(deps.db, id);
+    const previous = snapshot(deps.db, id);
+    setProposalStatus(deps.db, id, 'refused');
+    const journalId = logUser(deps.db, changeOf(deps, id, undefined), 'refuse', deps.now(), previous);
+    return { ...getProposal(deps.db, id)!, journalId };
+  });
 }
 
 /** The sender's bare address, lower case; `undefined` when none can be read. */
@@ -452,20 +470,22 @@ export async function correct(
   tagIds: string[],
   opts: { rememberSender?: boolean } = {},
 ): Promise<Proposal & { journalId: number }> {
-  if (!getProposal(deps.db, id)) throw new NotFoundError('Aucune proposition pour ce mail');
-  if (boxId !== 'trash' && boxId !== 'spam' && !boxIds(deps.db).includes(boxId))
-    throw new BadRequestError(`« ${boxId} » n’est pas une boîte`);
-  const tags = new Set(listTags(deps.db).map((t) => t.id));
-  const unknown = tagIds.find((t) => !tags.has(t));
-  if (unknown) throw new BadRequestError(`« ${unknown} » n’est pas une étiquette`);
-  const previous = snapshot(deps.db, id);
-  const change = await applyTarget(deps, id, boxId, tagIds, true);
-  setProposalStatus(deps.db, id, 'corrected');
-  remember(deps, id, boxId, tagIds);
-  const createdRule = opts.rememberSender ? ruleForSender(deps, id, boxId) : undefined;
-  if (createdRule) previous.createdRule = createdRule;
-  const journalId = logUser(deps.db, changeOf(deps, id, change), 'correct', deps.now(), previous);
-  return { ...getProposal(deps.db, id)!, journalId };
+  return oneAtATime(id, async () => {
+    if (!getProposal(deps.db, id)) throw new NotFoundError('Aucune proposition pour ce mail');
+    if (boxId !== 'trash' && boxId !== 'spam' && !boxIds(deps.db).includes(boxId))
+      throw new BadRequestError(`« ${boxId} » n’est pas une boîte`);
+    const tags = new Set(listTags(deps.db).map((t) => t.id));
+    const unknown = tagIds.find((t) => !tags.has(t));
+    if (unknown) throw new BadRequestError(`« ${unknown} » n’est pas une étiquette`);
+    const previous = snapshot(deps.db, id);
+    const change = await applyTarget(deps, id, boxId, tagIds, true);
+    setProposalStatus(deps.db, id, 'corrected');
+    remember(deps, id, boxId, tagIds);
+    const createdRule = opts.rememberSender ? ruleForSender(deps, id, boxId) : undefined;
+    if (createdRule) previous.createdRule = createdRule;
+    const journalId = logUser(deps.db, changeOf(deps, id, change), 'correct', deps.now(), previous);
+    return { ...getProposal(deps.db, id)!, journalId };
+  });
 }
 
 /**
