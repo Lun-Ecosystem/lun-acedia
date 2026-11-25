@@ -36,7 +36,7 @@ const Delegation = z.object({
 });
 const PauseBody = z.object({ reason: z.string().max(500).optional(), by: z.literal('core').optional() });
 const ResumeBody = z.object({ by: z.literal('core').optional() });
-const PAUSED = 'Acedia est en pause : je ne fais rien tant qu’elle n’est pas reprise.';
+export const PAUSED = 'Acedia est en pause : rien ne se fait tant qu’elle n’est pas reprise.';
 
 function toContractCard(db: AppDeps['db'], card: Card): ContractCard {
   const text = cardText(db, card);

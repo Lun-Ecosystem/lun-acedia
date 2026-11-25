@@ -204,7 +204,7 @@ group('describe: the two cards of conflict', () => {
     const said = notMine.fields.map((f) => f.value).join(' | ');
     expect(said).toContain('Dentiste');
     expect(said).toContain('Réunion client');
-    expect(said).toContain('aucun des deux n’est à toi seul');
+    expect(said).toContain('aucun des deux n’est seulement');
     const noSlot = text('agenda.list', signal('no-slot'))
       .fields.map((f) => f.value)
       .join(' | ');
@@ -213,7 +213,7 @@ group('describe: the two cards of conflict', () => {
       .fields.map((f) => f.value)
       .join(' | ');
     expect(series).toContain('deux séries');
-    expect(said).toContain('aucun des deux n’est à toi seul dans ton agenda principal');
+    expect(said).toContain('aucun des deux n’est seulement dans l’agenda principal, sans invité');
     const moving = text('agenda.list', signal('moving'))
       .fields.map((f) => f.value)
       .join(' | ');
