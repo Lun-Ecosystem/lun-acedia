@@ -108,6 +108,8 @@
     tagIds: [],
     confidence,
     status: 'pending',
+    // As the server marks it, with the sample lines (threshold 95, bulk 85).
+    ...(confidence >= 85 ? { bulk: true as const } : {}),
   });
   let lastAction = $state<string | null>(null);
   const act = (what: string) => () => (lastAction = what);

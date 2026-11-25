@@ -37,7 +37,7 @@
 
   /*
    * The queue of the AI's proposals under the threshold (plate 04), grouped by proposed box: validated
-   * one by one from the keyboard, by group, or all above the « Tout valider » threshold. V, Maj+V and C
+   * one by one from the keyboard, by group, or all those the server marks `bulk` (« Tout valider »). V, Maj+V and C
    * settle the card holding the focus, and only it: without a card in focus, they do nothing. J and K
    * move from that card, or give the focus to the queue's Tab stop. Each action leaves the queue at once
    * and offers to undo (5 s, or Ctrl Z). Emptied, the screen says what the sorting did today.
@@ -95,7 +95,8 @@
   });
   const ordered = $derived(groups.flatMap((g) => g.mails));
   const active = $derived(ordered.find((m) => m.id === current) ?? ordered[0]);
-  const above = $derived(items.filter((m) => raw(m) >= bulk));
+  // The server decides who « Tout valider » takes; `bulk` here is only the line its label reads.
+  const above = $derived(items.filter((m) => m.proposal?.bulk));
   const oldest = $derived(items.reduce((min, m) => (m.date < min ? m.date : min), items[0]?.date ?? ''));
 
   const fail = (err: unknown) => (error = errorText(err));
@@ -144,7 +145,7 @@
         bulk = Math.min(s.bulkThreshold, s.threshold);
       })
       .catch(() => {
-        // Without them, the heading says nothing of the threshold and « Tout valider » keeps 85 %.
+        // Without them, the heading says nothing of the threshold and the « Tout valider » label reads 85 %.
       });
     void load();
     return client.subscribe((e) => {
