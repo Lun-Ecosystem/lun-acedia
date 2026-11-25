@@ -52,7 +52,7 @@ function toContractCard(db: AppDeps['db'], card: Card): ContractCard {
   const text = cardText(db, card);
   const mailId = (card.input as { id?: unknown } | null)?.id;
   // A card from a mail may quote it, never its secrets.
-  const fromMail = /^(mail|draft)./.test(card.action) ? mask : (s: string) => s;
+  const fromMail = /^(mail|draft)\./.test(card.action) ? mask : (s: string) => s;
   return {
     id: String(card.id),
     action: card.action,
