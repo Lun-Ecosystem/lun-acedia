@@ -401,10 +401,28 @@ function drawMails(count: number): Mail[] {
     () => `FR76${sep()}${[0, 1, 2, 3, 4].map(() => digits(4)).join(sep())}${sep()}${digits(3)}`,
     () => `jeton-faux-${Array.from({ length: 20 }, () => 'ABCDEFGH12345678'[int(16)]).join('')}`,
     () => `06${sep()}${[0, 1, 2, 3].map(() => digits(2)).join(sep())}`,
+    // One-time codes in groups: 123 456, 48 29 17, 123-456.
+    () => grouped(),
   ];
-  const intros = ['Votre code est', 'Numéro à noter', 'Référence du dossier', 'Pour vous connecter'];
+  function grouped(): string {
+    const kind = int(3);
+    if (kind === 0) return `${digits(3)}${sep()}${digits(3)}`;
+    if (kind === 1) return [digits(2), digits(2), digits(2)].join(sep());
+    return `${digits(3)}-${digits(3)}`;
+  }
+  const intros = [
+    'Votre code est',
+    'Numéro à noter',
+    'Référence du dossier',
+    'Pour vous connecter',
+    'Code :',
+    'OTP',
+    'Saisissez',
+  ];
   return Array.from({ length: count }, (_, i) => {
     const secret = families[int(families.length)]!();
+    // The subject carries a grouped code too: it leaves by the titles.
+    const code = grouped();
     const body = [
       `Bonjour, ${intros[int(intros.length)]} ${secret}`,
       pick(BODY_WORDS, 12),
@@ -413,9 +431,9 @@ function drawMails(count: number): Mail[] {
     ].join('\n');
     return {
       id: `r${String(i).padStart(2, '0')}`,
-      subject: pick(SUBJECT_WORDS, 7),
+      subject: `${pick(SUBJECT_WORDS, 7)} code ${code}`,
       body,
-      secrets: [secret],
+      secrets: [secret, code],
       rule: i % 2 === 1,
     };
   });
@@ -665,6 +683,10 @@ describe('leak: day digest on demand and the draw (task 10)', () => {
       ...Object.entries(outputs).flatMap(([name, v]) =>
         leaks(v, w.bodies, w.secrets).map((l) => `${name}: ${l}`),
       ),
+      // A code masked by half (`[masqué] 456`): what is left is no whole secret, so it is looked for apart.
+      ...strings([cards, outputs])
+        .filter((x) => /\[masqué\][\s.-]\d/u.test(x))
+        .map((x) => `half masked in « ${x} »`),
     ];
     clean(found);
   });

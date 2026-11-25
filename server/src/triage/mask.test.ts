@@ -26,9 +26,23 @@ const SECRETS: Record<string, [text: string, secret: string][]> = {
     ['mot de passe temporaire : Xk9#pL2q', 'Xk9#pL2q'],
     ['identifiant : jdupont pour entrer', 'jdupont'],
     ['login=dupont42', 'dupont42'],
+    // Grouped codes after a keyword, and the sign anywhere in the clause.
+    ['Votre code est 123 456', '123 456'],
+    ['Code : 48 29 17', '48 29 17'],
+    ['OTP 48 29 17', '48 29 17'],
+    [`Votre code est 123${NBSP}456 valable dix minutes`, '123456'],
+    ['Votre code de connexion est : 4821', '4821'],
+    ['Code de vérification Gmail : 4821', '4821'],
+  ],
+  grouped: [
+    ['123 456 est votre code de connexion', '123 456'],
+    ['Saisissez 123-456 pour continuer', '123-456'],
+    [`Saisissez 48${NNBSP}29${NNBSP}17 pour continuer`, '482917'],
+    ['Le 1234 5678 sert une fois', '1234 5678'],
   ],
   digits: [
     ['Carte 4970 1012 3456 7890 débitée', '4970 1012 3456 7890'],
+    ['Carte 4970  1012  3456  7890 débitée', '4970  1012  3456  7890'],
     ['Rappeler le 06 12 34 56 78 demain', '06 12 34 56 78'],
     [`Rappeler le 06${NBSP}12${NBSP}34${NBSP}56${NBSP}78 demain`, '0612345678'],
     [`Rappeler le 06${NNBSP}12${NNBSP}34${NNBSP}56${NNBSP}78 demain`, '0612345678'],
@@ -62,13 +76,20 @@ const STAYS = [
   '12 rue des Lilas',
   'Une phrase sans aucun chiffre, ni lien, ni secret.',
   'La clé du problème est ailleurs.',
+  'Vol AF12 pour Rome',
+  'Vol af12 pour rome demain',
+  'Saison 2025-2026',
+  'Total 1 250 000 €',
+  'Rendez-vous à 14:30',
+  'Payé 125,50 € le 25/11/2026 à 9 h',
 ];
 
 const digits = (s: string) => s.replace(/\D/g, '');
 
-/** Nothing of the secret survives: neither whole, nor its digits glued together. */
+/** Nothing of the secret survives: neither whole, nor its digits glued together, nor a half. */
 function survives(out: string, secret: string): boolean {
   if (out.includes(secret)) return true;
+  if (/\[masqué\][\s.-]\d/u.test(out)) return true; // masked by half: `[masqué] 456`
   const d = digits(secret);
   return d.length >= 4 && digits(out).includes(d);
 }
@@ -99,12 +120,22 @@ function draws(n: number): string[] {
     () => grouped(run(DIGIT, 9 + int(8)), pick([2, 3, 4]), pick([' ', NBSP, NNBSP])),
     // An IBAN, grouped by 4 or not.
     () => {
-      const iban = run(UPPER, 2) + run(DIGIT, 2) + run(UPPER + DIGIT, 11 + int(20));
+      // Up to a bank code in letters (GB: NWBK), the rest in digits, as real IBANs are.
+      const iban = run(UPPER, 2) + run(DIGIT, 2) + run(UPPER, int(5)) + run(DIGIT, 11 + int(16));
       const cased = r() < 0.5 ? iban : iban.toLowerCase();
       return r() < 0.5 ? cased : grouped(cased, 4, pick([' ', NBSP]));
     },
     // A token, with at least one letter and one digit.
     () => `jeton-faux-${run(ALNUM, 18 + int(20))}a1`,
+    // A one-time code of 6 or 8 digits, grouped by 2, 3 or 4; no dash between fours (`2025-2026` is a season).
+    () => {
+      const size = pick([2, 3, 4]);
+      return grouped(
+        run(DIGIT, size === 3 ? 6 : 8),
+        size,
+        pick(size === 4 ? [' ', NBSP, NNBSP] : [' ', NBSP, NNBSP, '-']),
+      );
+    },
   ];
   return Array.from({ length: n }, () => pick(families)());
 }
@@ -163,6 +194,13 @@ describe('dropCopied', () => {
     expect(dropCopied(['Un rappel du moulin.', 'chante sous la lune de novembre'], body)).toEqual([
       'Un rappel du moulin.',
     ]);
+  });
+
+  it('reads through invisible characters and ß', () => {
+    expect(dropCopied(['Le ca\u00ADnari bleu chan\u200Bte sous la lune.'], body)).toEqual([]);
+    const german = 'Die Straße ist lang und sehr schön heute.';
+    expect(dropCopied(['die strasse ist lang und sehr'], german)).toEqual([]);
+    expect(dropCopied(['Die Strasse ist lang und sehr.'], 'Die Straße ist lang und sehr.')).toEqual([]);
   });
 
   it('a copied reason becomes empty', () => {
