@@ -112,8 +112,8 @@ async function summarizeMissing(deps: CatalogDeps, ids: string[]): Promise<void>
   const missing = deps.db
     .prepare(
       `SELECT p.message_id AS id FROM proposals p JOIN messages m ON m.id = p.message_id
-       WHERE p.message_id IN (SELECT value FROM json_each(?)) AND (p.synthesis IS NULL OR p.synthesis = '[]')
-       ORDER BY p.synthesis IS NOT NULL, m.internal_date LIMIT ?`,
+       WHERE p.message_id IN (SELECT value FROM json_each(?)) AND p.synthesis IS NULL
+       ORDER BY m.internal_date LIMIT ?`,
     )
     .all(JSON.stringify(ids), DIGEST_PER_CALL) as { id: string }[];
   const provider = classifier.provider ?? 'anthropic';
@@ -129,6 +129,8 @@ async function summarizeMissing(deps: CatalogDeps, ids: string[]): Promise<void>
         payload = await fetchFull(google, id);
         const stored = getStoredMessage(deps.db, id);
         if (!payload?.payload || !stored) continue;
+        // shortcut: no timeout on one call, DIGEST_TIME_MS is read between calls only; the provider's own
+        // timeout bounds it. Pass an AbortSignal through Classifier.summarize if a digest is seen to hang.
         summary = await classifier.summarize({
           mail: {
             from: header(payload, 'From'),
@@ -139,7 +141,17 @@ async function summarizeMissing(deps: CatalogDeps, ids: string[]): Promise<void>
           },
         });
       } catch (err) {
-        if (err instanceof ClassifierError) continue;
+        if (err instanceof ClassifierError) {
+          // An unreadable answer is final, as an empty one: [] is not asked again, and the call was paid.
+          recordCost(
+            deps.db,
+            { provider, model: classifier.model, amount: 0, calls: 1 },
+            deps.clock(),
+            'digest',
+          );
+          saveSynthesis(deps.db, id, []);
+          continue;
+        }
         if (err instanceof CreditExhaustedError) creditExhausted({ db: deps.db, google, now: deps.clock });
         if (err instanceof KeyRefusedError) keyRefused(deps.db, provider, deps.clock());
         break;

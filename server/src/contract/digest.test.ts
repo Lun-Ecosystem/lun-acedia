@@ -409,12 +409,11 @@ describe('day.digest with boxes: the synthesis on demand', () => {
     expect(s.digestCosts()).toEqual([{ calls: 1 }]);
   });
 
-  it('a kept mail with [] gets one too; the next call makes none again', async () => {
+  it('a kept mail with [] is final: no call, now or later', async () => {
     const s = await demand(1, { synthesis: '[]' });
     await s.digest();
-    expect(s.calls).toHaveLength(1);
     await s.digest();
-    expect(s.calls).toHaveLength(1);
+    expect(s.calls).toEqual([]);
   });
 
   it('15 mails: 10 syntheses, the oldest first, then 5 at the next call', async () => {
@@ -436,6 +435,10 @@ describe('day.digest with boxes: the synthesis on demand', () => {
     await s.digest();
     await s.digest();
     for (const id of s.ids) expect(s.stored(id)).toBe('[]');
+    // Each mail asked once: the [] of the first call are not asked again, the 5 left come at the second.
+    expect(s.calls).toHaveLength(15);
+    await s.digest();
+    expect(s.calls).toHaveLength(15);
   });
 
   it('a clock past DIGEST_TIME_MS starts no new synthesis', async () => {
@@ -547,14 +550,17 @@ describe('day.digest with boxes: the synthesis on demand', () => {
     expect(s.calls).toHaveLength(1);
   });
 
-  it('an unreadable answer skips that mail, the next ones go on', async () => {
+  it('an unreadable answer: that mail gets [] and a cost line, the next ones go on', async () => {
     const s = await demand(3, {
       answer: (subject) => (subject === 'Objet r00' ? new ClassifierError('illisible') : undefined),
     });
     await s.digest();
     expect(s.calls).toHaveLength(3);
-    expect(s.stored('r00')).toBeNull();
+    expect(s.stored('r00')).toBe('[]');
     expect(s.stored('r01')).not.toBeNull();
+    expect(s.digestCosts()).toHaveLength(3);
+    await s.digest();
+    expect(s.calls).toHaveLength(3);
   });
 
   it('a transient failure stops the loop and the digest still answers', async () => {
