@@ -108,7 +108,7 @@ async function applyTarget(
 
 const actionOf = (boxId: string | null) => (boxId === 'trash' || boxId === 'spam' ? boxId : 'file');
 
-function creditExhausted(deps: ActionDeps): void {
+export function creditExhausted(deps: ActionDeps): void {
   if (getState(deps.db).degraded.includes('credit')) return;
   addDegraded(deps.db, 'credit');
   emitEvent(

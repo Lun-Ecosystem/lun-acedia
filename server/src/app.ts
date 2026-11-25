@@ -19,7 +19,15 @@ import { contractRoutes } from './contract/routes.ts';
 import { draftRoutes, gmailRoutes, sendAsRoutes } from './gmail/routes.ts';
 import { createGoogleClient, type GoogleClient, type GoogleDeps } from './google/client.ts';
 import { googleRoutes } from './google/oauth.ts';
-import { choiceFor, makeProvider, providerFor, type KeyChecker, type LlmEnv } from './llm/keys.ts';
+import {
+  choiceFor,
+  classifierFor,
+  makeProvider,
+  providerFor,
+  type KeyChecker,
+  type LlmEnv,
+} from './llm/keys.ts';
+import type { Classifier } from './triage/classifier.ts';
 import { llmRoutes, type ModelLister } from './llm/routes.ts';
 import type { PinaDeps } from './pina/agent.ts';
 import { pinaRoutes } from './pina/routes.ts';
@@ -49,6 +57,8 @@ export interface AppDeps {
   listCustomModels?: ModelLister | undefined;
   /** Pina's model, looked up at each use; the chosen provider (real factory) by default. */
   pinaProvider?: PinaDeps['provider'] | undefined;
+  /** The triage's classifier, looked up at each use; the triage choice (`classifierFor`) by default. */
+  classifier?: (() => Classifier | undefined) | undefined;
   /** Acedia's own address, set only when it listens on loopback: `POST /first-code` answers nowhere else. */
   localOrigin?: string | undefined;
 }
@@ -58,7 +68,12 @@ export function createApp(deps: AppDeps): Hono {
   const google: GoogleClient | undefined = deps.google
     ? createGoogleClient({ db: deps.db, now: deps.clock, ...deps.google })
     : undefined;
-  registerCatalog(deps.actions, { db: deps.db, google, clock: deps.clock });
+  registerCatalog(deps.actions, {
+    db: deps.db,
+    google,
+    clock: deps.clock,
+    classifier: deps.classifier ?? (() => classifierFor(deps.db, deps.secretKey, deps.llmEnv ?? {})),
+  });
   const pinaProvider: PinaDeps['provider'] =
     deps.pinaProvider ??
     (() => {

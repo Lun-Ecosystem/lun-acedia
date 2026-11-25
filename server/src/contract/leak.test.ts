@@ -18,7 +18,7 @@
  *   - task 6  "cards", "agent cards", "old base, cards"  : `/cards` serves the proposals, masked
  *   - task 7  "gestures"                          : the card `accept` and `refuse` give back
  *   - task 9  "digest without boxes", "digest with boxes" : title, ref.title, synthesis masked
- *   - task 10 "digest on demand" (todo, needs `summarize`) and "draw of 50 mails" (all outputs)
+ *   - task 10 "digest on demand" and "draw of 50 mails" (all outputs)
  *
  * The corpus has the shape of no real provider key (never `sk-`, `ghp_`, `AKIA`): GitHub's secret
  * protection must not fire.
@@ -34,7 +34,7 @@ import { message, textPart } from '../testing/fake-gmail.ts';
 import { makeGmailHarness } from '../testing/gmail-harness.ts';
 import { triageNew } from '../triage/pipeline.ts';
 import { createRule } from '../triage/rules.ts';
-import type { Classifier, ClassifyInput } from '../triage/classifier.ts';
+import type { Classifier } from '../triage/classifier.ts';
 import { ActionRegistry } from './actions.ts';
 import { issuePairingCode } from './auth.ts';
 import { eventsSince } from './events.ts';
@@ -133,9 +133,7 @@ const isProposal = (c: { id?: unknown }) => typeof c.id === 'string' && c.id.sta
 
 /** A classifier that does not obey: the body goes into the reason and the synthesis, secrets included. */
 function copycat(boxId: string | null) {
-  const classifier: Classifier & {
-    summarize(input: { mail: ClassifyInput['mail'] }): Promise<unknown>;
-  } = {
+  const classifier: Classifier = {
     model: 'claude-haiku-5-5',
     async classify(input) {
       const lines = input.mail.text.split('\n');
@@ -197,7 +195,8 @@ const canaryMails: Mail[] = [
   { id: 'urgent', subject: 'Convocation de jeudi', body: BODY, secrets: SECRETS, rule: true },
 ];
 
-async function world(mails: Mail[] = canaryMails) {
+/** With `onDemand`, the app has the disobedient classifier too: the digest makes the missing syntheses with it. */
+async function world(mails: Mail[] = canaryMails, onDemand = false) {
   const h: Harness = await makeGmailHarness();
   const b1 = (await h.call('POST', '/api/labels', { name: 'École', role: 'box' })).body.id as string;
   const urgent = (await h.call('POST', '/api/labels', { name: 'Urgent', role: 'tag' })).body.id as string;
@@ -219,6 +218,7 @@ async function world(mails: Mail[] = canaryMails) {
     );
   const added = (await h.sync()).added;
   await triageNew({ ...h.deps, classifier: copycat(b1), log: () => undefined }, added);
+  if (onDemand) h.triage.classifier = copycat(b1);
   const token = await h.pairClient('leak');
   const get = async (path: string) => (await h.app.request(path, { headers: h.auth(token) })).json();
   const post = async (path: string, body: unknown) => {
@@ -615,27 +615,38 @@ describe('leak: day digest (task 9)', () => {
     clean(leaks(result, w.bodies, w.secrets));
   });
 
-  it.fails('with boxes: each item has its box and a synthesis, with no secret and no six words', async () => {
+  it('with boxes: each item has its box, no secret and no six words', async () => {
     const w = await world();
     const result = await w.digest([w.b1]);
     const items = [...result.received, ...result.done] as { box?: string; synthesis?: unknown }[];
     expect(items.length).toBeGreaterThan(0);
-    for (const item of items) {
-      expect(item).toHaveProperty('box');
-      expect(item).toHaveProperty('synthesis');
-    }
+    // Without the synthesis on demand, the mail of the rule has none: `synthesis` comes only when it exists.
+    for (const item of items) expect(item).toHaveProperty('box');
     clean(leaks(result, w.bodies, w.secrets));
   });
 });
 
 describe('leak: day digest on demand and the draw (task 10)', () => {
-  // Needs `summarize` (a method of the classifier that does not exist yet): the signature the test
-  // `copycat` uses is a guess, `{ mail } -> { synthesis, usage }`; align it with task 10.
-  it.todo('with boxes, the synthesis made on demand for a mail a rule filed has no secret and no six words');
+  const synthesisOf = (w: World, id: string) =>
+    (
+      w.h.db.prepare('SELECT synthesis FROM proposals WHERE message_id = ?').get(id) as {
+        synthesis: string | null;
+      }
+    ).synthesis;
 
-  it.fails('50 drawn mails, secrets copied by the classifier, on every output', async () => {
+  it('with boxes, the synthesis made on demand for a mail a rule filed has no secret and no six words', async () => {
+    const w = await world(canaryMails, true);
+    expect(synthesisOf(w, 'urgent')).toBeNull();
+    const result = await w.digest([w.b1]);
+    // Made, then filtered: the copied lines are dropped before anything is written.
+    expect(synthesisOf(w, 'urgent')).not.toBeNull();
+    clean(leaks(result, w.bodies, w.secrets));
+    clean(leaks(synthesisOf(w, 'urgent'), w.bodies, w.secrets));
+  });
+
+  it('50 drawn mails, secrets copied by the classifier, on every output', async () => {
     const mails = drawMails(50);
-    const w = await world(mails);
+    const w = await world(mails, true);
     const cards = await w.cards();
     for (const m of mails.filter((x) => !x.rule)) expect(cards.map((c) => c.id)).toContain(`mail:${m.id}`);
     const outputs: Record<string, unknown> = {
@@ -645,9 +656,10 @@ describe('leak: day digest on demand and the draw (task 10)', () => {
     };
     // One call may make only a few syntheses: ask until the rule-filed mails each have theirs.
     for (let call = 0; call < 5; call++) outputs[`digest with boxes ${call}`] = await w.digest([w.b1]);
-    const last = outputs['digest with boxes 4'] as { received: { synthesis?: unknown }[] };
-    expect(last.received.length).toBeGreaterThan(0);
-    for (const item of last.received) expect(item).toHaveProperty('synthesis');
+    const last = outputs['digest with boxes 4'] as { received: unknown[] };
+    expect(last.received).toHaveLength(mails.filter((m) => m.rule).length);
+    // Every rule-filed mail had its synthesis made (and its copies dropped) by the last call.
+    for (const m of mails.filter((x) => x.rule)) expect(synthesisOf(w, m.id), m.id).not.toBeNull();
     const found = [
       ...cardLeaks(cards, w.bodies, w.secrets),
       ...Object.entries(outputs).flatMap(([name, v]) =>

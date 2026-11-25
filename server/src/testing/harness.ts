@@ -4,6 +4,7 @@ import { issuePairingCode } from '../contract/auth.ts';
 import { openDb } from '../db.ts';
 import type { PinaDeps } from '../pina/agent.ts';
 import type { KeyCheck, KeyChecker } from '../llm/keys.ts';
+import type { Classifier } from '../triage/classifier.ts';
 
 /** A fresh app on an in-memory database, with a clock the test moves by hand. */
 export function makeHarness(
@@ -18,6 +19,8 @@ export function makeHarness(
   const logs: string[] = [];
   /** The provider Pina gets; tests set `choice` (a simulated one, never the network). */
   const pina: { choice: ReturnType<PinaDeps['provider']> } = { choice: undefined };
+  /** The triage's classifier the app gets (the digest's syntheses); none by default, never the network. */
+  const triage: { classifier: Classifier | undefined } = { classifier: undefined };
   // Never the network: the key check answers what the test sets.
   const keyCheck = {
     result: 'ok' as KeyCheck,
@@ -35,6 +38,7 @@ export function makeHarness(
     log: (l) => logs.push(l),
     checkKey,
     pinaProvider: () => pina.choice,
+    classifier: () => triage.classifier,
     ...extra,
   });
 
@@ -44,6 +48,7 @@ export function makeHarness(
     actions,
     clock,
     pina,
+    triage,
     /** Warnings the app logged. */
     logs,
     /** What the fake key check answers, and the keys it was given. */

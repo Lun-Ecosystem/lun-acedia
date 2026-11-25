@@ -10,6 +10,11 @@ export const DEFAULT_THRESHOLD = 100;
 /** Confidence from which « Tout valider » validates a proposal; never above the threshold. */
 export const DEFAULT_BULK_THRESHOLD = 85;
 
+/** The day's cap of the syntheses made on demand (the `digest` use), in dollars; 0 turns them off. */
+export const DEFAULT_DIGEST_CAP_USD = 0.02;
+export const digestCap = (db: DatabaseSync): number =>
+  getSetting(db, 'digestDailyCapUsd', DEFAULT_DIGEST_CAP_USD);
+
 /** The two thresholds as they apply: the bulk threshold never above the threshold. */
 export function triageSettings(db: DatabaseSync): { threshold: number; bulkThreshold: number } {
   const threshold = getSetting(db, 'threshold', DEFAULT_THRESHOLD);
@@ -82,6 +87,14 @@ export function saveProposal(
     p.reason || null,
     p.synthesis ? JSON.stringify(p.synthesis) : null,
     p.messageId,
+  );
+}
+
+/** Writes the synthesis of a decided proposal (already filtered and masked). */
+export function saveSynthesis(db: DatabaseSync, messageId: string, synthesis: string[]): void {
+  db.prepare("UPDATE proposals SET synthesis = ? WHERE message_id = ? AND status != 'processing'").run(
+    JSON.stringify(synthesis),
+    messageId,
   );
 }
 

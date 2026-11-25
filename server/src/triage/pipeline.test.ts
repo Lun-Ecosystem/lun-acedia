@@ -474,10 +474,15 @@ describe('triageNew', () => {
 
   it('reads and changes the threshold', async () => {
     const s = await setup(() => ({}));
-    expect((await s.h.call('GET', '/api/settings')).body).toEqual({ threshold: 100, bulkThreshold: 85 });
+    expect((await s.h.call('GET', '/api/settings')).body).toEqual({
+      threshold: 100,
+      bulkThreshold: 85,
+      digestDailyCapUsd: 0.02,
+    });
     expect((await s.h.call('PUT', '/api/settings', { threshold: 90 })).body).toEqual({
       threshold: 90,
       bulkThreshold: 85,
+      digestDailyCapUsd: 0.02,
     });
     expect((await s.h.call('PUT', '/api/settings', { threshold: 120 })).status).toBe(400);
   });
@@ -487,13 +492,18 @@ describe('triageNew', () => {
     expect((await s.h.call('PUT', '/api/settings', { bulkThreshold: 70 })).body).toEqual({
       threshold: 100,
       bulkThreshold: 70,
+      digestDailyCapUsd: 0.02,
     });
     const refused = await s.h.call('PUT', '/api/settings', { threshold: 80, bulkThreshold: 90 });
     expect(refused.status).toBe(400);
     expect(refused.body.error).toBe(
       'Le seuil de « Tout valider » ne peut pas dépasser le seuil d’auto-rangement',
     );
-    expect((await s.h.call('GET', '/api/settings')).body).toEqual({ threshold: 100, bulkThreshold: 70 });
+    expect((await s.h.call('GET', '/api/settings')).body).toEqual({
+      threshold: 100,
+      bulkThreshold: 70,
+      digestDailyCapUsd: 0.02,
+    });
     expect((await s.h.call('PUT', '/api/settings', { bulkThreshold: 101 })).status).toBe(400);
   });
 
@@ -502,8 +512,13 @@ describe('triageNew', () => {
     expect((await s.h.call('PUT', '/api/settings', { threshold: 80 })).body).toEqual({
       threshold: 80,
       bulkThreshold: 80,
+      digestDailyCapUsd: 0.02,
     });
-    expect((await s.h.call('GET', '/api/settings')).body).toEqual({ threshold: 80, bulkThreshold: 80 });
+    expect((await s.h.call('GET', '/api/settings')).body).toEqual({
+      threshold: 80,
+      bulkThreshold: 80,
+      digestDailyCapUsd: 0.02,
+    });
   });
 
   it('never sends a mail to spam below 95 %', async () => {

@@ -9,7 +9,7 @@ import { ConflictError, listJournal, todayStats, undo } from './journal.ts';
 import { createLabel, listLabels, setRole } from './labels.ts';
 import { putSetting } from '../db.ts';
 import { correct, refuse, validate } from './pipeline.ts';
-import { triageSettings } from './proposals.ts';
+import { digestCap, triageSettings } from './proposals.ts';
 import { createRule, deleteRule, listRules, updateRule } from './rules.ts';
 
 export const RoleSchema = z.enum(['box', 'tag']);
@@ -39,7 +39,7 @@ async function body<T>(c: Context, schema: z.ZodType<T>): Promise<T | Response> 
   return parsed.success ? parsed.data : c.json({ error: parsed.error.message }, 400);
 }
 
-const settings = (deps: AppDeps) => triageSettings(deps.db);
+const settings = (deps: AppDeps) => ({ ...triageSettings(deps.db), digestDailyCapUsd: digestCap(deps.db) });
 
 /** `/api/labels`, `/api/rules`, `/api/journal`, `/api/settings` and the answers to the AI's proposals. */
 export function triageRoutes(deps: AppDeps, google: GoogleClient | undefined): Hono {
@@ -117,7 +117,11 @@ export function triageRoutes(deps: AppDeps, google: GoogleClient | undefined): H
     const percent = z.number().int().min(0).max(100);
     const input = await body(
       c,
-      z.object({ threshold: percent.optional(), bulkThreshold: percent.optional() }),
+      z.object({
+        threshold: percent.optional(),
+        bulkThreshold: percent.optional(),
+        digestDailyCapUsd: z.number().min(0).max(5).optional(),
+      }),
     );
     if (input instanceof Response) return input;
     const current = settings(deps);
@@ -131,6 +135,8 @@ export function triageRoutes(deps: AppDeps, google: GoogleClient | undefined): H
     const bulkThreshold = Math.min(input.bulkThreshold ?? current.bulkThreshold, threshold);
     putSetting(deps.db, 'threshold', threshold);
     putSetting(deps.db, 'bulkThreshold', bulkThreshold);
+    if (input.digestDailyCapUsd !== undefined)
+      putSetting(deps.db, 'digestDailyCapUsd', input.digestDailyCapUsd);
     return c.json(settings(deps));
   });
 

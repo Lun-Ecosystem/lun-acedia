@@ -17,13 +17,31 @@ import { defaultFrom, headerValue, textToHtml } from '../gmail/compose.ts';
 import { createDraft, deleteDraft, getDraft, updateDraft } from '../gmail/drafts.ts';
 import { fetchFull, listMail, readMail, searchMail, summary } from '../gmail/read.ts';
 import type { GoogleClient } from '../google/client.ts';
-import { header, upsertMessage, viewFilter } from '../gmail/store.ts';
+import { getStoredMessage, header, upsertMessage, viewFilter } from '../gmail/store.ts';
 import type { MailDetail } from '../types.ts';
 import { listJournal, todayStats, undo } from '../triage/journal.ts';
 import { createLabel, listBoxes, listLabels, setRole } from '../triage/labels.ts';
 import { mask } from '../triage/mask.ts';
-import { getProposal } from '../triage/proposals.ts';
-import { afterUserAction, correct, refuse, validate, withProposal } from '../triage/pipeline.ts';
+import { digestCap, getProposal, saveSynthesis } from '../triage/proposals.ts';
+import {
+  afterUserAction,
+  correct,
+  creditExhausted,
+  refuse,
+  validate,
+  withProposal,
+} from '../triage/pipeline.ts';
+import {
+  ClassifierError,
+  CreditExhaustedError,
+  KeyRefusedError,
+  type Classifier,
+} from '../triage/classifier.ts';
+import { dropCopied } from '../triage/mask.ts';
+import { keyRefused } from '../llm/keys.ts';
+import { costOf, priceOf, spentToday } from '../llm/models.ts';
+import { recordCost } from './costs.ts';
+import { getState } from './state.ts';
 import { createRule, deleteRule, listRules, updateRule } from '../triage/rules.ts';
 import { RoleSchema, RuleSchema } from '../triage/routes.ts';
 import { cardText } from '../pina/lines.ts';
@@ -65,10 +83,83 @@ const TaskFields = {
  * Registers the actions the core may call. Each one runs the same functions as the front's API; an
  * action asked by the core is a requested gesture, so it runs even while paused.
  */
-export function registerCatalog(
-  actions: ActionRegistry,
-  deps: { db: DatabaseSync; google: GoogleClient | undefined; clock: () => Date },
-): void {
+interface CatalogDeps {
+  db: DatabaseSync;
+  google: GoogleClient | undefined;
+  clock: () => Date;
+  /** The triage's classifier, looked up at each use: the digest makes the missing syntheses with it. */
+  classifier?: (() => Classifier | undefined) | undefined;
+}
+
+// shortcut: 10 syntheses per digest, the next digest goes on from there; raise it if the core asks for long periods.
+export const DIGEST_PER_CALL = 10;
+// shortcut: no new synthesis after 20 s, so that the core's call answers in time; raise it for a slower model.
+export const DIGEST_TIME_MS = 20_000;
+/** A digest is making syntheses: a second one, meanwhile, makes none (one process only). */
+let summarizing = false;
+
+/**
+ * Writes the synthesis of the kept mails that have none (`null` first, then `[]`, the oldest first): never in a
+ * pause, degraded, without Google or a classifier that summarizes, nor past the day's cap of the `digest` use,
+ * read again before each call. A refused key or an exhausted credit stops it; a transient failure too, and the
+ * digest answers all the same; an unreadable answer skips the mail.
+ */
+async function summarizeMissing(deps: CatalogDeps, ids: string[]): Promise<void> {
+  const classifier = deps.classifier?.();
+  const state = getState(deps.db);
+  if (summarizing || !deps.google || !classifier?.summarize || state.paused || state.degraded.length) return;
+  const google = deps.google;
+  const missing = deps.db
+    .prepare(
+      `SELECT p.message_id AS id FROM proposals p JOIN messages m ON m.id = p.message_id
+       WHERE p.message_id IN (SELECT value FROM json_each(?)) AND (p.synthesis IS NULL OR p.synthesis = '[]')
+       ORDER BY p.synthesis IS NOT NULL, m.internal_date LIMIT ?`,
+    )
+    .all(JSON.stringify(ids), DIGEST_PER_CALL) as { id: string }[];
+  const provider = classifier.provider ?? 'anthropic';
+  const start = deps.clock().getTime();
+  summarizing = true;
+  try {
+    for (const { id } of missing) {
+      if (deps.clock().getTime() - start >= DIGEST_TIME_MS) break;
+      if (spentToday(deps.db, 'digest', deps.clock()) >= digestCap(deps.db)) break;
+      let payload: Awaited<ReturnType<typeof fetchFull>>;
+      let summary: Awaited<ReturnType<NonNullable<Classifier['summarize']>>>;
+      try {
+        payload = await fetchFull(google, id);
+        const stored = getStoredMessage(deps.db, id);
+        if (!payload?.payload || !stored) continue;
+        summary = await classifier.summarize({
+          mail: {
+            from: header(payload, 'From'),
+            to: header(payload, 'To'),
+            subject: stored.subject,
+            date: stored.date,
+            text: plainText(payload.payload),
+          },
+        });
+      } catch (err) {
+        if (err instanceof ClassifierError) continue;
+        if (err instanceof CreditExhaustedError) creditExhausted({ db: deps.db, google, now: deps.clock });
+        if (err instanceof KeyRefusedError) keyRefused(deps.db, provider, deps.clock());
+        break;
+      }
+      const price = priceOf(deps.db, provider, classifier.model);
+      recordCost(
+        deps.db,
+        { provider, model: classifier.model, amount: price ? costOf(price, summary.usage) : 0, calls: 1 },
+        deps.clock(),
+        'digest',
+      );
+      const text = plainText(payload.payload);
+      saveSynthesis(deps.db, id, dropCopied(summary.synthesis, text).map(mask));
+    }
+  } finally {
+    summarizing = false;
+  }
+}
+
+export function registerCatalog(actions: ActionRegistry, deps: CatalogDeps): void {
   const mail = (): ActionDeps => {
     if (!deps.google) throw new Error('Google n’est pas configuré sur ce serveur');
     return { db: deps.db, google: deps.google, now: deps.clock };
@@ -459,38 +550,40 @@ export function registerCatalog(
       const [since, until] = [new Date(t.since).toISOString(), new Date(t.until).toISOString()];
       // shortcut: 200 items per list, newest first; a busier period loses its oldest, narrow the period.
       const LIMIT = 200;
-      const received = (
-        deps.db
-          .prepare(
-            `SELECT m.id, m.subject, m.internal_date, ${BOX_OF} AS box FROM messages m
-             WHERE m.internal_date >= ? AND m.internal_date < ? ${kept} ORDER BY m.internal_date DESC LIMIT ?`,
-          )
-          .all(t.since, t.until, ...keptParams, LIMIT) as {
-          id: string;
-          subject: string;
-          internal_date: number;
-          box: string | null;
-        }[]
-      ).map((m) => {
+      const receivedRows = deps.db
+        .prepare(
+          `SELECT m.id, m.subject, m.internal_date, ${BOX_OF} AS box FROM messages m
+           WHERE m.internal_date >= ? AND m.internal_date < ? ${kept} ORDER BY m.internal_date DESC LIMIT ?`,
+        )
+        .all(t.since, t.until, ...keptParams, LIMIT) as {
+        id: string;
+        subject: string;
+        internal_date: number;
+        box: string | null;
+      }[];
+      const journalRows = deps.db
+        .prepare(
+          `SELECT j.at, j.message_id, j.action, m.subject, ${BOX_OF} AS box FROM journal j
+           LEFT JOIN messages m ON m.id = j.message_id
+           WHERE j.at >= ? AND j.at < ? AND j.undone_at IS NULL ${kept} ORDER BY j.at DESC LIMIT ?`,
+        )
+        .all(since, until, ...keptParams, LIMIT) as {
+        at: string;
+        message_id: string;
+        action: string;
+        subject: string | null;
+        box: string | null;
+      }[];
+      if (boxes)
+        await summarizeMissing(deps, [
+          ...new Set([...receivedRows.map((m) => m.id), ...journalRows.map((j) => j.message_id)]),
+        ]);
+      const received = receivedRows.map((m) => {
         const at = new Date(m.internal_date).toISOString();
         const title = mask(m.subject);
         return { type: 'mail', title, at, ref: { type: 'mail', id: m.id, title }, ...extra(m.id, m.box) };
       });
-      const journal = (
-        deps.db
-          .prepare(
-            `SELECT j.at, j.message_id, j.action, m.subject, ${BOX_OF} AS box FROM journal j
-             LEFT JOIN messages m ON m.id = j.message_id
-             WHERE j.at >= ? AND j.at < ? AND j.undone_at IS NULL ${kept} ORDER BY j.at DESC LIMIT ?`,
-          )
-          .all(since, until, ...keptParams, LIMIT) as {
-          at: string;
-          message_id: string;
-          action: string;
-          subject: string | null;
-          box: string | null;
-        }[]
-      ).map((j) => {
+      const journal = journalRows.map((j) => {
         const title = mask(j.subject ?? j.message_id);
         return {
           type: `journal.${j.action}`,
