@@ -186,6 +186,8 @@ export interface Settings {
   threshold: number;
   /** Confidence (0 to 100, never above `threshold`) from which « Tout valider » validates. */
   bulkThreshold: number;
+  /** Day cap (0 to 5 $) of the syntheses the day digest makes on demand; 0 makes none. */
+  digestDailyCapUsd: number;
 }
 
 export interface GoogleStatus {

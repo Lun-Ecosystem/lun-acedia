@@ -45,7 +45,7 @@ async function open(
   props: { onopen?: (id: string) => void } = {},
 ) {
   const fake = fakeClient({ mails });
-  fake.client.getSettings.mockResolvedValue({ threshold: 95, bulkThreshold: 85 });
+  fake.client.getSettings.mockResolvedValue({ threshold: 95, bulkThreshold: 85, digestDailyCapUsd: 0.02 });
   prepare?.(fake);
   const user = userEvent.setup();
   render(Pending, { props: { client: fake.client, ...props } });
@@ -313,7 +313,7 @@ describe('Pending', () => {
     const spammed = proposed(2, 'L-ecole', 80);
     spammed.labels = ['INBOX', 'SPAM'];
     const { client } = fakeClient({ mails: [trashed, spammed, proposed(3, 'L-ecole', 90)] });
-    client.getSettings.mockResolvedValue({ threshold: 95, bulkThreshold: 85 });
+    client.getSettings.mockResolvedValue({ threshold: 95, bulkThreshold: 85, digestDailyCapUsd: 0.02 });
     render(Pending, { props: { client } });
     await screen.findByText('Sujet 3');
     expect(screen.queryByText('Sujet 1')).toBeNull();
