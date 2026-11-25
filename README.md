@@ -47,7 +47,8 @@ npm run build && npm run demo   # http://localhost:8797
 ```
 
 Faux Gmail, faux agenda, faux tri, aucun compte Google, aucun réseau. La commande affiche le jeton d'appareil à coller
-dans la console du navigateur.
+dans la console du navigateur. `POST /api/demo/deliver` fait arriver le mail fictif suivant, trié aussitôt ; cette route
+n'existe que dans la démo.
 
 ## Démarrer en local
 
@@ -92,8 +93,13 @@ dans lun-docs.
 ## Dans l'écosystème
 
 **Rôle dans l'écosystème** : satellite. Il possède la boîte mail, son tri, l'agenda, les tâches et l'autorisation Google,
-et il sert ses propres écrans. Il fonctionne seul. Lun'Anima s'y branche par le [contrat satellite](https://github.com/Lun-Ecosystem/lun-docs/blob/main/standards/contrat-satellite.md) (v1.4) : il délègue à son agent
+et il sert ses propres écrans. Il fonctionne seul. Lun'Anima s'y branche par le [contrat satellite](https://github.com/Lun-Ecosystem/lun-docs/blob/main/standards/contrat-satellite.md) (v1.5) : il délègue à son agent
 (`POST /lun/v1/agent`) et relaie ses cartes (`GET /lun/v1/cards`, `accept`, `refuse`), sans intégrer ses écrans.
+
+Ce qui sort du poste vers Lun'Anima, d'un mail : son objet et une synthèse de deux lignes au plus, l'un et l'autre
+masqués (liens, codes, IBAN, numéros longs, jetons) et filtrés (une ligne qui recopie six mots du mail tombe) ; jamais le
+corps du mail. Les synthèses qui manquent au résumé du jour se font à la demande, sous un plafond de dépense par jour
+réglé dans les réglages du tri (`digestDailyCapUsd`, 0,02 $ par défaut, de 0 à 5 ; 0 n'en fait aucune).
 
 | Dossier | Contenu |
 |---|---|

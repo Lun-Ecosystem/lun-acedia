@@ -25,6 +25,19 @@ export interface Classification {
   confidence: number;
   /** One factual sentence in French (160 characters at most) on why this box. */
   reason: string;
+  /** What the mail says and asks, two lines of 140 characters at most; `[]` when the AI gave none. */
+  synthesis: string[];
+  usage: { inputTokens: number; outputTokens: number };
+}
+
+/** A mail to summarize on demand (one a rule filed): no boxes, no examples. */
+export interface SummarizeInput {
+  mail: ClassifyInput['mail'];
+}
+
+export interface Summary {
+  /** Two lines of 140 characters at most; `[]` when the AI gave none. */
+  synthesis: string[];
   usage: { inputTokens: number; outputTokens: number };
 }
 
@@ -34,6 +47,8 @@ export interface Classifier {
   /** The provider behind it; `anthropic` when absent. */
   readonly provider?: ProviderId;
   classify(input: ClassifyInput): Promise<Classification>;
+  /** The synthesis alone, for the day's digest; absent, no synthesis is made on demand. */
+  summarize?(input: SummarizeInput): Promise<Summary>;
 }
 
 /** The provider refused for lack of credit: the triage degrades, the rules go on. */

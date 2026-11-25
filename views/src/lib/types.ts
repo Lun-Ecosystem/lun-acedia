@@ -17,6 +17,8 @@ export interface ProposalView {
   status: 'pending' | 'auto' | 'accepted' | 'corrected' | 'refused';
   /** Why the AI proposed this box (160 characters at most); absent for a rule or an older proposal. */
   reason?: string;
+  /** Present only as `true`: « Tout valider » takes it (the server compares the confidence with the bulk line). */
+  bulk?: true;
 }
 
 export interface MailSummary {
@@ -185,6 +187,8 @@ export interface Settings {
   threshold: number;
   /** Confidence (0 to 100, never above `threshold`) from which « Tout valider » validates. */
   bulkThreshold: number;
+  /** Day cap (0 to 5 $) of the syntheses the day digest makes on demand; 0 makes none. */
+  digestDailyCapUsd: number;
 }
 
 export interface GoogleStatus {
@@ -287,6 +291,23 @@ export interface ContractCard {
   error?: string;
   /** A path in this satellite's own front (`#/mail/<id>`), never an address. */
   link?: string;
+  /** Why, in the third person (a triage proposal). */
+  reason?: string;
+  /** The level of the card; `normal` when absent. */
+  importance?: Importance;
+  /** Present only as `true`: the card is in the group validation. Never with `sends`. */
+  bulk?: true;
+  /** What CrOliX may correct before accepting (`accept { values }`). */
+  fields?: CardField[];
+}
+
+/** A field of a card that CrOliX may correct: `value` is the proposed choice; without `multiple`, exactly one. */
+export interface CardField {
+  name: string;
+  label: string;
+  value: string[];
+  choices: { value: string; label: string }[];
+  multiple?: true;
 }
 
 /** A write Pina proposed (or did, in « faire tout de suite »), as a card of the day's thread. */

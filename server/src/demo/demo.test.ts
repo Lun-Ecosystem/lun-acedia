@@ -30,6 +30,21 @@ describe('demo', () => {
     expect((await app.request('/api/mail')).status).toBe(401);
   });
 
+  it('writes a synthesis for each AI proposal, the fake code masked', async () => {
+    const { db } = await createDemo();
+    const row = db.prepare("SELECT synthesis FROM proposals WHERE message_id = 'm17'").get() as {
+      synthesis: string;
+    };
+    expect(JSON.parse(row.synthesis)).toEqual([
+      'Un inconnu promet un héritage, code [masqué] donné.',
+      'Des coordonnées bancaires sont demandées.',
+    ]);
+    const missing = db
+      .prepare("SELECT COUNT(*) AS n FROM proposals WHERE source = 'ai' AND synthesis IS NULL")
+      .get();
+    expect(missing).toEqual({ n: 0 });
+  });
+
   it('shows in the journal a validation, a correction, a trash by hand and an undone line', async () => {
     const { app, token, db } = await createDemo();
     const get = async (path: string) =>
@@ -130,5 +145,83 @@ describe('demo', () => {
       const opts = { googleUnreadable: true };
       expect(await status(opts)).toEqual({ code: 200, body: { connected: false, unreadable: true } });
     });
+  });
+});
+
+describe('demo: the contract 1.5', () => {
+  const demo = async () => {
+    const d = await createDemo();
+    const request = (method: string, path: string, body?: unknown) =>
+      d.app.request(path, {
+        method,
+        headers: { authorization: `Bearer ${d.token}`, 'content-type': 'application/json' },
+        ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+      });
+    const cards = async () =>
+      ((await (await request('GET', '/lun/v1/cards')).json()) as { cards: { id: string }[] }).cards.map(
+        (c) => c.id,
+      );
+    return { ...d, request, cards };
+  };
+
+  it('its classifier reaches the app by `classifier`: the digest makes the synthesis of a rule mail, no network', async () => {
+    const d = await demo();
+    const newsletters = (
+      (await (await d.request('GET', '/api/labels')).json()) as { labels: { id: string; name: string }[] }
+    ).labels.find((l) => l.name === 'Newsletters')!.id;
+    const since = new Date(d.clock().getTime() - 30 * 86_400_000).toISOString();
+    const until = new Date(d.clock().getTime() + 60_000).toISOString();
+    const res = await d.request('POST', '/lun/v1/actions/day.digest', { since, until, boxes: [newsletters] });
+    const { result } = (await res.json()) as { result: { received: { synthesis?: string }[] } };
+    expect(result.received.length).toBeGreaterThan(0);
+    for (const item of result.received) expect(item.synthesis).toBeTruthy();
+    const digest = d.db.prepare("SELECT COUNT(*) AS n FROM costs WHERE purpose = 'digest'").get();
+    expect(digest).toEqual({ n: result.received.length });
+  });
+
+  it('POST /api/demo/deliver brings the next mail: a new proposal in /cards, and a mail.changed', async () => {
+    const d = await demo();
+    const before = await d.cards();
+    const lastEvent = (d.db.prepare('SELECT MAX(id) AS id FROM events').get() as { id: number }).id;
+    const res = await d.request('POST', '/api/demo/deliver');
+    expect(res.status).toBe(200);
+    const { id } = (await res.json()) as { id: string };
+    const after = await d.cards();
+    expect(after).toContain(`mail:${id}`);
+    expect(after.filter((c) => !before.includes(c))).toEqual([`mail:${id}`]);
+    // The pass's own signal (the sync's says `added`): the new proposal is in its `changed`.
+    const changed = (
+      d.db.prepare("SELECT data FROM events WHERE id > ? AND type = 'mail.changed'").all(lastEvent) as {
+        data: string;
+      }[]
+    ).filter((e) => (JSON.parse(e.data) as { changed: string[] }).changed.includes(id));
+    expect(changed).toHaveLength(1);
+  });
+
+  it('delivers each mail once, then says there is none left', async () => {
+    const d = await demo();
+    const ids: string[] = [];
+    for (;;) {
+      const res = await d.request('POST', '/api/demo/deliver');
+      if (res.status !== 200) {
+        expect(res.status).toBe(409);
+        break;
+      }
+      ids.push(((await res.json()) as { id: string }).id);
+    }
+    expect(ids.length).toBeGreaterThan(0);
+    expect(new Set(ids).size).toBe(ids.length);
+    // Each scripted synthesis passes the copy filter: none of them copies its body.
+    for (const id of ids) {
+      const row = d.db.prepare('SELECT synthesis FROM proposals WHERE message_id = ?').get(id) as {
+        synthesis: string | null;
+      };
+      expect(JSON.parse(row.synthesis ?? '[]'), id).not.toEqual([]);
+    }
+  });
+
+  it('the route is the demo’s own: a paired device only', async () => {
+    const d = await demo();
+    expect((await d.app.request('/api/demo/deliver', { method: 'POST' })).status).toBe(401);
   });
 });

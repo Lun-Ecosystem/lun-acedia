@@ -35,13 +35,18 @@ import { ConflictError, logAuto, logUser, type Previous, type UserAction } from 
 import { listBoxes, listTags } from './labels.ts';
 import {
   claim,
+  DEFAULT_BULK_THRESHOLD,
+  DEFAULT_THRESHOLD,
   getProposal,
+  isBulk,
   proposalView,
+  triageSettings,
   release,
   saveProposal,
   setProposalStatus,
   type Proposal,
 } from './proposals.ts';
+import { dropCopied, mask } from './mask.ts';
 import { dequeue, enqueue, failedAttempt, MAX_ATTEMPTS, queuedIds } from './queue.ts';
 import { createRule, listRules, matchRule } from './rules.ts';
 import type { Rule } from '../types.ts';
@@ -55,15 +60,12 @@ export interface TriageDeps extends ActionDeps {
   log?: ((line: string) => void) | undefined;
 }
 
-/** Confidence the AI needs to file a mail on its own; 100 means every AI proposal waits. */
-export const DEFAULT_THRESHOLD = 100;
 /** A mail never goes to spam on a lower confidence, whatever the threshold. */
 export const SPAM_CONFIDENCE = 95;
 
-/** Confidence from which « Tout valider » validates a proposal; never above the threshold. */
-export const DEFAULT_BULK_THRESHOLD = 85;
+export { DEFAULT_BULK_THRESHOLD, DEFAULT_THRESHOLD };
 
-export const getThreshold = (db: DatabaseSync) => getSetting(db, 'threshold', DEFAULT_THRESHOLD);
+export const getThreshold = (db: DatabaseSync) => triageSettings(db).threshold;
 
 const isUrgentName = (name: string) =>
   name
@@ -106,7 +108,7 @@ async function applyTarget(
 
 const actionOf = (boxId: string | null) => (boxId === 'trash' || boxId === 'spam' ? boxId : 'file');
 
-function creditExhausted(deps: ActionDeps): void {
+export function creditExhausted(deps: ActionDeps): void {
   if (getState(deps.db).degraded.includes('credit')) return;
   addDegraded(deps.db, 'credit');
   emitEvent(
@@ -139,6 +141,7 @@ async function classify(
   const provider = deps.classifier.provider ?? 'anthropic';
   const payload = (await fetchFull(deps.google, mail.id))?.payload;
   if (!payload) return 'gone';
+  const text = plainText(payload);
   try {
     const result = await deps.classifier.classify({
       mail: {
@@ -146,7 +149,7 @@ async function classify(
         to: header({ payload }, 'To'),
         subject: mail.subject,
         date: mail.date,
-        text: plainText(payload),
+        text,
       },
       boxes: listBoxes(deps.db),
       tags: listTags(deps.db),
@@ -163,7 +166,12 @@ async function classify(
       deps.now(),
       'triage',
     );
-    return result;
+    // What the AI wrote leaves the post: no copy of the body, then no secret; the clear text is never kept.
+    return {
+      ...result,
+      reason: dropCopied([result.reason], text).map(mask).join(''),
+      synthesis: dropCopied(result.synthesis, text).map(mask),
+    };
   } catch (err) {
     if (err instanceof CreditExhaustedError) {
       creditExhausted(deps);
@@ -209,7 +217,7 @@ function ruleFor(db: DatabaseSync, mail: StoredMessage, pass: Pass): Rule | null
 }
 
 /** Triages one claimed mail; `ai-off` when the AI just ran out of credit or refused the key. */
-async function triageOne(deps: TriageDeps, id: string, pass: Pass): Promise<Outcome | 'ai-off'> {
+async function triageOne(deps: TriageDeps, id: string, pass: Pass): Promise<Outcome | 'ai-off' | 'pending'> {
   const mail = getStoredMessage(deps.db, id);
   // A mail already out of the inbox (a Gmail filter, a gesture) is left where it is.
   if (!mail?.labels.includes('INBOX')) {
@@ -240,10 +248,7 @@ async function triageOne(deps: TriageDeps, id: string, pass: Pass): Promise<Outc
         title: mail.subject,
         ...(ruleUrgent
           ? {
-              lines: [
-                `De : ${mail.from.name ? `${mail.from.name} <${mail.from.addr}>` : mail.from.addr}`,
-                ...(mail.snippet ? [`Extrait : ${mail.snippet}`] : []),
-              ],
+              lines: [`De : ${mail.from.name ? `${mail.from.name} <${mail.from.addr}>` : mail.from.addr}`],
             }
           : {}),
         data: { id, boxId: rule.boxId },
@@ -290,15 +295,18 @@ async function triageOne(deps: TriageDeps, id: string, pass: Pass): Promise<Outc
     importance: c.importance,
     confidence: c.confidence,
     reason: c.reason,
+    synthesis: c.synthesis,
     source: 'ai',
     status: auto ? 'auto' : 'pending',
   });
+  // A waiting proposal is served as a card; the pass signals it once, at its end (`triageNew`).
+  if (!auto) return 'pending';
   if (c.importance !== 'none') {
     emitEvent(
       deps.db,
       {
-        type: auto ? 'mail.triaged' : 'mail.pending',
-        importance: c.importance === 'urgent' ? 'normal' : auto ? 'info' : 'low',
+        type: 'mail.triaged',
+        importance: c.importance === 'urgent' ? 'normal' : 'info',
         title: mail.subject,
         data: { id, boxId: c.boxId, confidence: c.confidence },
         link: mailLink(id),
@@ -347,6 +355,31 @@ export async function triageNew(deps: TriageDeps, ids: string[] = []): Promise<v
         `Tri : mail ${id} sorti de la file après ${MAX_ATTEMPTS} essais, à trier à la main : ${reason}`,
       );
   };
+  const waiting: string[] = [];
+  try {
+    await triageQueue(deps, pass, waiting, failed);
+  } finally {
+    // One signal for the screens, shaped as the sync's, even when a failure stopped the pass.
+    if (waiting.length)
+      emitEvent(
+        deps.db,
+        {
+          type: 'mail.changed',
+          importance: 'log',
+          title: 'Boîte mise à jour',
+          data: { added: [], changed: waiting, removed: [] },
+        },
+        deps.now(),
+      );
+  }
+}
+
+async function triageQueue(
+  deps: TriageDeps,
+  pass: Pass,
+  waiting: string[],
+  failed: (id: string, reason: string) => void,
+): Promise<void> {
   for (const id of queuedIds(deps.db)) {
     const { pausedBy } = getState(deps.db);
     if (pausedBy === 'local') return;
@@ -355,7 +388,7 @@ export async function triageNew(deps: TriageDeps, ids: string[] = []): Promise<v
       if (getProposal(deps.db, id)) dequeue(deps.db, id);
       continue;
     }
-    let outcome: Outcome | 'ai-off';
+    let outcome: Outcome | 'ai-off' | 'pending';
     try {
       outcome = await triageOne(deps, id, { ...pass, useAi: pass.useAi && pausedBy !== 'core' });
     } catch (err) {
@@ -365,7 +398,10 @@ export async function triageNew(deps: TriageDeps, ids: string[] = []): Promise<v
       if (mailError(err)) continue;
       throw err;
     }
-    if (outcome === 'ai-off') pass.useAi = false;
+    if (outcome === 'pending') {
+      waiting.push(id);
+      dequeue(deps.db, id);
+    } else if (outcome === 'ai-off') pass.useAi = false;
     else if (outcome === 'unusable') failed(id, 'réponse inutilisable de l’IA');
     else if (outcome === 'done') dequeue(deps.db, id);
   }
@@ -425,8 +461,7 @@ export async function validate(deps: ActionDeps, id: string): Promise<Proposal &
 /** CrOliX says « not that »: the mail stays in the inbox, nothing is learnt, the line can be undone. */
 export async function refuse(deps: ActionDeps, id: string): Promise<Proposal & { journalId: number }> {
   return oneAtATime(id, async () => {
-    const p = pendingProposal(deps.db, id);
-    if (!p.boxId) throw new BadRequestError('Cette proposition ne range le mail nulle part');
+    pendingProposal(deps.db, id);
     // Gmail is the truth, as for an undo: the cache may still say INBOX.
     const current = await fetchMetadata(deps.google, id);
     if (!current) throw new NotFoundError();
@@ -462,17 +497,20 @@ function ruleForSender(deps: ActionDeps, id: string, boxId: string): Rule | unde
   return exists ? undefined : createRule(deps.db, { field: 'from', op: 'equals', value: addr, boxId });
 }
 
-/** CrOliX files the mail elsewhere than proposed: the mail gets exactly these box and tags. */
+/**
+ * CrOliX files the mail elsewhere than proposed: the mail gets exactly these box and tags. A `null` box (a proposal
+ * without one, corrected by the contract) leaves the mail where it is and sets its tags only.
+ */
 export async function correct(
   deps: ActionDeps,
   id: string,
-  boxId: string,
+  boxId: string | null,
   tagIds: string[],
   opts: { rememberSender?: boolean } = {},
 ): Promise<Proposal & { journalId: number }> {
   return oneAtATime(id, async () => {
     if (!getProposal(deps.db, id)) throw new NotFoundError('Aucune proposition pour ce mail');
-    if (boxId !== 'trash' && boxId !== 'spam' && !boxIds(deps.db).includes(boxId))
+    if (boxId !== null && boxId !== 'trash' && boxId !== 'spam' && !boxIds(deps.db).includes(boxId))
       throw new BadRequestError(`« ${boxId} » n’est pas une boîte`);
     const tags = new Set(listTags(deps.db).map((t) => t.id));
     const unknown = tagIds.find((t) => !tags.has(t));
@@ -481,7 +519,7 @@ export async function correct(
     const change = await applyTarget(deps, id, boxId, tagIds, true);
     setProposalStatus(deps.db, id, 'corrected');
     remember(deps, id, boxId, tagIds);
-    const createdRule = opts.rememberSender ? ruleForSender(deps, id, boxId) : undefined;
+    const createdRule = opts.rememberSender && boxId ? ruleForSender(deps, id, boxId) : undefined;
     if (createdRule) previous.createdRule = createdRule;
     const journalId = logUser(deps.db, changeOf(deps, id, change), 'correct', deps.now(), previous);
     return { ...getProposal(deps.db, id)!, journalId };
@@ -489,15 +527,16 @@ export async function correct(
 }
 
 /**
- * A mail filed by hand is a human gesture too: it becomes an example, and a pending proposal for it
- * is settled (accepted when it named the same box).
+ * A mail filed by hand is a human gesture too: it becomes an example, and a pending proposal for it, or one the AI
+ * filed alone, is settled (accepted when it named the same box, corrected otherwise).
  */
 export function onManualFile(deps: ActionDeps, id: string, boxId: string): void {
   const mail = getStoredMessage(deps.db, id);
   if (!mail) return;
   recordExample(deps.db, mail, boxId, tagIdsOf(deps.db, mail.labels), deps.now());
   const p = getProposal(deps.db, id);
-  if (p?.status === 'pending') setProposalStatus(deps.db, id, p.boxId === boxId ? 'accepted' : 'corrected');
+  if (p?.status === 'pending' || (p?.source === 'ai' && p.status === 'auto'))
+    setProposalStatus(deps.db, id, p.boxId === boxId ? 'accepted' : 'corrected');
 }
 
 const JOURNALED: Partial<Record<BatchOp['kind'], UserAction>> = {
@@ -523,5 +562,5 @@ export function afterUserAction(deps: ActionDeps, change: LabelChange, op: Batch
 /** Adds its proposal to a listed mail. */
 export function withProposal(db: DatabaseSync, m: StoredMessage): StoredMessage {
   const p = getProposal(db, m.id);
-  return p ? { ...m, proposal: proposalView(p) } : m;
+  return p ? { ...m, proposal: proposalView(p, isBulk(db, p)) } : m;
 }

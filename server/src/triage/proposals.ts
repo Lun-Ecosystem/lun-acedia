@@ -1,14 +1,38 @@
 import type { DatabaseSync } from 'node:sqlite';
+import { getSetting } from '../db.ts';
 import type { ProposalView } from '../types.ts';
 import type { ImportanceLevel } from './classifier.ts';
 
 export type ProposalStatus = ProposalView['status'];
+
+/** Confidence the AI needs to file a mail on its own; 100 means every AI proposal waits. */
+export const DEFAULT_THRESHOLD = 100;
+/** Confidence from which « Tout valider » validates a proposal; never above the threshold. */
+export const DEFAULT_BULK_THRESHOLD = 85;
+
+/** The day's cap of the syntheses made on demand (the `digest` use), in dollars; 0 turns them off. */
+export const DEFAULT_DIGEST_CAP_USD = 0.02;
+export const digestCap = (db: DatabaseSync): number =>
+  getSetting(db, 'digestDailyCapUsd', DEFAULT_DIGEST_CAP_USD);
+
+/** The two thresholds as they apply: the bulk threshold never above the threshold. */
+export function triageSettings(db: DatabaseSync): { threshold: number; bulkThreshold: number } {
+  const threshold = getSetting(db, 'threshold', DEFAULT_THRESHOLD);
+  const bulkThreshold = getSetting(db, 'bulkThreshold', DEFAULT_BULK_THRESHOLD);
+  return { threshold, bulkThreshold: Math.min(bulkThreshold, threshold) };
+}
+
+/** A waiting proposal « Tout valider » takes: its confidence reaches the bulk threshold and the threshold. */
+export const isBulk = (db: DatabaseSync, p: Pick<Proposal, 'status' | 'confidence'>): boolean =>
+  p.status === 'pending' && p.confidence >= triageSettings(db).bulkThreshold;
 
 export interface Proposal extends ProposalView {
   messageId: string;
   importance: ImportanceLevel;
   source: 'rule' | 'ai';
   createdAt: string;
+  /** Masked; absent for a rule or a proposal from before it. */
+  synthesis?: string[];
 }
 
 interface Row {
@@ -19,6 +43,7 @@ interface Row {
   confidence: number;
   source: 'rule' | 'ai';
   reason: string | null;
+  synthesis: string | null;
   status: ProposalStatus | 'processing';
   created_at: string;
 }
@@ -46,10 +71,11 @@ export function saveProposal(
   db: DatabaseSync,
   p: Pick<Proposal, 'messageId' | 'boxId' | 'tagIds' | 'importance' | 'confidence' | 'source' | 'status'> & {
     reason?: string;
+    synthesis?: string[];
   },
 ): void {
   db.prepare(
-    `UPDATE proposals SET box_id = ?, tag_ids = ?, importance = ?, confidence = ?, source = ?, status = ?, reason = ?
+    `UPDATE proposals SET box_id = ?, tag_ids = ?, importance = ?, confidence = ?, source = ?, status = ?, reason = ?, synthesis = ?
      WHERE message_id = ?`,
   ).run(
     p.boxId,
@@ -58,8 +84,17 @@ export function saveProposal(
     p.confidence,
     p.source,
     p.status,
-    p.reason ?? null,
+    p.reason || null,
+    p.synthesis ? JSON.stringify(p.synthesis) : null,
     p.messageId,
+  );
+}
+
+/** Writes the synthesis of a decided proposal (already filtered and masked). */
+export function saveSynthesis(db: DatabaseSync, messageId: string, synthesis: string[]): void {
+  db.prepare("UPDATE proposals SET synthesis = ? WHERE message_id = ? AND status != 'processing'").run(
+    JSON.stringify(synthesis),
+    messageId,
   );
 }
 
@@ -82,18 +117,20 @@ export function getProposal(db: DatabaseSync, messageId: string): Proposal | und
     confidence: row.confidence,
     source: row.source,
     ...(row.reason ? { reason: row.reason } : {}),
+    ...(row.synthesis ? { synthesis: JSON.parse(row.synthesis) as string[] } : {}),
     status: row.status,
     createdAt: row.created_at,
   };
 }
 
 /** What the mail list shows of a proposal. */
-export function proposalView(p: Proposal): ProposalView {
+export function proposalView(p: Proposal, bulk: boolean): ProposalView {
   return {
     boxId: p.boxId,
     tagIds: p.tagIds,
     confidence: p.confidence,
     status: p.status,
     ...(p.reason ? { reason: p.reason } : {}),
+    ...(bulk ? { bulk: true as const } : {}),
   };
 }

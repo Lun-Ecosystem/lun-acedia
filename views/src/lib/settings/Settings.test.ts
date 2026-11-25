@@ -96,9 +96,9 @@ describe('Settings', () => {
 
   it('saves the auto-filing threshold with its slider, and bounds the second one by the first', async () => {
     const { client, user } = await open((c) => {
-      c.getSettings.mockResolvedValue({ threshold: 95, bulkThreshold: 85 });
+      c.getSettings.mockResolvedValue({ threshold: 95, bulkThreshold: 85, digestDailyCapUsd: 0.02 });
       // The server lowers « Tout valider » with the auto-filing threshold.
-      const saved = { threshold: 95, bulkThreshold: 85 };
+      const saved = { threshold: 95, bulkThreshold: 85, digestDailyCapUsd: 0.02 };
       c.updateSettings.mockImplementation(async (patch) => {
         saved.threshold = patch.threshold ?? saved.threshold;
         saved.bulkThreshold = Math.min(patch.bulkThreshold ?? saved.bulkThreshold, saved.threshold);
@@ -128,8 +128,52 @@ describe('Settings', () => {
     expect(client.updateSettings).toHaveBeenLastCalledWith({ bulkThreshold: 80 });
   });
 
+  it('saves the day cap of the syntheses, refused on screen outside 0 to 5 $', async () => {
+    const { client, user } = await open((c) => {
+      const saved = { threshold: 95, bulkThreshold: 85, digestDailyCapUsd: 0.02 };
+      c.getSettings.mockResolvedValue(saved);
+      c.updateSettings.mockImplementation(async (patch) => ({ ...saved, ...patch }));
+    });
+    const cap = await screen.findByRole('spinbutton', { name: 'Plafond du jour des synthèses' });
+    await waitFor(() => expect(cap).toHaveValue(0.02));
+    expect(screen.getByText('0 coupe la synthèse des mails rangés par une règle.')).toBeInTheDocument();
+
+    await user.clear(cap);
+    await user.type(cap, '6');
+    await user.tab();
+    expect(await screen.findByText('Entre 0 et 5 $.')).toBeInTheDocument();
+    expect(client.updateSettings).not.toHaveBeenCalled();
+
+    await user.clear(cap);
+    await user.type(cap, '0');
+    await user.tab();
+    await waitFor(() => expect(client.updateSettings).toHaveBeenCalledWith({ digestDailyCapUsd: 0 }));
+    expect(screen.queryByText('Entre 0 et 5 $.')).toBeNull();
+    // The thresholds stay as they were.
+    expect(screen.getByRole('slider', { name: 'Ranger seul à partir de' })).toHaveAttribute(
+      'aria-valuenow',
+      '95',
+    );
+  });
+
+  it('shows the refusal of the server for the day cap of the syntheses', async () => {
+    await open((c) => {
+      c.getSettings.mockResolvedValue({ threshold: 95, bulkThreshold: 85, digestDailyCapUsd: 0.02 });
+      c.updateSettings.mockRejectedValue(new Error('Plafond refusé.'));
+    });
+    const cap = await screen.findByRole('spinbutton', { name: 'Plafond du jour des synthèses' });
+    await waitFor(() => expect(cap).toHaveValue(0.02));
+    await userEvent.clear(cap);
+    await userEvent.type(cap, '1');
+    await userEvent.tab();
+    expect(await screen.findByRole('alert')).toHaveTextContent('Plafond refusé.');
+    await waitFor(() => expect(cap).toHaveValue(0.02));
+  });
+
   it('explains the two thresholds on a scale', async () => {
-    await open((c) => c.getSettings.mockResolvedValue({ threshold: 95, bulkThreshold: 85 }));
+    await open((c) =>
+      c.getSettings.mockResolvedValue({ threshold: 95, bulkThreshold: 85, digestDailyCapUsd: 0.02 }),
+    );
     const scale = await screen.findByRole('img', { name: /En dessous de 85 %/ });
     expect(scale).toHaveAccessibleName(
       'En dessous de 85 % : un par un ; de 85 à 95 % : « Tout valider » ; à partir de 95 % : rangé seul',

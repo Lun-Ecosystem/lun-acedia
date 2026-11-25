@@ -29,6 +29,8 @@ interface Answer {
   tags?: string[];
   confidence: number;
   reason: string;
+  /** The synthesis the script gives; the reason when absent. */
+  synthesis?: string[];
 }
 interface Mail {
   id: string;
@@ -206,12 +208,17 @@ const JOURNAL_MAILS: Mail[] = [
     id: 'm17',
     from: 'Héritage Rapide <notaire@gain.example.org>',
     subject: 'Un héritage vous attend',
-    body: 'Un parent éloigné vous a légué une somme importante. Répondez avec vos coordonnées bancaires.',
+    body: 'Un parent éloigné vous a légué une somme importante. Répondez avec vos coordonnées bancaires. Code de dossier : 482917.',
     ago: 6 * D,
     ai: {
       box: SPAM,
       confidence: 80,
       reason: 'Promesse d’argent d’un inconnu, coordonnées bancaires demandées.',
+      // A fake code: the triage masks it before it is written.
+      synthesis: [
+        'Un inconnu promet un héritage, code 482917 donné.',
+        'Des coordonnées bancaires sont demandées.',
+      ],
     },
   },
   {
@@ -228,6 +235,36 @@ const JOURNAL_MAILS: Mail[] = [
   },
 ];
 
+// Delivered one at a time by `POST /api/demo/deliver`, to watch a proposal arrive without reloading the page.
+const DELIVERIES: Mail[] = [
+  {
+    id: 'm19',
+    from: 'Pharmacie du Centre <contact@pharmacie.example.org>',
+    subject: 'Votre commande est prête',
+    body: 'Bonjour, votre commande vous attend au comptoir jusqu’à samedi. Code de retrait : 583920.',
+    ago: 0,
+    ai: {
+      box: 'Perso',
+      confidence: 88,
+      reason: 'Commerce de proximité, retrait à faire.',
+      synthesis: ['Commande prête à retirer en pharmacie avant samedi, code 583920.'],
+    },
+  },
+  {
+    id: 'm20',
+    from: 'Gîte des Hauts <reservation@gite.example.org>',
+    subject: 'Confirmation de votre séjour',
+    body: 'Votre séjour du 19 au 21 décembre est confirmé. L’arrivée se fait à partir de 16 h.',
+    ago: 0,
+    ai: {
+      box: 'Voyages',
+      confidence: 80,
+      reason: 'Réservation d’hébergement.',
+      synthesis: ['Un séjour en gîte est confirmé du 19 au 21 décembre.', 'Arrivée à partir de 16 h.'],
+    },
+  },
+];
+
 const BOXES = ['Factures', 'Administratif', 'Newsletters', 'Voyages', 'Perso'];
 const TAGS = ['Urgent', 'Opérateur', 'Énergie', 'Logement'];
 
@@ -235,7 +272,7 @@ const TAGS = ['Urgent', 'Opérateur', 'Énergie', 'Logement'];
 const scriptedClassifier: Classifier = {
   model: 'claude-haiku-5-5',
   async classify({ mail, boxes, tags }) {
-    const ai = [...MAILS, ...JOURNAL_MAILS].find((m) => m.subject === mail.subject)?.ai;
+    const ai = [...MAILS, ...JOURNAL_MAILS, ...DELIVERIES].find((m) => m.subject === mail.subject)?.ai;
     const idOf = (list: { id: string; name: string }[], name: string) =>
       list.find((l) => l.name === name)?.id;
     const result: Classification = {
@@ -244,9 +281,18 @@ const scriptedClassifier: Classifier = {
       importance: 'normal',
       confidence: ai?.confidence ?? 0,
       reason: ai?.reason ?? 'Aucune boîte trouvée.',
+      synthesis: ai?.synthesis ?? (ai ? [ai.reason] : []),
       usage: { inputTokens: 0, outputTokens: 0 },
     };
     return result;
+  },
+  // The synthesis of the digest, for a mail a rule filed: from the script too.
+  async summarize({ mail }) {
+    const ai = [...MAILS, ...JOURNAL_MAILS, ...DELIVERIES].find((m) => m.subject === mail.subject)?.ai;
+    return {
+      synthesis: ai?.synthesis ?? [`Un mail rangé par une règle : « ${mail.subject} ».`],
+      usage: { inputTokens: 0, outputTokens: 0 },
+    };
   },
 };
 
@@ -467,6 +513,19 @@ export async function createDemo(
     secretKey,
     staticDir: opts.staticDir,
     checkKey: async () => 'unreachable',
+    // The scripted classifier serves the app too (the digest's syntheses): never the invented key's provider.
+    classifier: () => scriptedClassifier,
+  });
+  // The demo's own route, behind the device token of /api: the next invented mail arrives, synced and triaged.
+  // Added before the first request (Hono builds its routes then); what it calls is defined below.
+  const toDeliver = [...DELIVERIES];
+  app.post('/api/demo/deliver', async (c) => {
+    const next = toDeliver.shift();
+    if (!next) return c.json({ error: 'Plus de mail à livrer' }, 409);
+    deliver({ ...next, ago: 0 });
+    const { added } = await syncGmail(deps);
+    await triageNew({ ...deps, classifier: scriptedClassifier }, added);
+    return c.json({ id: next.id });
   });
   saveTokens(db, secretKey, {
     accessToken: 'demo',

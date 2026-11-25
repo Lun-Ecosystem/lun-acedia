@@ -5,10 +5,12 @@
   import SettingsCard from '../ui/SettingsCard.svelte';
   import SettingsRow from '../ui/SettingsRow.svelte';
   import Slider from '../ui/Slider.svelte';
+  import TextInput from '../ui/TextInput.svelte';
 
   /*
    * The two confidence thresholds: from where the AI files alone, and from where « Tout valider »
-   * takes the proposals (never above the first). A scale says what each range becomes.
+   * takes the proposals (never above the first). A scale says what each range becomes. Below, the day
+   * cap of the syntheses the day digest makes on demand.
    */
 
   interface Props {
@@ -18,6 +20,16 @@
   let { client, settings = $bindable() }: Props = $props();
 
   let error = $state<string | null>(null);
+  /** The card the last refusal of the server belongs to. */
+  let errorAt = $state<'seuils' | 'syntheses'>('seuils');
+  let cap = $state('');
+  let capError = $state<string | null>(null);
+  const uid = $props.id();
+
+  // Follows the server's value: after a save, a refusal or a reload.
+  $effect(() => {
+    cap = String(settings.digestDailyCapUsd);
+  });
 
   /** Last save asked: an older answer arriving late never replaces a newer value. */
   let seq = 0;
@@ -27,13 +39,15 @@
     const before = { ...settings };
     // Lowering the first threshold lowers the second at once, as the server does.
     settings = {
-      threshold: patch.threshold ?? settings.threshold,
+      ...settings,
+      ...patch,
       bulkThreshold: Math.min(
         patch.bulkThreshold ?? settings.bulkThreshold,
         patch.threshold ?? settings.threshold,
       ),
     };
     error = null;
+    errorAt = 'digestDailyCapUsd' in patch ? 'syntheses' : 'seuils';
     try {
       const saved = await client.updateSettings(patch);
       if (mine === seq) settings = saved;
@@ -47,6 +61,13 @@
         settings = before;
       }
     }
+  }
+
+  function saveCap() {
+    // A number input binds a number, or '' when empty.
+    const n = Number(String(cap).replace(',', '.'));
+    capError = String(cap) !== '' && Number.isFinite(n) && n >= 0 && n <= 5 ? null : 'Entre 0 et 5 $.';
+    if (!capError && n !== settings.digestDailyCapUsd) void save({ digestDailyCapUsd: n });
   }
 
   /** The scale starts at 50 %, lower when « Tout valider » goes below. */
@@ -106,7 +127,37 @@
         </div>
       {/if}
     </div>
-    {#if error}<p class="erreur" role="alert">{error}</p>{/if}
+    {#if error && errorAt === 'seuils'}<p class="erreur" role="alert">{error}</p>{/if}
+  </SettingsCard>
+  <SettingsCard
+    title="Synthèses"
+    description="Le bilan du jour résume en deux lignes les mails rangés par une règle."
+  >
+    <SettingsRow
+      label="Plafond du jour des synthèses"
+      hint="0 coupe la synthèse des mails rangés par une règle."
+    >
+      {#snippet children({ labelId })}
+        <div class="nombre">
+          <TextInput
+            type="number"
+            size="petit"
+            min="0"
+            max="5"
+            step="0.01"
+            inputmode="decimal"
+            suffix="$"
+            bind:value={cap}
+            invalid={capError !== null}
+            aria-labelledby={labelId}
+            aria-describedby={capError ? `${uid}-cap` : undefined}
+            onchange={saveCap}
+          />
+          {#if capError}<span class="borne" id="{uid}-cap">{capError}</span>{/if}
+        </div>
+      {/snippet}
+    </SettingsRow>
+    {#if error && errorAt === 'syntheses'}<p class="erreur" role="alert">{error}</p>{/if}
   </SettingsCard>
 </div>
 
@@ -154,6 +205,19 @@
     min-width: 64px !important;
     background: color-mix(in srgb, var(--ok) 30%, transparent);
   }
+  .nombre {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 4px;
+  }
+  .nombre :global(.entree) {
+    width: 132px;
+  }
+  .borne {
+    font-size: 12px;
+    color: var(--danger);
+  }
   .erreur {
     margin: 0 18px 14px;
     font-size: 12.5px;
@@ -168,6 +232,9 @@
     }
     .echelle {
       margin: 4px 14px 14px;
+    }
+    .nombre {
+      align-items: flex-start;
     }
   }
 </style>

@@ -10,6 +10,7 @@ import { dismissAll } from '../ui/toasts.svelte.ts';
 import Toaster from '../ui/Toaster.svelte';
 import Pending from './Pending.svelte';
 
+/** `bulk` as the server sets it for the test's lines (threshold 95, bulk 85): at 85 % or more. */
 const proposed = (n: number, boxId: string, confidence: number, reason?: string): MailSummary => ({
   id: `m${n}`,
   threadId: `t${n}`,
@@ -19,7 +20,14 @@ const proposed = (n: number, boxId: string, confidence: number, reason?: string)
   date: `2026-11-02T0${n}:00:00.000Z`,
   unread: true,
   labels: ['INBOX', 'UNREAD'],
-  proposal: { boxId, tagIds: [], confidence, status: 'pending', ...(reason ? { reason } : {}) },
+  proposal: {
+    boxId,
+    tagIds: [],
+    confidence,
+    status: 'pending',
+    ...(reason ? { reason } : {}),
+    ...(confidence >= 85 ? { bulk: true as const } : {}),
+  },
 });
 
 /** École 72 and 88, Perso 90 and 85, Spam 70. */
@@ -37,7 +45,7 @@ async function open(
   props: { onopen?: (id: string) => void } = {},
 ) {
   const fake = fakeClient({ mails });
-  fake.client.getSettings.mockResolvedValue({ threshold: 95, bulkThreshold: 85 });
+  fake.client.getSettings.mockResolvedValue({ threshold: 95, bulkThreshold: 85, digestDailyCapUsd: 0.02 });
   prepare?.(fake);
   const user = userEvent.setup();
   render(Pending, { props: { client: fake.client, ...props } });
@@ -116,6 +124,23 @@ describe('Pending', () => {
     await waitFor(() => expect(screen.queryByText('Sujet 2')).toBeNull());
     expect(screen.getByText('Sujet 1')).toBeInTheDocument();
     expect(screen.getByText('Sujet 4')).toBeInTheDocument();
+  });
+
+  it('« Tout valider » takes the `bulk` of the server, whatever the confidence says', async () => {
+    const trusted = proposed(1, 'L-ecole', 40);
+    trusted.proposal!.bulk = true;
+    const doubted = proposed(2, 'L-ecole', 99);
+    delete doubted.proposal!.bulk;
+    const { client, user } = await open([trusted, doubted]);
+    await user.click(screen.getByRole('button', { name: /Tout valider au-dessus de 85/ }));
+    await waitFor(() => expect(client.validate).toHaveBeenCalledTimes(1));
+    expect(client.validate).toHaveBeenCalledWith('m1');
+  });
+
+  it('« Tout valider » is disabled without any `bulk`, its label keeping the line of the settings', async () => {
+    const { client } = await open([proposed(1, 'L-ecole', 72), proposed(2, 'L-ecole', 80)]);
+    expect(screen.getByRole('button', { name: /Tout valider au-dessus de 85/ })).toBeDisabled();
+    expect(client.validate).not.toHaveBeenCalled();
   });
 
   it('V validates the active card and moves to the next one', async () => {
@@ -288,7 +313,7 @@ describe('Pending', () => {
     const spammed = proposed(2, 'L-ecole', 80);
     spammed.labels = ['INBOX', 'SPAM'];
     const { client } = fakeClient({ mails: [trashed, spammed, proposed(3, 'L-ecole', 90)] });
-    client.getSettings.mockResolvedValue({ threshold: 95, bulkThreshold: 85 });
+    client.getSettings.mockResolvedValue({ threshold: 95, bulkThreshold: 85, digestDailyCapUsd: 0.02 });
     render(Pending, { props: { client } });
     await screen.findByText('Sujet 3');
     expect(screen.queryByText('Sujet 1')).toBeNull();

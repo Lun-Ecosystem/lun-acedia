@@ -173,10 +173,15 @@ export function fakeClient(opts: { mails?: MailSummary[]; journal?: JournalEntry
       refused: 0,
       agent: 0,
     })),
-    getSettings: vi.fn<AcediaClient['getSettings']>(async () => ({ threshold: 100, bulkThreshold: 85 })),
+    getSettings: vi.fn<AcediaClient['getSettings']>(async () => ({
+      threshold: 100,
+      bulkThreshold: 85,
+      digestDailyCapUsd: 0.02,
+    })),
     updateSettings: vi.fn<AcediaClient['updateSettings']>(async (patch) => ({
       threshold: patch.threshold ?? 100,
       bulkThreshold: patch.bulkThreshold ?? 85,
+      digestDailyCapUsd: patch.digestDailyCapUsd ?? 0.02,
     })),
     agenda: vi.fn<AcediaClient['agenda']>(async () => []),
     undatedTasks: vi.fn<AcediaClient['undatedTasks']>(async () => []),

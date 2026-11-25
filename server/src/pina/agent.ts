@@ -48,17 +48,17 @@ const MAX_ROUNDS = 8;
 const MAX_TOKENS = 4096;
 
 export const NO_PROVIDER = 'Aucun modèle choisi pour l’agent : à régler dans Réglages › Fournisseurs d’IA.';
-const CAP =
-  'J’ai atteint mon plafond de dépense pour aujourd’hui : on reprend demain, ou tu peux le relever dans Réglages › Agent.';
-const TOO_LONG =
-  'Je m’arrête là, ça me demandait trop d’allers-retours. Dis-moi par où reprendre, ou découpe la demande.';
-const EMPTY = 'Je n’ai rien de clair à te répondre là-dessus. Tu peux reformuler ?';
-const FAILED: Record<ProviderError['kind'], string> = {
-  key: 'Le fournisseur d’IA refuse ma clé : à vérifier dans Réglages › Fournisseurs d’IA.',
+export const CAP =
+  'Plafond de dépense du jour atteint : reprise demain, ou plafond à relever dans Réglages › Agent.';
+export const TOO_LONG =
+  'Arrêt : trop d’allers-retours pour cette demande. À reprendre par une partie, ou à découper.';
+export const EMPTY = 'Aucune réponse claire à cette demande. À reformuler.';
+export const FAILED: Record<ProviderError['kind'], string> = {
+  key: 'Le fournisseur d’IA refuse la clé : à vérifier dans Réglages › Fournisseurs d’IA.',
   credit:
-    'Plus de crédit chez le fournisseur d’IA : à recharger, ou choisis un autre modèle dans Réglages › Agent.',
-  unavailable: 'Le fournisseur d’IA ne répond pas pour le moment. Réessaie dans un instant.',
-  format: 'Le fournisseur d’IA m’a renvoyé une réponse illisible. Réessaie dans un instant.',
+    'Plus de crédit chez le fournisseur d’IA : à recharger, ou un autre modèle à choisir dans Réglages › Agent.',
+  unavailable: 'Le fournisseur d’IA ne répond pas pour le moment. Nouvel essai dans un instant.',
+  format: 'Le fournisseur d’IA a renvoyé une réponse illisible. Nouvel essai dans un instant.',
 };
 const REFUSED =
   'L’utilisateur a refusé cette action : elle n’a pas été faite. Ne la refais pas sans qu’il le demande.';

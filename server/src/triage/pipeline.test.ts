@@ -5,7 +5,7 @@ import { putSetting } from '../db.ts';
 import { getStoredMessage, upsertMessage } from '../gmail/store.ts';
 import { GoogleApiError, type GoogleClient } from '../google/client.ts';
 import { ProviderError, toProviderError } from '../llm/types.ts';
-import { message } from '../testing/fake-gmail.ts';
+import { message, textPart } from '../testing/fake-gmail.ts';
 import { makeGmailHarness } from '../testing/gmail-harness.ts';
 import {
   ClassifierError,
@@ -39,6 +39,7 @@ function fakeClassifier(answer: (input: ClassifyInput) => Partial<Classification
         importance: 'normal',
         confidence: 50,
         reason: 'Expéditeur déjà vu.',
+        synthesis: [],
         usage: { inputTokens: 1000, outputTokens: 50 },
         ...a,
       };
@@ -91,6 +92,7 @@ describe('triageNew', () => {
       confidence: 99,
       status: 'pending',
       reason: 'Expéditeur déjà vu.',
+      bulk: true,
     });
   });
 
@@ -183,12 +185,11 @@ describe('triageNew', () => {
     expect(triaged.map((e) => e.importance).sort()).toEqual(['info', 'urgent']);
     expect(triaged.find((e) => e.importance === 'urgent')!.lines).toEqual([
       'De : Prof <prof@ecole.example.org>',
-      'Extrait : Réunion demain',
     ]);
     expect(triaged.find((e) => e.importance === 'info')).not.toHaveProperty('lines');
   });
 
-  it('mail.triaged and mail.pending carry the link to their mail', async () => {
+  it('mail.triaged carries the link to its mail; a waiting proposal emits no mail.pending', async () => {
     let box = '';
     const s = await setup(() => ({ boxId: box, importance: 'normal', confidence: 90 }));
     box = s.ecole;
@@ -198,10 +199,10 @@ describe('triageNew', () => {
     await s.triage(await s.deliver({ id: 'c', subject: 'y' }));
     const link = (type: string) => eventsSince(s.h.db).find((x) => x.type === type)?.link;
     expect(link('mail.triaged')).toBe('#/mail/a1');
-    expect(link('mail.pending')).toBe('#/mail/c');
+    expect(link('mail.pending')).toBeUndefined();
   });
 
-  it('an AI-urgent mail never emits urgent; AI-filed is info, pending is low', async () => {
+  it('an AI-urgent mail never emits urgent; AI-filed is info, pending emits nothing of its own', async () => {
     let box = '';
     const s = await setup((input) => ({
       boxId: box,
@@ -216,7 +217,7 @@ describe('triageNew', () => {
     const by = (title: string) => eventsSince(s.h.db).find((e) => e.title === title)!;
     expect(by('vite')).toMatchObject({ type: 'mail.triaged', importance: 'normal' });
     expect(by('calme')).toMatchObject({ type: 'mail.triaged', importance: 'info' });
-    expect(by('calme 2')).toMatchObject({ type: 'mail.pending', importance: 'low' });
+    expect(eventsSince(s.h.db).find((e) => e.title === 'calme 2')).toBeUndefined();
     expect(getProposal(s.h.db, 'a')?.importance).toBe('urgent');
   });
 
@@ -473,10 +474,15 @@ describe('triageNew', () => {
 
   it('reads and changes the threshold', async () => {
     const s = await setup(() => ({}));
-    expect((await s.h.call('GET', '/api/settings')).body).toEqual({ threshold: 100, bulkThreshold: 85 });
+    expect((await s.h.call('GET', '/api/settings')).body).toEqual({
+      threshold: 100,
+      bulkThreshold: 85,
+      digestDailyCapUsd: 0.02,
+    });
     expect((await s.h.call('PUT', '/api/settings', { threshold: 90 })).body).toEqual({
       threshold: 90,
       bulkThreshold: 85,
+      digestDailyCapUsd: 0.02,
     });
     expect((await s.h.call('PUT', '/api/settings', { threshold: 120 })).status).toBe(400);
   });
@@ -486,13 +492,18 @@ describe('triageNew', () => {
     expect((await s.h.call('PUT', '/api/settings', { bulkThreshold: 70 })).body).toEqual({
       threshold: 100,
       bulkThreshold: 70,
+      digestDailyCapUsd: 0.02,
     });
     const refused = await s.h.call('PUT', '/api/settings', { threshold: 80, bulkThreshold: 90 });
     expect(refused.status).toBe(400);
     expect(refused.body.error).toBe(
       'Le seuil de « Tout valider » ne peut pas dépasser le seuil d’auto-rangement',
     );
-    expect((await s.h.call('GET', '/api/settings')).body).toEqual({ threshold: 100, bulkThreshold: 70 });
+    expect((await s.h.call('GET', '/api/settings')).body).toEqual({
+      threshold: 100,
+      bulkThreshold: 70,
+      digestDailyCapUsd: 0.02,
+    });
     expect((await s.h.call('PUT', '/api/settings', { bulkThreshold: 101 })).status).toBe(400);
   });
 
@@ -501,8 +512,13 @@ describe('triageNew', () => {
     expect((await s.h.call('PUT', '/api/settings', { threshold: 80 })).body).toEqual({
       threshold: 80,
       bulkThreshold: 80,
+      digestDailyCapUsd: 0.02,
     });
-    expect((await s.h.call('GET', '/api/settings')).body).toEqual({ threshold: 80, bulkThreshold: 80 });
+    expect((await s.h.call('GET', '/api/settings')).body).toEqual({
+      threshold: 80,
+      bulkThreshold: 80,
+      digestDailyCapUsd: 0.02,
+    });
   });
 
   it('never sends a mail to spam below 95 %', async () => {
@@ -521,11 +537,10 @@ describe('triageNew', () => {
         : { boxId: box, importance: 'urgent', confidence: 40 },
     );
     box = s.ecole;
-    const before = eventsSince(s.h.db).filter((e) => e.type.startsWith('mail.pending')).length;
     await s.triage(await s.deliver({ id: 'pub', subject: 'Une pub' }, { id: 'tax', subject: 'Impôts' }));
-    const pending = eventsSince(s.h.db).filter((e) => e.type === 'mail.pending');
-    expect(pending).toHaveLength(before + 1);
-    expect(pending.at(-1)).toMatchObject({ importance: 'normal', title: 'Impôts' });
+    const titles = eventsSince(s.h.db).map((e) => e.title);
+    expect(titles).not.toContain('Une pub');
+    expect(titles).not.toContain('Impôts');
     expect(getProposal(s.h.db, 'tax')?.tagIds).toEqual([s.urgent]);
   });
 
@@ -689,5 +704,126 @@ describe('triage queue', () => {
     s.h.gmail.deliver(early);
     upsertMessage(s.h.db, early); // read by the core through mail.read before the sync loop ran
     expect((await s.h.sync()).added).toEqual(['m1']);
+  });
+});
+
+describe('the synthesis of a proposal', () => {
+  const BODY =
+    'Bonjour, la réunion de parents aura lieu jeudi soir dans la grande salle du collège.\nCode : 482917';
+  const synthesisRow = (s: Awaited<ReturnType<typeof setup>>, id: string) =>
+    s.h.db.prepare('SELECT reason, synthesis FROM proposals WHERE message_id = ?').get(id) as {
+      reason: string | null;
+      synthesis: string | null;
+    };
+
+  it('is written masked, and so is the reason', async () => {
+    const s = await setup(() => ({
+      reason: 'Le mail donne le code 482917.',
+      synthesis: ['Réunion jeudi, code 482917 donné.', 'Lien www.exemple.test/r/abc à suivre.'],
+    }));
+    await s.triage(await s.deliver({ id: 'm1', payload: textPart('text/plain', BODY) }));
+    const row = synthesisRow(s, 'm1');
+    expect(JSON.parse(row.synthesis!)).toEqual([
+      'Réunion jeudi, code [masqué] donné.',
+      'Lien [masqué] à suivre.',
+    ]);
+    expect(row.reason).toBe('Le mail donne le code [masqué]');
+    expect(getProposal(s.h.db, 'm1')?.synthesis).toEqual([
+      'Réunion jeudi, code [masqué] donné.',
+      'Lien [masqué] à suivre.',
+    ]);
+  });
+
+  it('a line that copies six words of the body is not written, nor a copied reason', async () => {
+    const s = await setup(() => ({
+      reason: 'La réunion de parents aura lieu jeudi soir.',
+      synthesis: ['La réunion de parents aura lieu jeudi.', 'Une réunion est prévue.'],
+    }));
+    await s.triage(await s.deliver({ id: 'm1', payload: textPart('text/plain', BODY) }));
+    const row = synthesisRow(s, 'm1');
+    expect(JSON.parse(row.synthesis!)).toEqual(['Une réunion est prévue.']);
+    expect(row.reason).toBeNull();
+  });
+
+  it('a rule proposal has no synthesis', async () => {
+    const s = await setup(() => ({ synthesis: ['jamais lue'] }));
+    createRule(s.h.db, { field: 'fromDomain', op: 'equals', value: 'ecole.fr', boxId: s.ecole });
+    await s.triage(await s.deliver({ id: 'm1', from: 'Prof <prof@ecole.fr>' }));
+    expect(s.fake.inputs).toHaveLength(0);
+    expect(synthesisRow(s, 'm1').synthesis).toBeNull();
+    expect(getProposal(s.h.db, 'm1')?.synthesis).toBeUndefined();
+  });
+
+  it('a proposal from before the synthesis reads without one', async () => {
+    const s = await setup(() => ({}));
+    await s.triage(await s.deliver({ id: 'm1' }));
+    s.h.db.prepare('UPDATE proposals SET synthesis = NULL WHERE message_id = ?').run('m1');
+    expect(getProposal(s.h.db, 'm1')).toMatchObject({ status: 'pending' });
+    expect(getProposal(s.h.db, 'm1')?.synthesis).toBeUndefined();
+  });
+});
+
+describe('one signal per proposal', () => {
+  const changed = (s: Awaited<ReturnType<typeof setup>>) =>
+    eventsSince(s.h.db).filter((e) => e.type === 'mail.changed');
+
+  it('a waiting proposal emits no event of its own, whatever its importance', async () => {
+    const levels = ['urgent', 'normal', 'info', 'none'] as const;
+    let box = '';
+    const s = await setup((input) => ({
+      boxId: box,
+      importance: levels[Number(input.mail.subject)]!,
+      confidence: 50,
+    }));
+    box = s.ecole;
+    const ids = await s.deliver(...levels.map((_, i) => ({ id: `p${i}`, subject: String(i) })));
+    const before = eventsSince(s.h.db).length;
+    await s.triage(ids);
+    const after = eventsSince(s.h.db).slice(before);
+    expect(after.map((e) => e.type)).toEqual(['mail.changed']);
+  });
+
+  it('a pass that creates waiting proposals emits one mail.changed, shaped as the sync’s', async () => {
+    let box = '';
+    const s = await setup(() => ({ boxId: box, confidence: 50 }));
+    box = s.ecole;
+    const ids = await s.deliver({ id: 'm1' }, { id: 'm2' });
+    const before = changed(s).length;
+    await s.triage(ids);
+    const mine = changed(s).slice(before);
+    expect(mine).toHaveLength(1);
+    expect(mine[0]).toMatchObject({
+      importance: 'log',
+      title: 'Boîte mise à jour',
+      data: { added: [], changed: ['m1', 'm2'], removed: [] },
+    });
+    expect(mine[0]).not.toHaveProperty('lines');
+  });
+
+  it('a pass without a new waiting proposal emits no mail.changed', async () => {
+    let box = '';
+    const s = await setup(() => ({ boxId: box, confidence: 90 }));
+    box = s.ecole;
+    putSetting(s.h.db, 'threshold', 80);
+    const ids = await s.deliver({ id: 'm1' });
+    const before = changed(s).length;
+    await s.triage(ids);
+    await s.triage([]);
+    expect(changed(s).slice(before)).toEqual([]);
+    expect(eventsSince(s.h.db).filter((e) => e.type === 'mail.triaged')).toHaveLength(1);
+  });
+
+  it('a pass stopped by a transient failure still signals the proposals it made, then the error goes on', async () => {
+    let box = '';
+    const s = await setup((input) =>
+      input.mail.subject === 'panne' ? aiError(503, 'overloaded') : { boxId: box, confidence: 50 },
+    );
+    box = s.ecole;
+    const ids = await s.deliver({ id: 'm1', subject: 'calme' }, { id: 'm2', subject: 'panne' });
+    const before = changed(s).length;
+    await expect(s.triage(ids)).rejects.toThrow();
+    const mine = changed(s).slice(before);
+    expect(mine).toHaveLength(1);
+    expect(mine[0]!.data).toEqual({ added: [], changed: ['m1'], removed: [] });
   });
 });

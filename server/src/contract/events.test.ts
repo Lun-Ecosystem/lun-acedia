@@ -1,6 +1,10 @@
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { openDb } from '../db.ts';
 import { makeHarness } from '../testing/harness.ts';
-import { emitEvent, eventsSince, pruneEvents } from './events.ts';
+import { emitEvent, eventsSince, pruneEvents, subscribe } from './events.ts';
 
 /** Reads SSE frames from a streaming response until `count` events arrived. */
 async function readEvents(
@@ -94,5 +98,71 @@ describe('GET /lun/v1/events', () => {
     emitEvent(h.db, { type: 't', importance: 'info', title: 'recent' }, new Date('2026-10-26T08:01:00Z'));
     pruneEvents(h.db, h.clock());
     expect(eventsSince(h.db).map((e) => e.title)).toEqual(['recent']);
+  });
+});
+
+describe('the mask of the mail events', () => {
+  const secret = { title: 'Votre code 482917', lines: ['De : Prof', 'Lien www.exemple.test/r/abc'] };
+  const masked = { title: 'Votre code [masqué]', lines: ['De : Prof', 'Lien [masqué]'] };
+
+  it('masks the title and the lines of a mail event, live and in eventsSince', () => {
+    const h = makeHarness();
+    const live: unknown[] = [];
+    const stop = subscribe(h.db, (e) => live.push(e));
+    const emitted = emitEvent(h.db, { type: 'mail.triaged', importance: 'urgent', ...secret }, h.clock());
+    stop();
+    expect(emitted).toMatchObject(masked);
+    expect(live[0]).toMatchObject(masked);
+    expect(eventsSince(h.db)[0]).toMatchObject(masked);
+  });
+
+  it('masks a mail event in the replay of GET /lun/v1/events', async () => {
+    const h = makeHarness();
+    const token = await h.pairClient();
+    emitEvent(h.db, { type: 'mail.triaged', importance: 'urgent', ...secret }, h.clock());
+    const res = await h.app.request('/lun/v1/events', {
+      headers: { ...h.auth(token), 'last-event-id': '0' },
+    });
+    const [frame] = await readEvents(res, 1);
+    expect(frame!.data).toMatchObject(masked);
+  });
+
+  it('leaves the agenda, price and key events as they are', () => {
+    const h = makeHarness();
+    for (const type of ['agenda.reminder', 'llm.unknown-price', 'key.invalid'])
+      emitEvent(h.db, { type, importance: 'normal', ...secret }, h.clock());
+    for (const e of eventsSince(h.db)) expect(e).toMatchObject(secret);
+  });
+});
+
+describe('the migration of the old events', () => {
+  it('takes the « Extrait : » lines out of the events already in the base', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'acedia-events-'));
+    try {
+      const path = join(dir, 'old.db');
+      const db = openDb(path);
+      const version = (db.prepare('SELECT version FROM schema_version').get() as { version: number }).version;
+      db.prepare(
+        "INSERT INTO events (type, importance, at, title, lines) VALUES ('mail.triaged', 'urgent', ?, 'x', ?)",
+      ).run('2026-11-02T08:00:00.000Z', JSON.stringify(['De : Prof', 'Extrait : le début du mail']));
+      db.prepare(
+        "INSERT INTO events (type, importance, at, title, lines) VALUES ('agenda.reminder', 'urgent', ?, 'y', ?)",
+      ).run('2026-11-02T08:00:00.000Z', JSON.stringify(['À 14 h']));
+      // Back to the base before the last migration, the one that cleans the events.
+      db.prepare('UPDATE schema_version SET version = ?').run(version - 1);
+      db.close();
+      const migrated = openDb(path);
+      try {
+        expect(eventsSince(migrated).map((e) => e.lines)).toEqual([['De : Prof'], ['À 14 h']]);
+      } finally {
+        migrated.close();
+      }
+    } finally {
+      try {
+        rmSync(dir, { recursive: true, force: true });
+      } catch {
+        // a lock held by Windows: the temp folder is cleaned later
+      }
+    }
   });
 });

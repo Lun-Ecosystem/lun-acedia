@@ -134,7 +134,7 @@ export function modelsFor(db: DatabaseSync, use: 'triage' | 'pina', configured: 
 }
 
 /** Dollars spent for one use since the Paris day started. */
-export function spentToday(db: DatabaseSync, purpose: 'triage' | 'pina', now: Date): number {
+export function spentToday(db: DatabaseSync, purpose: 'triage' | 'pina' | 'digest', now: Date): number {
   const row = db
     .prepare('SELECT COALESCE(SUM(amount), 0) AS total FROM costs WHERE purpose = ? AND at >= ?')
     .get(purpose, parisDayStart(now).toISOString()) as { total: number };

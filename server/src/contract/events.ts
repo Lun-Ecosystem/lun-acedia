@@ -1,4 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite';
+import { mask } from '../triage/mask.ts';
 import type { Importance, LunEvent } from '../types.ts';
 
 export type { Importance, LunEvent };
@@ -20,15 +21,20 @@ interface Row {
   link: string | null;
 }
 
+/** Live and replayed alike: what comes from a mail (`mail.*`) is masked; the agenda, prices and keys are not. */
 function toEvent(row: Row): LunEvent {
+  const fromMail = row.type.startsWith('mail.');
   const e: LunEvent = {
     id: String(row.id),
     type: row.type,
     importance: row.importance,
     at: row.at,
-    title: row.title,
+    title: fromMail ? mask(row.title) : row.title,
   };
-  if (row.lines !== null) e.lines = JSON.parse(row.lines);
+  if (row.lines !== null) {
+    const lines = JSON.parse(row.lines) as string[];
+    e.lines = fromMail ? lines.map(mask) : lines;
+  }
   if (row.data !== null) e.data = JSON.parse(row.data);
   if (row.link !== null) e.link = row.link;
   return e;

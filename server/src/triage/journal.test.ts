@@ -431,11 +431,13 @@ describe('refuse a proposal', () => {
     expect((await p.h.call('POST', '/api/mail/m1/refuse')).status).toBe(409);
   });
 
-  it('answers 400 for a proposal without a box, and changes nothing', async () => {
+  it('refuses a proposal without a box too, with its line, and writes nothing to Gmail', async () => {
     const s = await pending(() => null);
-    expect((await s.h.call('POST', '/api/mail/m1/refuse')).status).toBe(400);
-    expect(getProposal(s.h.db, 'm1')?.status).toBe('pending');
-    expect(await lines(s)).toEqual([]);
+    const before = writes(s);
+    expect((await s.h.call('POST', '/api/mail/m1/refuse')).status).toBe(200);
+    expect(getProposal(s.h.db, 'm1')?.status).toBe('refused');
+    expect((await lines(s)).map((l) => l.action)).toEqual(['refuse']);
+    expect(writes(s)).toBe(before);
   });
 
   it.each([
