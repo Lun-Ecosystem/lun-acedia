@@ -1,3 +1,4 @@
+import { eventsSince } from './events.ts';
 import { describe, expect, it } from 'vitest';
 import { putSetting } from '../db.ts';
 import { getStoredMessage, setStoredLabels } from '../gmail/store.ts';
@@ -453,6 +454,18 @@ describe('/lun/v1/cards/mail:<id>: the gesture on a proposal', () => {
     expect(s.labels()).toEqual(expect.arrayContaining([s.b1, s.urgent]));
     expect(s.labels()).not.toContain('INBOX');
     expect(s.journal()).toBe(1);
+  });
+
+  it('a gesture by the contract signals the screens once, by mail.changed', async () => {
+    const s = await waiting();
+    const changed = () => eventsSince(s.h.db, '0').filter((e) => e.type === 'mail.changed');
+    const before = changed().length;
+    await s.accept();
+    const after = changed().slice(before);
+    expect(after).toHaveLength(1);
+    expect(after[0]!.data).toEqual({ added: [], changed: ['m1'], removed: [] });
+    await s.accept();
+    expect(changed().slice(before)).toHaveLength(1);
   });
 
   it('accept { values } equal to the proposal validates', async () => {

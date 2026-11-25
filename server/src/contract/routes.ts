@@ -22,7 +22,7 @@ import { BadRequestError, NotFoundError, type ActionDeps } from '../gmail/action
 import type { GoogleClient } from '../google/client.ts';
 import { ConflictError } from '../triage/journal.ts';
 import { correct, refuse, validate } from '../triage/pipeline.ts';
-import { eventsSince, mailLink, subscribe, type LunEvent } from './events.ts';
+import { emitEvent, eventsSince, mailLink, subscribe, type LunEvent } from './events.ts';
 import { getState, setPaused, statusOf } from './state.ts';
 
 const HEARTBEAT_MS = 25_000;
@@ -164,6 +164,17 @@ export function contractRoutes(deps: AppDeps, pina: PinaDeps, google?: GoogleCli
         else await correct(mail(), id, boxId, tagIds);
       }
       const status = decision === 'refuse' ? 'refused' : 'done';
+      // The screens reload on a `mail.*` signal: without it, a card settled by the core stays in « À valider ».
+      emitEvent(
+        db,
+        {
+          type: 'mail.changed',
+          importance: 'log',
+          title: 'Boîte mise à jour',
+          data: { added: [], changed: [id], removed: [] },
+        },
+        clock(),
+      );
       return { card: proposalCard(db, getProposal(db, id)!, status) };
     } catch (err) {
       if (err instanceof NotFoundError) return { error: err.message, status: 404 };
