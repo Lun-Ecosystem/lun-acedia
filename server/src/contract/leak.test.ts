@@ -592,14 +592,14 @@ describe('leak: cards (task 6)', () => {
 });
 
 describe('leak: gestures (task 7)', () => {
-  it.fails('the card that accept gives back has no secret and no six words', async () => {
+  it('the card that accept gives back has no secret and no six words', async () => {
     const w = await world();
     const res = await w.post('/lun/v1/cards/mail%3Acanary/accept', {});
     expect(res.status).toBe(200);
     clean(leaks(res.body, w.bodies, w.secrets));
   });
 
-  it.fails('the card that refuse gives back has no secret and no six words', async () => {
+  it('the card that refuse gives back has no secret and no six words', async () => {
     const w = await world();
     const res = await w.post('/lun/v1/cards/mail%3Acanary/refuse', {});
     expect(res.status).toBe(200);

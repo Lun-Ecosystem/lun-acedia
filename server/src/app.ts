@@ -74,7 +74,7 @@ export function createApp(deps: AppDeps): Hono {
     provider: pinaProvider,
     triageProvider: () => choiceFor(deps.db, deps.secretKey, deps.llmEnv ?? {}, 'triage')?.provider,
   };
-  app.route('/lun/v1', contractRoutes(deps, pinaDeps));
+  app.route('/lun/v1', contractRoutes(deps, pinaDeps, google));
   // Every /api route, whichever module mounts it, is for paired devices only.
   app.use('/api/*', requireToken(deps.db), requireDevice(deps.db));
 

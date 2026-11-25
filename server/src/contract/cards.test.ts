@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { putSetting } from '../db.ts';
-import { setStoredLabels } from '../gmail/store.ts';
+import { getStoredMessage, setStoredLabels } from '../gmail/store.ts';
 import { addCard, dayOf, getCard } from '../pina/store.ts';
 import { makeAgendaHarness } from '../testing/agenda-harness.ts';
 import { message } from '../testing/fake-gmail.ts';
@@ -410,5 +410,168 @@ describe('/lun/v1/cards: the proposals of the triage', () => {
     expect((await s.cards()).map((c) => c.id)).toEqual(['mail:new', String(agent), 'mail:old']);
     setProposalStatus(s.h.db, 'old', 'accepted');
     expect((await s.cards('?status=done')).map((c) => c.id)).toEqual([]);
+  });
+});
+
+describe('/lun/v1/cards/mail:<id>: the gesture on a proposal', () => {
+  /** One waiting proposal `m1` for École with the Urgent tag; the Gmail writes counted from here. */
+  async function waiting(answer: Partial<Classification> = {}) {
+    const s = await proposals({});
+    s.classifier.classify = async () => ({
+      boxId: s.b1,
+      tagIds: [s.urgent],
+      importance: 'normal',
+      confidence: 50,
+      reason: 'Expéditeur déjà rangé en École.',
+      synthesis: ['Une réunion est prévue jeudi.'],
+      usage: { inputTokens: 1, outputTokens: 1 },
+      ...answer,
+    });
+    await s.deliver({ id: 'm1', subject: 'Réunion' });
+    const before = s.h.calls.filter((c) => c.method !== 'GET').length;
+    const writes = () => s.h.calls.filter((c) => c.method !== 'GET').length - before;
+    const gesture = async (path: string, body?: unknown) => {
+      const res = await s.request(path, {
+        method: 'POST',
+        ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+      });
+      return { status: res.status, body: await res.json() };
+    };
+    const accept = (body?: unknown, id = 'mail%3Am1') => gesture(`/cards/${id}/accept`, body);
+    const refuse = (id = 'mail%3Am1') => gesture(`/cards/${id}/refuse`, {});
+    const labels = () => getStoredMessage(s.h.db, 'm1')!.labels;
+    const journal = () => (s.h.db.prepare('SELECT COUNT(*) AS n FROM journal').get() as { n: number }).n;
+    return { ...s, writes, accept, refuse, labels, journal };
+  }
+
+  it('accept without a body files as mail.validate: accepted, one journal line, the card done', async () => {
+    const s = await waiting();
+    const res = await s.accept();
+    expect(res.status).toBe(200);
+    expect(res.body.card).toMatchObject({ id: 'mail:m1', status: 'done' });
+    expect(getProposal(s.h.db, 'm1')?.status).toBe('accepted');
+    expect(s.labels()).toEqual(expect.arrayContaining([s.b1, s.urgent]));
+    expect(s.labels()).not.toContain('INBOX');
+    expect(s.journal()).toBe(1);
+  });
+
+  it('accept { values } equal to the proposal validates', async () => {
+    const s = await waiting();
+    const res = await s.accept({ values: { box: [s.b1], tags: [s.urgent] } });
+    expect(res.status).toBe(200);
+    expect(getProposal(s.h.db, 'm1')?.status).toBe('accepted');
+  });
+
+  it('accept { values: { box } } files elsewhere as mail.correct, and keeps the tags', async () => {
+    const s = await waiting();
+    const res = await s.accept({ values: { box: [s.b2] } });
+    expect(res.status).toBe(200);
+    expect(res.body.card.status).toBe('done');
+    expect(getProposal(s.h.db, 'm1')?.status).toBe('corrected');
+    expect(s.labels()).toEqual(expect.arrayContaining([s.b2, s.urgent]));
+    expect(s.labels()).not.toContain(s.b1);
+  });
+
+  it('accept { values: { tags: [] } } takes the tags off and keeps the box', async () => {
+    const s = await waiting();
+    expect((await s.accept({ values: { tags: [] } })).status).toBe(200);
+    expect(getProposal(s.h.db, 'm1')?.status).toBe('corrected');
+    expect(s.labels()).toContain(s.b1);
+    expect(s.labels()).not.toContain(s.urgent);
+  });
+
+  it('a proposal without a box takes its tags only', async () => {
+    const s = await waiting({ boxId: null, tagIds: [] });
+    expect((await s.accept({ values: { tags: [s.urgent] } })).status).toBe(200);
+    expect(getProposal(s.h.db, 'm1')?.status).toBe('corrected');
+    expect(s.labels()).toEqual(expect.arrayContaining(['INBOX', s.urgent]));
+  });
+
+  it('refuse refuses as mail.refuse', async () => {
+    const s = await waiting();
+    const res = await s.refuse();
+    expect(res.status).toBe(200);
+    expect(res.body.card).toMatchObject({ id: 'mail:m1', status: 'refused' });
+    expect(getProposal(s.h.db, 'm1')?.status).toBe('refused');
+    expect(s.labels()).toContain('INBOX');
+  });
+
+  it('a settled proposal, or one whose mail left the inbox, is 409 with no write to Gmail', async () => {
+    const s = await waiting();
+    setProposalStatus(s.h.db, 'm1', 'accepted');
+    expect((await s.accept()).status).toBe(409);
+    expect((await s.accept({ values: { box: [s.b2] } })).status).toBe(409);
+    expect((await s.refuse()).status).toBe(409);
+    setProposalStatus(s.h.db, 'm1', 'pending');
+    setStoredLabels(s.h.db, 'm1', [s.b2]);
+    expect((await s.accept({ values: { box: [s.b1] } })).status).toBe(409);
+    expect((await s.refuse()).status).toBe(409);
+    expect(s.writes()).toBe(0);
+  });
+
+  it('a second gesture is 409', async () => {
+    const s = await waiting();
+    expect((await s.accept()).status).toBe(200);
+    const writes = s.writes();
+    expect((await s.accept()).status).toBe(409);
+    expect((await s.refuse()).status).toBe(409);
+    expect(s.writes()).toBe(writes);
+  });
+
+  it('two gestures at once: one goes through, the other is 409', async () => {
+    const s = await waiting();
+    const both = await Promise.all([s.accept(), s.accept({ values: { box: [s.b2] } })]);
+    expect(both.map((r) => r.status).sort()).toEqual([200, 409]);
+  });
+
+  it('mail:<unknown> is 404; mail:<id> and mail%3A<id> are the same card', async () => {
+    const s = await waiting();
+    expect((await s.accept(undefined, 'mail%3Ainconnu')).status).toBe(404);
+    expect((await s.refuse('mail:inconnu')).status).toBe(404);
+    expect((await s.accept(undefined, 'mail:m1')).status).toBe(200);
+  });
+
+  it.each([
+    ['an unknown key in values', { values: { boite: ['x'] } }],
+    ['a box out of the choices', { values: { box: ['nope'] } }],
+    ['a tag out of the choices', { values: { tags: ['nope'] } }],
+    ['two boxes', { values: { box: ['trash', 'spam'] } }],
+    ['no box', { values: { box: [] } }],
+    ['values with input', { values: { tags: [] }, input: { id: 'm1' } }],
+    ['values with answer', { values: { tags: [] }, answer: 'oui' }],
+    ['an answer', { answer: 'oui' }],
+    ['an input', { input: { id: 'm1' } }],
+    ['an unknown key', { valeurs: {} }],
+  ])('%s is 400, with nothing written to Gmail', async (_, body) => {
+    const s = await waiting();
+    expect((await s.accept(body)).status).toBe(400);
+    expect(getProposal(s.h.db, 'm1')?.status).toBe('pending');
+    expect(s.writes()).toBe(0);
+  });
+
+  it('a box on a proposal without a box is 400', async () => {
+    const s = await waiting({ boxId: null });
+    expect((await s.accept({ values: { box: [s.b1] } })).status).toBe(400);
+    expect(s.writes()).toBe(0);
+  });
+
+  it('an agent card: values and answer are 400, accept and refuse as before', async () => {
+    const s = await waiting();
+    const card = () =>
+      addCard(s.h.db, {
+        day: dayOf(s.h.clock()),
+        turn: 1,
+        callId: `c${Math.random()}`,
+        action: 'mail.archive',
+        input: { id: 'm1' },
+        effect: 'write',
+        now: s.h.clock(),
+      });
+    const a = card();
+    expect((await s.accept({ values: { tags: [] } }, String(a))).status).toBe(400);
+    expect((await s.accept({ answer: 'oui' }, String(a))).status).toBe(400);
+    expect(getCard(s.h.db, a)!.status).toBe('pending');
+    expect((await s.refuse(String(a))).body.card.status).toBe('refused');
+    expect((await s.accept({}, String(card()))).body.card.status).toBe('done');
   });
 });

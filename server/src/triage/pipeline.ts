@@ -498,17 +498,20 @@ function ruleForSender(deps: ActionDeps, id: string, boxId: string): Rule | unde
   return exists ? undefined : createRule(deps.db, { field: 'from', op: 'equals', value: addr, boxId });
 }
 
-/** CrOliX files the mail elsewhere than proposed: the mail gets exactly these box and tags. */
+/**
+ * CrOliX files the mail elsewhere than proposed: the mail gets exactly these box and tags. A `null` box (a proposal
+ * without one, corrected by the contract) leaves the mail where it is and sets its tags only.
+ */
 export async function correct(
   deps: ActionDeps,
   id: string,
-  boxId: string,
+  boxId: string | null,
   tagIds: string[],
   opts: { rememberSender?: boolean } = {},
 ): Promise<Proposal & { journalId: number }> {
   return oneAtATime(id, async () => {
     if (!getProposal(deps.db, id)) throw new NotFoundError('Aucune proposition pour ce mail');
-    if (boxId !== 'trash' && boxId !== 'spam' && !boxIds(deps.db).includes(boxId))
+    if (boxId !== null && boxId !== 'trash' && boxId !== 'spam' && !boxIds(deps.db).includes(boxId))
       throw new BadRequestError(`« ${boxId} » n’est pas une boîte`);
     const tags = new Set(listTags(deps.db).map((t) => t.id));
     const unknown = tagIds.find((t) => !tags.has(t));
@@ -517,7 +520,7 @@ export async function correct(
     const change = await applyTarget(deps, id, boxId, tagIds, true);
     setProposalStatus(deps.db, id, 'corrected');
     remember(deps, id, boxId, tagIds);
-    const createdRule = opts.rememberSender ? ruleForSender(deps, id, boxId) : undefined;
+    const createdRule = opts.rememberSender && boxId ? ruleForSender(deps, id, boxId) : undefined;
     if (createdRule) previous.createdRule = createdRule;
     const journalId = logUser(deps.db, changeOf(deps, id, change), 'correct', deps.now(), previous);
     return { ...getProposal(deps.db, id)!, journalId };
