@@ -461,8 +461,7 @@ export async function validate(deps: ActionDeps, id: string): Promise<Proposal &
 /** CrOliX says « not that »: the mail stays in the inbox, nothing is learnt, the line can be undone. */
 export async function refuse(deps: ActionDeps, id: string): Promise<Proposal & { journalId: number }> {
   return oneAtATime(id, async () => {
-    const p = pendingProposal(deps.db, id);
-    if (!p.boxId) throw new BadRequestError('Cette proposition ne range le mail nulle part');
+    pendingProposal(deps.db, id);
     // Gmail is the truth, as for an undo: the cache may still say INBOX.
     const current = await fetchMetadata(deps.google, id);
     if (!current) throw new NotFoundError();

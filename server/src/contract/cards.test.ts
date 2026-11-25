@@ -496,6 +496,16 @@ describe('/lun/v1/cards/mail:<id>: the gesture on a proposal', () => {
     expect(s.labels()).toContain('INBOX');
   });
 
+  it('refuse on a proposal without a box: refused, nothing written to Gmail', async () => {
+    const s = await waiting({ boxId: null, tagIds: [] });
+    const before = s.h.calls.filter((c) => c.method !== 'GET').length;
+    const res = await s.refuse();
+    expect(res.status).toBe(200);
+    expect(res.body.card).toMatchObject({ id: 'mail:m1', status: 'refused' });
+    expect(getProposal(s.h.db, 'm1')?.status).toBe('refused');
+    expect(s.h.calls.filter((c) => c.method !== 'GET').length).toBe(before);
+  });
+
   it('a settled proposal, or one whose mail left the inbox, is 409 with no write to Gmail', async () => {
     const s = await waiting();
     setProposalStatus(s.h.db, 'm1', 'accepted');
