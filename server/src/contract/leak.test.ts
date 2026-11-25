@@ -527,14 +527,14 @@ describe('leak: proposals in the base (task 4)', () => {
 });
 
 describe('leak: events (task 5)', () => {
-  it.fails('eventsSince carries no secret, no six words, no « Extrait : »', async () => {
+  it('eventsSince carries no secret, no six words, no « Extrait : »', async () => {
     const w = await world();
     const events = eventsSince(w.h.db);
     noExtract(events);
     clean(leaks(events, w.bodies, w.secrets));
   });
 
-  it.fails('the SSE replay from 0 carries no secret, no six words, no « Extrait : »', async () => {
+  it('the SSE replay from 0 carries no secret, no six words, no « Extrait : »', async () => {
     const w = await world();
     const frames = await replay(w);
     expect(frames.length).toBeGreaterThan(0);
@@ -542,21 +542,18 @@ describe('leak: events (task 5)', () => {
     clean(leaks(frames, w.bodies, w.secrets));
   });
 
-  it.fails(
-    'a base filled the old way: the replay holds no « Extrait : », no secret, no six words',
-    async () => {
-      const old = await oldBase();
-      try {
-        const count = (old.db.prepare('SELECT COUNT(*) AS n FROM events').get() as { n: number }).n;
-        const frames = await replayOf(old.app, old.token, count);
-        expect(frames.length).toBe(count);
-        noExtract(frames);
-        clean(leaks(frames, [BODY], SECRETS));
-      } finally {
-        old.close();
-      }
-    },
-  );
+  it('a base filled the old way: the replay holds no « Extrait : », no secret, no six words', async () => {
+    const old = await oldBase();
+    try {
+      const count = (old.db.prepare('SELECT COUNT(*) AS n FROM events').get() as { n: number }).n;
+      const frames = await replayOf(old.app, old.token, count);
+      expect(frames.length).toBe(count);
+      noExtract(frames);
+      clean(leaks(frames, [BODY], SECRETS));
+    } finally {
+      old.close();
+    }
+  });
 });
 
 describe('leak: cards (task 6)', () => {

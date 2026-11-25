@@ -216,7 +216,7 @@ function ruleFor(db: DatabaseSync, mail: StoredMessage, pass: Pass): Rule | null
 }
 
 /** Triages one claimed mail; `ai-off` when the AI just ran out of credit or refused the key. */
-async function triageOne(deps: TriageDeps, id: string, pass: Pass): Promise<Outcome | 'ai-off'> {
+async function triageOne(deps: TriageDeps, id: string, pass: Pass): Promise<Outcome | 'ai-off' | 'pending'> {
   const mail = getStoredMessage(deps.db, id);
   // A mail already out of the inbox (a Gmail filter, a gesture) is left where it is.
   if (!mail?.labels.includes('INBOX')) {
@@ -247,10 +247,7 @@ async function triageOne(deps: TriageDeps, id: string, pass: Pass): Promise<Outc
         title: mail.subject,
         ...(ruleUrgent
           ? {
-              lines: [
-                `De : ${mail.from.name ? `${mail.from.name} <${mail.from.addr}>` : mail.from.addr}`,
-                ...(mail.snippet ? [`Extrait : ${mail.snippet}`] : []),
-              ],
+              lines: [`De : ${mail.from.name ? `${mail.from.name} <${mail.from.addr}>` : mail.from.addr}`],
             }
           : {}),
         data: { id, boxId: rule.boxId },
@@ -301,12 +298,14 @@ async function triageOne(deps: TriageDeps, id: string, pass: Pass): Promise<Outc
     source: 'ai',
     status: auto ? 'auto' : 'pending',
   });
+  // A waiting proposal is served as a card; the pass signals it once, at its end (`triageNew`).
+  if (!auto) return 'pending';
   if (c.importance !== 'none') {
     emitEvent(
       deps.db,
       {
-        type: auto ? 'mail.triaged' : 'mail.pending',
-        importance: c.importance === 'urgent' ? 'normal' : auto ? 'info' : 'low',
+        type: 'mail.triaged',
+        importance: c.importance === 'urgent' ? 'normal' : 'info',
         title: mail.subject,
         data: { id, boxId: c.boxId, confidence: c.confidence },
         link: mailLink(id),
@@ -355,6 +354,31 @@ export async function triageNew(deps: TriageDeps, ids: string[] = []): Promise<v
         `Tri : mail ${id} sorti de la file après ${MAX_ATTEMPTS} essais, à trier à la main : ${reason}`,
       );
   };
+  const waiting: string[] = [];
+  try {
+    await triageQueue(deps, pass, waiting, failed);
+  } finally {
+    // One signal for the screens, shaped as the sync's, even when a failure stopped the pass.
+    if (waiting.length)
+      emitEvent(
+        deps.db,
+        {
+          type: 'mail.changed',
+          importance: 'log',
+          title: 'Boîte mise à jour',
+          data: { added: [], changed: waiting, removed: [] },
+        },
+        deps.now(),
+      );
+  }
+}
+
+async function triageQueue(
+  deps: TriageDeps,
+  pass: Pass,
+  waiting: string[],
+  failed: (id: string, reason: string) => void,
+): Promise<void> {
   for (const id of queuedIds(deps.db)) {
     const { pausedBy } = getState(deps.db);
     if (pausedBy === 'local') return;
@@ -363,7 +387,7 @@ export async function triageNew(deps: TriageDeps, ids: string[] = []): Promise<v
       if (getProposal(deps.db, id)) dequeue(deps.db, id);
       continue;
     }
-    let outcome: Outcome | 'ai-off';
+    let outcome: Outcome | 'ai-off' | 'pending';
     try {
       outcome = await triageOne(deps, id, { ...pass, useAi: pass.useAi && pausedBy !== 'core' });
     } catch (err) {
@@ -373,7 +397,10 @@ export async function triageNew(deps: TriageDeps, ids: string[] = []): Promise<v
       if (mailError(err)) continue;
       throw err;
     }
-    if (outcome === 'ai-off') pass.useAi = false;
+    if (outcome === 'pending') {
+      waiting.push(id);
+      dequeue(deps.db, id);
+    } else if (outcome === 'ai-off') pass.useAi = false;
     else if (outcome === 'unusable') failed(id, 'réponse inutilisable de l’IA');
     else if (outcome === 'done') dequeue(deps.db, id);
   }
