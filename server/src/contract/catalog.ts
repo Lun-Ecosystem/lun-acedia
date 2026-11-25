@@ -20,7 +20,9 @@ import type { GoogleClient } from '../google/client.ts';
 import { header, upsertMessage, viewFilter } from '../gmail/store.ts';
 import type { MailDetail } from '../types.ts';
 import { listJournal, todayStats, undo } from '../triage/journal.ts';
-import { createLabel, listLabels, setRole } from '../triage/labels.ts';
+import { createLabel, listBoxes, listLabels, setRole } from '../triage/labels.ts';
+import { mask } from '../triage/mask.ts';
+import { getProposal } from '../triage/proposals.ts';
 import { afterUserAction, correct, refuse, validate, withProposal } from '../triage/pipeline.ts';
 import { createRule, deleteRule, listRules, updateRule } from '../triage/rules.ts';
 import { RoleSchema, RuleSchema } from '../triage/routes.ts';
@@ -33,6 +35,16 @@ import { InvalidInputError, type ActionRegistry, type Effect } from './actions.t
 const When = z.string().refine(isDateOrInstant, 'Date attendue (AAAA-MM-JJ ou ISO 8601)');
 const Day = z.string().refine(isDay, 'Date attendue (AAAA-MM-JJ)');
 const Id = z.string().min(1);
+
+/** A mail's current box: the first of its labels that has the role `box` (`m` is the mail's row). */
+const BOX_OF = `(SELECT j.value FROM json_each(m.label_ids) j JOIN label_roles r ON r.label_id = j.value
+  AND r.role = 'box' ORDER BY j.key LIMIT 1)`;
+/** A mail `day.digest` keeps with `boxes` (its one parameter, a JSON array): in one of them, not thrown away, filed
+ * by a rule or with CrOliX's accord. */
+const KEPT = `${BOX_OF} IN (SELECT value FROM json_each(?))
+  AND NOT EXISTS (SELECT 1 FROM json_each(m.label_ids) WHERE value IN ('TRASH', 'SPAM'))
+  AND EXISTS (SELECT 1 FROM proposals p WHERE p.message_id = m.id
+    AND ((p.source = 'rule' AND p.status = 'auto') OR p.status IN ('accepted', 'corrected')))`;
 
 const EventFields = {
   title: z.string().trim().min(1),
@@ -419,12 +431,30 @@ export function registerCatalog(
     'read',
     'day.digest',
     'Bilan d’une période [since, until[ : mails reçus, ce qui a été fait, et ce qui attend.',
-    z.object({
-      since: z.iso.datetime({ offset: true }).describe('Début inclus, ISO 8601 UTC'),
-      until: z.iso.datetime({ offset: true }).describe('Fin exclue, ISO 8601 UTC'),
-    }),
+    z
+      .object({
+        since: z.iso.datetime({ offset: true }).describe('Début inclus, ISO 8601 UTC'),
+        until: z.iso.datetime({ offset: true }).describe('Fin exclue, ISO 8601 UTC'),
+        boxes: z
+          .array(z.string())
+          .max(50)
+          .optional()
+          .describe('Les boîtes gardées : les mails qui y sont, rangés avec l’accord de CrOliX'),
+      })
+      .strict(),
     async (input) => {
       const t = { since: Date.parse(input.since), until: Date.parse(input.until) };
+      const boxes = input.boxes;
+      // With `boxes`: the mails whose current box is asked for, filed by a rule or with CrOliX's accord.
+      const kept = boxes ? `AND ${KEPT}` : '';
+      const keptParams = boxes ? [JSON.stringify(boxes)] : [];
+      const names = new Map(listBoxes(deps.db).map((b) => [b.id, b.name]));
+      /** What a kept mail adds to its item: its box and its synthesis. */
+      const extra = (id: string, box: string | null) => {
+        if (!boxes || !box) return {};
+        const synthesis = getProposal(deps.db, id)?.synthesis?.map(mask).join('\n');
+        return { box: { id: box, name: names.get(box) ?? box }, ...(synthesis ? { synthesis } : {}) };
+      };
       if (t.since >= t.until) throw new InvalidInputError('since doit précéder until');
       const [since, until] = [new Date(t.since).toISOString(), new Date(t.until).toISOString()];
       // shortcut: 200 items per list, newest first; a busier period loses its oldest, narrow the period.
@@ -432,42 +462,59 @@ export function registerCatalog(
       const received = (
         deps.db
           .prepare(
-            'SELECT id, subject, internal_date FROM messages WHERE internal_date >= ? AND internal_date < ? ORDER BY internal_date DESC LIMIT ?',
+            `SELECT m.id, m.subject, m.internal_date, ${BOX_OF} AS box FROM messages m
+             WHERE m.internal_date >= ? AND m.internal_date < ? ${kept} ORDER BY m.internal_date DESC LIMIT ?`,
           )
-          .all(t.since, t.until, LIMIT) as { id: string; subject: string; internal_date: number }[]
+          .all(t.since, t.until, ...keptParams, LIMIT) as {
+          id: string;
+          subject: string;
+          internal_date: number;
+          box: string | null;
+        }[]
       ).map((m) => {
         const at = new Date(m.internal_date).toISOString();
-        return { type: 'mail', title: m.subject, at, ref: { type: 'mail', id: m.id, title: m.subject } };
+        const title = mask(m.subject);
+        return { type: 'mail', title, at, ref: { type: 'mail', id: m.id, title }, ...extra(m.id, m.box) };
       });
       const journal = (
         deps.db
           .prepare(
-            `SELECT j.at, j.message_id, j.action, m.subject FROM journal j LEFT JOIN messages m ON m.id = j.message_id
-             WHERE j.at >= ? AND j.at < ? AND j.undone_at IS NULL ORDER BY j.at DESC LIMIT ?`,
+            `SELECT j.at, j.message_id, j.action, m.subject, ${BOX_OF} AS box FROM journal j
+             LEFT JOIN messages m ON m.id = j.message_id
+             WHERE j.at >= ? AND j.at < ? AND j.undone_at IS NULL ${kept} ORDER BY j.at DESC LIMIT ?`,
           )
-          .all(since, until, LIMIT) as {
+          .all(since, until, ...keptParams, LIMIT) as {
           at: string;
           message_id: string;
           action: string;
           subject: string | null;
+          box: string | null;
         }[]
       ).map((j) => {
-        const title = j.subject ?? j.message_id;
+        const title = mask(j.subject ?? j.message_id);
         return {
           type: `journal.${j.action}`,
           title,
           at: j.at,
           ref: { type: 'mail', id: j.message_id, title },
+          ...extra(j.message_id, j.box),
         };
       });
-      const cards = deps.db
-        .prepare(
-          "SELECT * FROM pina_cards WHERE status = 'done' AND decided_at >= ? AND decided_at < ? ORDER BY decided_at DESC LIMIT ?",
-        )
-        .all(since, until, LIMIT)
-        .map((r) => getCard(deps.db, r.id as number))
-        .filter((c) => c !== undefined)
-        .map((c) => ({ type: `card.${c.action}`, title: cardText(deps.db, c).title, at: c.decidedAt! }));
+      // The agent's cards are no mails: a digest by box leaves them out.
+      const cards = boxes
+        ? []
+        : deps.db
+            .prepare(
+              "SELECT * FROM pina_cards WHERE status = 'done' AND decided_at >= ? AND decided_at < ? ORDER BY decided_at DESC LIMIT ?",
+            )
+            .all(since, until, LIMIT)
+            .map((r) => getCard(deps.db, r.id as number))
+            .filter((c) => c !== undefined)
+            .map((c) => ({
+              type: `card.${c.action}`,
+              title: mask(cardText(deps.db, c).title),
+              at: c.decidedAt!,
+            }));
       const done = [...journal, ...cards].sort((a, b) => b.at.localeCompare(a.at)).slice(0, LIMIT);
       expireCards(deps.db, dayOf(deps.clock()));
       const count = (sql: string, params: string[] = []) =>

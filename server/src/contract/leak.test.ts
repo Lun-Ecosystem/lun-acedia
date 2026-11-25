@@ -608,7 +608,7 @@ describe('leak: gestures (task 7)', () => {
 });
 
 describe('leak: day digest (task 9)', () => {
-  it.fails('without boxes: title, ref.title and the rest carry no secret and no six words', async () => {
+  it('without boxes: title, ref.title and the rest carry no secret and no six words', async () => {
     const w = await world();
     const result = await w.digest();
     expect(result.received.length).toBeGreaterThan(0);

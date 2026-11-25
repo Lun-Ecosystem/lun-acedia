@@ -528,15 +528,16 @@ export async function correct(
 }
 
 /**
- * A mail filed by hand is a human gesture too: it becomes an example, and a pending proposal for it
- * is settled (accepted when it named the same box).
+ * A mail filed by hand is a human gesture too: it becomes an example, and a pending proposal for it, or one the AI
+ * filed alone, is settled (accepted when it named the same box, corrected otherwise).
  */
 export function onManualFile(deps: ActionDeps, id: string, boxId: string): void {
   const mail = getStoredMessage(deps.db, id);
   if (!mail) return;
   recordExample(deps.db, mail, boxId, tagIdsOf(deps.db, mail.labels), deps.now());
   const p = getProposal(deps.db, id);
-  if (p?.status === 'pending') setProposalStatus(deps.db, id, p.boxId === boxId ? 'accepted' : 'corrected');
+  if (p?.status === 'pending' || (p?.source === 'ai' && p.status === 'auto'))
+    setProposalStatus(deps.db, id, p.boxId === boxId ? 'accepted' : 'corrected');
 }
 
 const JOURNALED: Partial<Record<BatchOp['kind'], UserAction>> = {
