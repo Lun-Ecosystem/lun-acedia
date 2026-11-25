@@ -10,9 +10,15 @@ import { ActionRegistry } from './contract/actions.ts';
 import { bootstrapPairing } from './contract/auth.ts';
 import { pruneEvents } from './contract/events.ts';
 import { localOriginFor } from './contract/first-code.ts';
+import { isSecretKey } from './crypto.ts';
 import { openDb } from './db.ts';
 import { startSyncLoop, syncIntervalMs } from './gmail/sync.ts';
-import { createGoogleClient, GoogleNotConnectedError, GoogleReauthError } from './google/client.ts';
+import {
+  createGoogleClient,
+  GoogleNotConnectedError,
+  GoogleReauthError,
+  tokensUnreadable,
+} from './google/client.ts';
 import { googleFromEnv } from './google/oauth.ts';
 import { isValidDate } from './keys/expiry.ts';
 import {
@@ -43,9 +49,17 @@ const db = openDb(dbPath);
 const clock = () => new Date();
 const actions = new ActionRegistry();
 const google = googleFromEnv(process.env);
+const rawKey = process.env.ACEDIA_SECRET_KEY;
 if (!google)
   console.log(
-    'Google non configuré : renseigner GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET et ACEDIA_SECRET_KEY.',
+    rawKey && !isSecretKey(rawKey)
+      ? 'ACEDIA_SECRET_KEY mal formée (32 octets en base64) : Google non configuré.'
+      : 'Google non configuré : renseigner GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET et ACEDIA_SECRET_KEY.',
+  );
+// The status says « Non connecté » from then on, and the sync keeps quiet: this line says why, once.
+else if (tokensUnreadable(db, google.secretKey))
+  console.log(
+    'Jeton Google illisible avec cette ACEDIA_SECRET_KEY : remettre l’ancienne clé, ou reconnecter le compte (Réglages, Compte Google).',
   );
 const appDist = resolve(root, 'app/dist');
 const staticDir = existsSync(resolve(appDist, 'index.html')) ? appDist : undefined;

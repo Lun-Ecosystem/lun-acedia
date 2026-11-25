@@ -446,7 +446,9 @@ function seedPina(db: DatabaseSync, now: Date, refs: { journalId: number; perso:
 }
 
 /** Builds the demo app, seeded, with one paired device. */
-export async function createDemo(opts: { staticDir?: string; keyRefused?: boolean; pina?: boolean } = {}) {
+export async function createDemo(
+  opts: { staticDir?: string; keyRefused?: boolean; pina?: boolean; googleUnreadable?: boolean } = {},
+) {
   const db = openDb(':memory:');
   const clock = () => new Date();
   const secretKey = randomBytes(32).toString('base64');
@@ -593,5 +595,12 @@ export async function createDemo(opts: { staticDir?: string; keyRefused?: boolea
   await syncAgenda(deps);
   // Last: the scripted triage above marks the key as working.
   if (opts.keyRefused) keyRefused(db, 'anthropic', clock());
+  // Last too, since the seeding reads Google: the tokens stored again with another key (`DEMO_GOOGLE=unreadable`).
+  if (opts.googleUnreadable)
+    saveTokens(db, randomBytes(32).toString('base64'), {
+      accessToken: 'demo',
+      refreshToken: 'demo',
+      expiresAt: '2099-01-01T00:00:00.000Z',
+    });
   return { app, token, db, actions, clock, gmail, calls: fake.calls, deps };
 }

@@ -114,4 +114,21 @@ describe('demo', () => {
     expect(cards.map((c) => c.action).sort()).toEqual(['agenda.list', 'event.update']);
     expect(cards.every((c) => c.status === 'pending')).toBe(true);
   });
+
+  describe('the Google account', () => {
+    const status = async (opts?: Parameters<typeof createDemo>[0]) => {
+      const { app, token } = await createDemo(opts);
+      const res = await app.request('/api/google/status', { headers: { authorization: `Bearer ${token}` } });
+      return { code: res.status, body: await res.json() };
+    };
+
+    it('is connected by default', async () => {
+      expect(await status()).toEqual({ code: 200, body: { connected: true } });
+    });
+
+    it('is unreadable on demand (DEMO_GOOGLE=unreadable)', async () => {
+      const opts = { googleUnreadable: true };
+      expect(await status(opts)).toEqual({ code: 200, body: { connected: false, unreadable: true } });
+    });
+  });
 });

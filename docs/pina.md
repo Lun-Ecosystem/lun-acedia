@@ -68,7 +68,8 @@ mêmes garde-fous.
   l’agent n’envoie jamais de mail.
 - `Health.agent` vaut `true`.
 - Action `day.digest {since, until}` (instants ISO, intervalle `[since, until[`) : rend
-  `{since, until, received, done, pending}`, 200 éléments au plus par liste, les actions défaites exclues.
+  `{since, until, received, done, pending}`, 200 éléments au plus par liste, les actions défaites exclues. `pending`
+  compte les propositions d’un mail encore en réception (ce que montre « À valider ») et les cartes en attente du jour.
 - Les événements suivent les niveaux du standard de notifications de lun-docs (urgent, normal, low, info, log) ;
   le modèle ne fixe jamais `urgent`.
 
