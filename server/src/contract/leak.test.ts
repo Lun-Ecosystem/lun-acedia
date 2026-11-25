@@ -34,7 +34,7 @@ import { message, textPart } from '../testing/fake-gmail.ts';
 import { makeGmailHarness } from '../testing/gmail-harness.ts';
 import { triageNew } from '../triage/pipeline.ts';
 import { createRule } from '../triage/rules.ts';
-import type { Classification, Classifier, ClassifyInput } from '../triage/classifier.ts';
+import type { Classifier, ClassifyInput } from '../triage/classifier.ts';
 import { ActionRegistry } from './actions.ts';
 import { issuePairingCode } from './auth.ts';
 import { eventsSince } from './events.ts';
@@ -140,7 +140,6 @@ function copycat(boxId: string | null) {
     async classify(input) {
       const lines = input.mail.text.split('\n');
       const half = Math.ceil(lines.length / 2);
-      // `synthesis` is not in `Classification` yet (task 4): the field rides along, read once it exists.
       return {
         boxId,
         tagIds: [],
@@ -149,7 +148,7 @@ function copycat(boxId: string | null) {
         reason: lines.slice(0, 3).join(' '),
         synthesis: [lines.slice(0, half).join(' '), lines.slice(half).join(' ')],
         usage: { inputTokens: 1000, outputTokens: 50 },
-      } as Classification;
+      };
     },
     // The on-demand synthesis of a mail a rule filed (task 10): the same disobedience.
     async summarize(input) {
@@ -485,7 +484,8 @@ describe('the canary world', () => {
       expect.objectContaining({ message_id: 'canary', status: 'pending', source: 'ai' }),
       expect.objectContaining({ message_id: 'urgent', status: 'auto', source: 'rule' }),
     ]);
-    expect(JSON.stringify(rows[0])).toContain('482917');
+    // Masked since task 4: the disobedient classifier copies the code, the triage hides it.
+    expect(JSON.stringify(rows[0])).not.toContain('482917');
     const events = eventsSince(w.h.db);
     expect(events.map((e) => e.type).sort()).toContain('mail.triaged');
     expect(events.find((e) => e.importance === 'urgent')?.title).toBe('Convocation de jeudi');
@@ -515,7 +515,7 @@ describe('the canary world', () => {
 // ------------------------------------------------------------ the parts
 
 describe('leak: proposals in the base (task 4)', () => {
-  it.fails('the reason and the synthesis are written masked, without a copy of the body', async () => {
+  it('the reason and the synthesis are written masked, without a copy of the body', async () => {
     const w = await world();
     const row = w.h.db.prepare("SELECT * FROM proposals WHERE message_id = 'canary'").get() as Record<
       string,

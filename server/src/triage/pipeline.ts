@@ -42,6 +42,7 @@ import {
   setProposalStatus,
   type Proposal,
 } from './proposals.ts';
+import { dropCopied, mask } from './mask.ts';
 import { dequeue, enqueue, failedAttempt, MAX_ATTEMPTS, queuedIds } from './queue.ts';
 import { createRule, listRules, matchRule } from './rules.ts';
 import type { Rule } from '../types.ts';
@@ -139,6 +140,7 @@ async function classify(
   const provider = deps.classifier.provider ?? 'anthropic';
   const payload = (await fetchFull(deps.google, mail.id))?.payload;
   if (!payload) return 'gone';
+  const text = plainText(payload);
   try {
     const result = await deps.classifier.classify({
       mail: {
@@ -146,7 +148,7 @@ async function classify(
         to: header({ payload }, 'To'),
         subject: mail.subject,
         date: mail.date,
-        text: plainText(payload),
+        text,
       },
       boxes: listBoxes(deps.db),
       tags: listTags(deps.db),
@@ -163,7 +165,12 @@ async function classify(
       deps.now(),
       'triage',
     );
-    return result;
+    // What the AI wrote leaves the post: no copy of the body, then no secret; the clear text is never kept.
+    return {
+      ...result,
+      reason: dropCopied([result.reason], text).map(mask).join(''),
+      synthesis: dropCopied(result.synthesis, text).map(mask),
+    };
   } catch (err) {
     if (err instanceof CreditExhaustedError) {
       creditExhausted(deps);
@@ -290,6 +297,7 @@ async function triageOne(deps: TriageDeps, id: string, pass: Pass): Promise<Outc
     importance: c.importance,
     confidence: c.confidence,
     reason: c.reason,
+    synthesis: c.synthesis,
     source: 'ai',
     status: auto ? 'auto' : 'pending',
   });

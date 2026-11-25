@@ -25,6 +25,8 @@ export interface Classification {
   confidence: number;
   /** One factual sentence in French (160 characters at most) on why this box. */
   reason: string;
+  /** What the mail says and asks, two lines of 140 characters at most; `[]` when the AI gave none. */
+  synthesis: string[];
   usage: { inputTokens: number; outputTokens: number };
 }
 

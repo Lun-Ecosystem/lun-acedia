@@ -29,6 +29,8 @@ interface Answer {
   tags?: string[];
   confidence: number;
   reason: string;
+  /** The synthesis the script gives; the reason when absent. */
+  synthesis?: string[];
 }
 interface Mail {
   id: string;
@@ -206,12 +208,17 @@ const JOURNAL_MAILS: Mail[] = [
     id: 'm17',
     from: 'Héritage Rapide <notaire@gain.example.org>',
     subject: 'Un héritage vous attend',
-    body: 'Un parent éloigné vous a légué une somme importante. Répondez avec vos coordonnées bancaires.',
+    body: 'Un parent éloigné vous a légué une somme importante. Répondez avec vos coordonnées bancaires. Code de dossier : 482917.',
     ago: 6 * D,
     ai: {
       box: SPAM,
       confidence: 80,
       reason: 'Promesse d’argent d’un inconnu, coordonnées bancaires demandées.',
+      // A fake code: the triage masks it before it is written.
+      synthesis: [
+        'Un inconnu promet un héritage, code 482917 donné.',
+        'Des coordonnées bancaires sont demandées.',
+      ],
     },
   },
   {
@@ -244,6 +251,7 @@ const scriptedClassifier: Classifier = {
       importance: 'normal',
       confidence: ai?.confidence ?? 0,
       reason: ai?.reason ?? 'Aucune boîte trouvée.',
+      synthesis: ai?.synthesis ?? (ai ? [ai.reason] : []),
       usage: { inputTokens: 0, outputTokens: 0 },
     };
     return result;

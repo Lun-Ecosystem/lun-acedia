@@ -30,6 +30,21 @@ describe('demo', () => {
     expect((await app.request('/api/mail')).status).toBe(401);
   });
 
+  it('writes a synthesis for each AI proposal, the fake code masked', async () => {
+    const { db } = await createDemo();
+    const row = db.prepare("SELECT synthesis FROM proposals WHERE message_id = 'm17'").get() as {
+      synthesis: string;
+    };
+    expect(JSON.parse(row.synthesis)).toEqual([
+      'Un inconnu promet un héritage, code [masqué] donné.',
+      'Des coordonnées bancaires sont demandées.',
+    ]);
+    const missing = db
+      .prepare("SELECT COUNT(*) AS n FROM proposals WHERE source = 'ai' AND synthesis IS NULL")
+      .get();
+    expect(missing).toEqual({ n: 0 });
+  });
+
   it('shows in the journal a validation, a correction, a trash by hand and an undone line', async () => {
     const { app, token, db } = await createDemo();
     const get = async (path: string) =>

@@ -175,6 +175,8 @@ const MIGRATIONS: string[] = [
    ALTER TABLE calendar_events ADD COLUMN solo INTEGER NOT NULL DEFAULT 0;
    ALTER TABLE calendar_events ADD COLUMN series_id TEXT;
    DELETE FROM sync_state WHERE key LIKE 'cal:%';`,
+  // The synthesis of a proposal, a JSON array of lines, masked; NULL for a rule or a proposal from before it.
+  'ALTER TABLE proposals ADD COLUMN synthesis TEXT',
 ];
 
 export function openDb(path: string): DatabaseSync {

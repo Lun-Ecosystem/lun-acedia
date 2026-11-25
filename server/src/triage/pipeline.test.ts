@@ -5,7 +5,7 @@ import { putSetting } from '../db.ts';
 import { getStoredMessage, upsertMessage } from '../gmail/store.ts';
 import { GoogleApiError, type GoogleClient } from '../google/client.ts';
 import { ProviderError, toProviderError } from '../llm/types.ts';
-import { message } from '../testing/fake-gmail.ts';
+import { message, textPart } from '../testing/fake-gmail.ts';
 import { makeGmailHarness } from '../testing/gmail-harness.ts';
 import {
   ClassifierError,
@@ -39,6 +39,7 @@ function fakeClassifier(answer: (input: ClassifyInput) => Partial<Classification
         importance: 'normal',
         confidence: 50,
         reason: 'Expéditeur déjà vu.',
+        synthesis: [],
         usage: { inputTokens: 1000, outputTokens: 50 },
         ...a,
       };
@@ -689,5 +690,61 @@ describe('triage queue', () => {
     s.h.gmail.deliver(early);
     upsertMessage(s.h.db, early); // read by the core through mail.read before the sync loop ran
     expect((await s.h.sync()).added).toEqual(['m1']);
+  });
+});
+
+describe('the synthesis of a proposal', () => {
+  const BODY =
+    'Bonjour, la réunion de parents aura lieu jeudi soir dans la grande salle du collège.\nCode : 482917';
+  const synthesisRow = (s: Awaited<ReturnType<typeof setup>>, id: string) =>
+    s.h.db.prepare('SELECT reason, synthesis FROM proposals WHERE message_id = ?').get(id) as {
+      reason: string | null;
+      synthesis: string | null;
+    };
+
+  it('is written masked, and so is the reason', async () => {
+    const s = await setup(() => ({
+      reason: 'Le mail donne le code 482917.',
+      synthesis: ['Réunion jeudi, code 482917 donné.', 'Lien www.exemple.test/r/abc à suivre.'],
+    }));
+    await s.triage(await s.deliver({ id: 'm1', payload: textPart('text/plain', BODY) }));
+    const row = synthesisRow(s, 'm1');
+    expect(JSON.parse(row.synthesis!)).toEqual([
+      'Réunion jeudi, code [masqué] donné.',
+      'Lien [masqué] à suivre.',
+    ]);
+    expect(row.reason).toBe('Le mail donne le code [masqué]');
+    expect(getProposal(s.h.db, 'm1')?.synthesis).toEqual([
+      'Réunion jeudi, code [masqué] donné.',
+      'Lien [masqué] à suivre.',
+    ]);
+  });
+
+  it('a line that copies six words of the body is not written, nor a copied reason', async () => {
+    const s = await setup(() => ({
+      reason: 'La réunion de parents aura lieu jeudi soir.',
+      synthesis: ['La réunion de parents aura lieu jeudi.', 'Une réunion est prévue.'],
+    }));
+    await s.triage(await s.deliver({ id: 'm1', payload: textPart('text/plain', BODY) }));
+    const row = synthesisRow(s, 'm1');
+    expect(JSON.parse(row.synthesis!)).toEqual(['Une réunion est prévue.']);
+    expect(row.reason).toBeNull();
+  });
+
+  it('a rule proposal has no synthesis', async () => {
+    const s = await setup(() => ({ synthesis: ['jamais lue'] }));
+    createRule(s.h.db, { field: 'fromDomain', op: 'equals', value: 'ecole.fr', boxId: s.ecole });
+    await s.triage(await s.deliver({ id: 'm1', from: 'Prof <prof@ecole.fr>' }));
+    expect(s.fake.inputs).toHaveLength(0);
+    expect(synthesisRow(s, 'm1').synthesis).toBeNull();
+    expect(getProposal(s.h.db, 'm1')?.synthesis).toBeUndefined();
+  });
+
+  it('a proposal from before the synthesis reads without one', async () => {
+    const s = await setup(() => ({}));
+    await s.triage(await s.deliver({ id: 'm1' }));
+    s.h.db.prepare('UPDATE proposals SET synthesis = NULL WHERE message_id = ?').run('m1');
+    expect(getProposal(s.h.db, 'm1')).toMatchObject({ status: 'pending' });
+    expect(getProposal(s.h.db, 'm1')?.synthesis).toBeUndefined();
   });
 });

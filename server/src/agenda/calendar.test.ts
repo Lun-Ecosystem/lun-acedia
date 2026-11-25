@@ -195,12 +195,14 @@ describe('what the sync keeps for the overlaps', () => {
       opened.push(db);
       const added = columns(db).filter((c) => !legacy.includes(c));
       expect(added).toHaveLength(4);
-      // ...so go back to the base as it was before the last migration: without them, with its tokens.
+      // ...so go back to the base as it was before their migration (the 19th): without them, with its tokens,
+      // and without what the migrations after it added.
       for (const c of added) db.exec(`ALTER TABLE calendar_events DROP COLUMN ${c}`);
       setSyncState(db, 'cal:primary', 'v1');
       setSyncState(db, 'cal:shared', 'v2');
       setSyncState(db, 'gmail:history', '42');
-      db.exec('UPDATE schema_version SET version = version - 1');
+      db.exec('ALTER TABLE proposals DROP COLUMN synthesis');
+      db.exec('UPDATE schema_version SET version = 18');
       db.close();
 
       const migrated = openDb(path);

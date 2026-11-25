@@ -9,6 +9,8 @@ export interface Proposal extends ProposalView {
   importance: ImportanceLevel;
   source: 'rule' | 'ai';
   createdAt: string;
+  /** Masked; absent for a rule or a proposal from before it. */
+  synthesis?: string[];
 }
 
 interface Row {
@@ -19,6 +21,7 @@ interface Row {
   confidence: number;
   source: 'rule' | 'ai';
   reason: string | null;
+  synthesis: string | null;
   status: ProposalStatus | 'processing';
   created_at: string;
 }
@@ -46,10 +49,11 @@ export function saveProposal(
   db: DatabaseSync,
   p: Pick<Proposal, 'messageId' | 'boxId' | 'tagIds' | 'importance' | 'confidence' | 'source' | 'status'> & {
     reason?: string;
+    synthesis?: string[];
   },
 ): void {
   db.prepare(
-    `UPDATE proposals SET box_id = ?, tag_ids = ?, importance = ?, confidence = ?, source = ?, status = ?, reason = ?
+    `UPDATE proposals SET box_id = ?, tag_ids = ?, importance = ?, confidence = ?, source = ?, status = ?, reason = ?, synthesis = ?
      WHERE message_id = ?`,
   ).run(
     p.boxId,
@@ -58,7 +62,8 @@ export function saveProposal(
     p.confidence,
     p.source,
     p.status,
-    p.reason ?? null,
+    p.reason || null,
+    p.synthesis ? JSON.stringify(p.synthesis) : null,
     p.messageId,
   );
 }
@@ -82,6 +87,7 @@ export function getProposal(db: DatabaseSync, messageId: string): Proposal | und
     confidence: row.confidence,
     source: row.source,
     ...(row.reason ? { reason: row.reason } : {}),
+    ...(row.synthesis ? { synthesis: JSON.parse(row.synthesis) as string[] } : {}),
     status: row.status,
     createdAt: row.created_at,
   };
