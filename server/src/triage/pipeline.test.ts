@@ -92,6 +92,7 @@ describe('triageNew', () => {
       confidence: 99,
       status: 'pending',
       reason: 'Expéditeur déjà vu.',
+      bulk: true,
     });
   });
 

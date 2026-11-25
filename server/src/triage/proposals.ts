@@ -1,8 +1,25 @@
 import type { DatabaseSync } from 'node:sqlite';
+import { getSetting } from '../db.ts';
 import type { ProposalView } from '../types.ts';
 import type { ImportanceLevel } from './classifier.ts';
 
 export type ProposalStatus = ProposalView['status'];
+
+/** Confidence the AI needs to file a mail on its own; 100 means every AI proposal waits. */
+export const DEFAULT_THRESHOLD = 100;
+/** Confidence from which « Tout valider » validates a proposal; never above the threshold. */
+export const DEFAULT_BULK_THRESHOLD = 85;
+
+/** The two thresholds as they apply: the bulk threshold never above the threshold. */
+export function triageSettings(db: DatabaseSync): { threshold: number; bulkThreshold: number } {
+  const threshold = getSetting(db, 'threshold', DEFAULT_THRESHOLD);
+  const bulkThreshold = getSetting(db, 'bulkThreshold', DEFAULT_BULK_THRESHOLD);
+  return { threshold, bulkThreshold: Math.min(bulkThreshold, threshold) };
+}
+
+/** A waiting proposal « Tout valider » takes: its confidence reaches the bulk threshold and the threshold. */
+export const isBulk = (db: DatabaseSync, p: Pick<Proposal, 'status' | 'confidence'>): boolean =>
+  p.status === 'pending' && p.confidence >= triageSettings(db).bulkThreshold;
 
 export interface Proposal extends ProposalView {
   messageId: string;
@@ -94,12 +111,13 @@ export function getProposal(db: DatabaseSync, messageId: string): Proposal | und
 }
 
 /** What the mail list shows of a proposal. */
-export function proposalView(p: Proposal): ProposalView {
+export function proposalView(p: Proposal, bulk: boolean): ProposalView {
   return {
     boxId: p.boxId,
     tagIds: p.tagIds,
     confidence: p.confidence,
     status: p.status,
     ...(p.reason ? { reason: p.reason } : {}),
+    ...(bulk ? { bulk: true as const } : {}),
   };
 }

@@ -13,7 +13,11 @@ import { Context, Decision } from '../pina/routes.ts';
 import { cardsOf, dayOf, declaredAgentName, getCard, messagesOf, type Card } from '../pina/store.ts';
 import { spentToday } from '../llm/models.ts';
 import type { ScreenContext } from '../types.ts';
-import type { ContractCard, PinaCardStatus } from '../types.ts';
+import type { CardField, ContractCard, PinaCardStatus } from '../types.ts';
+import { getStoredMessage, viewFilter } from '../gmail/store.ts';
+import { listBoxes, listTags } from '../triage/labels.ts';
+import { mask } from '../triage/mask.ts';
+import { getProposal, isBulk, type Proposal } from '../triage/proposals.ts';
 import { eventsSince, mailLink, subscribe, type LunEvent } from './events.ts';
 import { getState, setPaused, statusOf } from './state.ts';
 
@@ -41,6 +45,8 @@ export const PAUSED = 'Acedia est en pause : rien ne se fait tant qu’elle n’
 function toContractCard(db: AppDeps['db'], card: Card): ContractCard {
   const text = cardText(db, card);
   const mailId = (card.input as { id?: unknown } | null)?.id;
+  // A card from a mail may quote it, never its secrets.
+  const fromMail = /^(mail|draft)./.test(card.action) ? mask : (s: string) => s;
   return {
     id: String(card.id),
     action: card.action,
@@ -49,13 +55,62 @@ function toContractCard(db: AppDeps['db'], card: Card): ContractCard {
     ...(card.action === 'draft.create' && (card.input as { replyTo?: unknown } | null)?.replyTo
       ? { sends: true as const }
       : {}),
-    title: text.title,
-    lines: text.fields.map((f) => `${f.label} : ${f.value}`),
+    title: fromMail(text.title),
+    lines: text.fields.map((f) => fromMail(`${f.label} : ${f.value}`)),
     status: card.status,
     at: card.createdAt,
     ...(card.error ? { error: card.error } : {}),
     ...(card.action.startsWith('mail.') && mailId !== undefined ? { link: mailLink(mailId) } : {}),
   };
+}
+
+const TARGETS = [
+  { value: 'trash', label: 'Corbeille' },
+  { value: 'spam', label: 'Spam' },
+];
+
+/** A waiting proposal of the triage as a card: `mail:<id>`, its synthesis in `lines`, everything masked. */
+function proposalCard(db: AppDeps['db'], p: Proposal): ContractCard {
+  const fields: CardField[] = [];
+  if (p.boxId)
+    fields.push({
+      name: 'box',
+      label: 'Boîte',
+      value: [p.boxId],
+      choices: [...listBoxes(db).map((b) => ({ value: b.id, label: b.name })), ...TARGETS],
+    });
+  fields.push({
+    name: 'tags',
+    label: 'Étiquettes',
+    value: p.tagIds,
+    choices: listTags(db).map((t) => ({ value: t.id, label: t.name })),
+    multiple: true,
+  });
+  // A reason from before the synthesis never went through the copy filter: it stays home.
+  const reason = p.synthesis && p.reason ? mask(p.reason) : '';
+  return {
+    id: `mail:${p.messageId}`,
+    action: 'mail.validate',
+    effect: 'write',
+    kind: 'Proposition de tri',
+    title: mask(getStoredMessage(db, p.messageId)?.subject ?? ''),
+    lines: (p.synthesis ?? []).map(mask),
+    ...(reason ? { reason } : {}),
+    importance: p.importance === 'urgent' ? 'normal' : 'low',
+    ...(isBulk(db, p) ? { bulk: true as const } : {}),
+    fields,
+    status: 'pending',
+    at: p.createdAt,
+    link: mailLink(p.messageId),
+  };
+}
+
+/** The proposals « À valider » shows: waiting, and the mail still in the inbox. */
+function waitingProposals(db: AppDeps['db']): Proposal[] {
+  const rows = db.prepare(`SELECT id FROM messages WHERE ${viewFilter('pending')!.where}`).all() as {
+    id: string;
+  }[];
+  return rows.flatMap((r) => getProposal(db, r.id) ?? []);
 }
 
 export function contractRoutes(deps: AppDeps, pina: PinaDeps): Hono {
@@ -197,7 +252,11 @@ export function contractRoutes(deps: AppDeps, pina: PinaDeps): Hono {
     expireCards(db, dayOf(clock()));
     const rows = db.prepare('SELECT id FROM pina_cards WHERE status = ? ORDER BY id DESC').all(status);
     const cards = rows.map((x) => toContractCard(db, getCard(db, (x as { id: number }).id)!));
-    return c.json({ cards });
+    // shortcut: a settled proposal has no decision time in `proposals`, so status=done or refused serves the agent
+    // only; add a decided_at column when the core asks for them.
+    if (status !== 'pending') return c.json({ cards });
+    const all = [...cards, ...waitingProposals(db).map((p) => proposalCard(db, p))];
+    return c.json({ cards: all.sort((a, b) => b.at.localeCompare(a.at)) });
   });
 
   // The card is decided once `decideCard` answers: a failure of the loop that resumes (the model's

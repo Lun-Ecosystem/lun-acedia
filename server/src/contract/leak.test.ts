@@ -557,14 +557,14 @@ describe('leak: events (task 5)', () => {
 });
 
 describe('leak: cards (task 6)', () => {
-  it.fails('/cards serves the waiting proposal as a card with no secret and no six words', async () => {
+  it('/cards serves the waiting proposal as a card with no secret and no six words', async () => {
     const w = await world();
     const cards = await w.cards();
     expect(cards.map((c) => c.id)).toContain('mail:canary');
     clean(cardLeaks(cards, w.bodies, w.secrets));
   });
 
-  it.fails('the cards of the agent from a mail keep their secrets masked, and may quote it', async () => {
+  it('the cards of the agent from a mail keep their secrets masked, and may quote it', async () => {
     const w = await world();
     const base = { day: dayOf(w.h.clock()), turn: 1, effect: 'write' as const, now: w.h.clock() };
     addCard(w.h.db, { ...base, callId: 'a1', action: 'mail.archive', input: { id: 'canary' } });
@@ -579,7 +579,7 @@ describe('leak: cards (task 6)', () => {
     clean(cardLeaks(cards, w.bodies, w.secrets));
   });
 
-  it.fails('a base filled the old way: the proposal card hides the secrets of its old reason', async () => {
+  it('a base filled the old way: the proposal card hides the secrets of its old reason', async () => {
     const old = await oldBase();
     try {
       const cards = await old.cards();

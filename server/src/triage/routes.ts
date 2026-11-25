@@ -7,8 +7,9 @@ import { BadRequestError, NotFoundError, type ActionDeps } from '../gmail/action
 import type { GoogleClient } from '../google/client.ts';
 import { ConflictError, listJournal, todayStats, undo } from './journal.ts';
 import { createLabel, listLabels, setRole } from './labels.ts';
-import { getSetting, putSetting } from '../db.ts';
-import { correct, DEFAULT_BULK_THRESHOLD, DEFAULT_THRESHOLD, refuse, validate } from './pipeline.ts';
+import { putSetting } from '../db.ts';
+import { correct, refuse, validate } from './pipeline.ts';
+import { triageSettings } from './proposals.ts';
 import { createRule, deleteRule, listRules, updateRule } from './rules.ts';
 
 export const RoleSchema = z.enum(['box', 'tag']);
@@ -38,11 +39,7 @@ async function body<T>(c: Context, schema: z.ZodType<T>): Promise<T | Response> 
   return parsed.success ? parsed.data : c.json({ error: parsed.error.message }, 400);
 }
 
-const settings = (deps: AppDeps) => {
-  const threshold = getSetting(deps.db, 'threshold', DEFAULT_THRESHOLD);
-  const bulkThreshold = getSetting(deps.db, 'bulkThreshold', DEFAULT_BULK_THRESHOLD);
-  return { threshold, bulkThreshold: Math.min(bulkThreshold, threshold) };
-};
+const settings = (deps: AppDeps) => triageSettings(deps.db);
 
 /** `/api/labels`, `/api/rules`, `/api/journal`, `/api/settings` and the answers to the AI's proposals. */
 export function triageRoutes(deps: AppDeps, google: GoogleClient | undefined): Hono {

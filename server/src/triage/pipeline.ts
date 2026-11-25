@@ -35,8 +35,12 @@ import { ConflictError, logAuto, logUser, type Previous, type UserAction } from 
 import { listBoxes, listTags } from './labels.ts';
 import {
   claim,
+  DEFAULT_BULK_THRESHOLD,
+  DEFAULT_THRESHOLD,
   getProposal,
+  isBulk,
   proposalView,
+  triageSettings,
   release,
   saveProposal,
   setProposalStatus,
@@ -56,15 +60,12 @@ export interface TriageDeps extends ActionDeps {
   log?: ((line: string) => void) | undefined;
 }
 
-/** Confidence the AI needs to file a mail on its own; 100 means every AI proposal waits. */
-export const DEFAULT_THRESHOLD = 100;
 /** A mail never goes to spam on a lower confidence, whatever the threshold. */
 export const SPAM_CONFIDENCE = 95;
 
-/** Confidence from which « Tout valider » validates a proposal; never above the threshold. */
-export const DEFAULT_BULK_THRESHOLD = 85;
+export { DEFAULT_BULK_THRESHOLD, DEFAULT_THRESHOLD };
 
-export const getThreshold = (db: DatabaseSync) => getSetting(db, 'threshold', DEFAULT_THRESHOLD);
+export const getThreshold = (db: DatabaseSync) => triageSettings(db).threshold;
 
 const isUrgentName = (name: string) =>
   name
@@ -558,5 +559,5 @@ export function afterUserAction(deps: ActionDeps, change: LabelChange, op: Batch
 /** Adds its proposal to a listed mail. */
 export function withProposal(db: DatabaseSync, m: StoredMessage): StoredMessage {
   const p = getProposal(db, m.id);
-  return p ? { ...m, proposal: proposalView(p) } : m;
+  return p ? { ...m, proposal: proposalView(p, isBulk(db, p)) } : m;
 }
