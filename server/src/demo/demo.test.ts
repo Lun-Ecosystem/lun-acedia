@@ -211,6 +211,13 @@ describe('demo: the contract 1.5', () => {
     }
     expect(ids.length).toBeGreaterThan(0);
     expect(new Set(ids).size).toBe(ids.length);
+    // Each scripted synthesis passes the copy filter: none of them copies its body.
+    for (const id of ids) {
+      const row = d.db.prepare('SELECT synthesis FROM proposals WHERE message_id = ?').get(id) as {
+        synthesis: string | null;
+      };
+      expect(JSON.parse(row.synthesis ?? '[]'), id).not.toEqual([]);
+    }
   });
 
   it('the route is the demo’s own: a paired device only', async () => {

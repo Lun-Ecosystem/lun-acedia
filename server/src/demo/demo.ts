@@ -247,7 +247,7 @@ const DELIVERIES: Mail[] = [
       box: 'Perso',
       confidence: 88,
       reason: 'Commerce de proximité, retrait à faire.',
-      synthesis: ['Une commande attend au comptoir jusqu’à samedi, code 583920.'],
+      synthesis: ['Commande prête à retirer en pharmacie avant samedi, code 583920.'],
     },
   },
   {
