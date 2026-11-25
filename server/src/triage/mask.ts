@@ -45,8 +45,12 @@ function secretAfter(text: string, start: number): { at: number; length: number 
 export function mask(text: string): string {
   // A link, `https?://` or `www.`, up to the next space.
   let out = text.replace(/(?:https?:\/\/|www\.)\S+/giu, MASKED);
-  // An IBAN, spaced or not: two letters, two digits, then 11 to 30 letters or digits.
-  out = out.replace(/(?<![\p{L}\p{N}])[A-Z]{2}\d{2}(?:[^\S\n]?[A-Z0-9]){11,30}(?![\p{L}\p{N}])/gu, MASKED);
+  // An IBAN, spaced or not, in any case: two letters, two digits, then 11 to 32 letters or digits by fours
+  // (the fours keep the next word out of it).
+  out = out.replace(
+    /(?<![\p{L}\p{N}])[a-z]{2}\d{2}(?:[^\S\n]?[a-z0-9]{4}){2,7}(?:[^\S\n]?[a-z0-9]{1,4})?(?![\p{L}\p{N}])/giu,
+    MASKED,
+  );
   // A keyword (password, code, PIN, login): the word it introduces.
   out = maskKeywords(out);
   // A long run of digits (a card, a phone, a file number): 9 or more, split by at most one space, dot or dash,

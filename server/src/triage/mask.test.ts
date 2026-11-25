@@ -14,6 +14,8 @@ const SECRETS: Record<string, [text: string, secret: string][]> = {
   iban: [
     ['IBAN FR76 3000 6000 0112 3456 7890 189', 'FR76 3000 6000 0112 3456 7890 189'],
     ['Virement sur FR7630006000011234567890189 merci', 'FR7630006000011234567890189'],
+    ['iban fr76 3000 6000 0112 3456 7890 189 merci', 'fr76 3000 6000 0112 3456 7890 189'],
+    [`Compte de89${NNBSP}3704${NNBSP}0044${NNBSP}0532${NNBSP}0130${NNBSP}00 à vérifier`, `de89${NNBSP}3704`],
     [`Compte DE89${NBSP}3704${NBSP}0044${NBSP}0532${NBSP}0130${NBSP}00 Merci`, `DE89${NBSP}3704`],
   ],
   keyword: [
@@ -98,7 +100,8 @@ function draws(n: number): string[] {
     // An IBAN, grouped by 4 or not.
     () => {
       const iban = run(UPPER, 2) + run(DIGIT, 2) + run(UPPER + DIGIT, 11 + int(20));
-      return r() < 0.5 ? iban : grouped(iban, 4, pick([' ', NBSP]));
+      const cased = r() < 0.5 ? iban : iban.toLowerCase();
+      return r() < 0.5 ? cased : grouped(cased, 4, pick([' ', NBSP]));
     },
     // A token, with at least one letter and one digit.
     () => `jeton-faux-${run(ALNUM, 18 + int(20))}a1`,
@@ -139,6 +142,8 @@ describe('mask', () => {
       'Votre code est [masqué] à saisir avant 14 h 30.',
     );
     expect(mask('')).toBe('');
+    expect(mask('IBAN fr76 3000 6000 0112 3456 7890 189 merci')).toBe('IBAN [masqué] merci');
+    expect(mask('IBAN FR76 3000 6000 0112 3456 7890 189 Merci')).toBe('IBAN [masqué] Merci');
   });
 });
 
