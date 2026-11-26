@@ -115,6 +115,10 @@
   .rangee[data-etat='survol'] .survol {
     display: flex;
   }
+  /* A menu opened from an action takes the hover and the focus away: the action it hangs from stays. */
+  .rangee .survol:has(:global([aria-expanded='true'])) {
+    display: flex;
+  }
   @media (max-width: 767.98px) {
     .rangee {
       align-items: flex-start;
