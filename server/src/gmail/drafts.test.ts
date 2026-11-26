@@ -38,6 +38,14 @@ describe('drafts', () => {
     expect((await getDraft(h.deps, id)).text).toBe(text.trim().replace(/ \n/g, '\n'));
   });
 
+  // What the model no longer reads (`stripHidden`) stays in a draft: an emoji would lose its joiners at each save.
+  it('a draft reads back with its zero-width joiners and its comment', async () => {
+    const h = await makeGmailHarness();
+    const text = 'Bravo à vous trois 👨\u200D👩\u200D👧\n\n<!-- à garder -->';
+    const { id } = await createDraft(h.deps, { ...draft, text, html: '<p>x</p>' });
+    expect((await getDraft(h.deps, id)).text).toBe(text);
+  });
+
   it('a draft says its sender, the alias it was written from', async () => {
     const h = await makeGmailHarness();
     const { id } = await createDraft(h.deps, { ...draft, from: "Lun'Ecosystem <contact@lun.example>" });

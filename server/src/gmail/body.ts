@@ -200,3 +200,17 @@ export function plainText(payload: GmailPart, max = 4000, paragraphs = false): s
     .trim()
     .slice(0, max);
 }
+
+/**
+ * A text without what its reader does not see: the zero-width and direction characters, then the HTML comments.
+ * For what a model reads only; `plainText` keeps them, a draft is saved back as it was read.
+ */
+export function stripHidden(text: string): string {
+  let out = text.replace(/[\u200B-\u200F\u202A-\u202E\u2060-\u2064\u2066-\u2069\uFEFF]/g, '');
+  // Until none is left: `<!-<!-- a -->- b -->` closes a new comment once the inner one is gone.
+  for (let before = ''; before !== out;) {
+    before = out;
+    out = out.replace(/<!--[\s\S]*?-->/g, '');
+  }
+  return out;
+}

@@ -7,6 +7,7 @@ import {
   type Classifier,
   type ClassifyInput,
 } from './classifier.ts';
+import { stripHidden } from '../gmail/body.ts';
 import { ProviderError, type LlmProvider } from '../llm/types.ts';
 
 export const DEFAULT_MODEL = 'claude-haiku-5-5';
@@ -107,13 +108,16 @@ function prompt(input: ClassifyInput): string {
     input.examples
       .map(
         (e) =>
-          `- de ${e.from}, « ${e.subject} » → ${e.boxId}${e.tagIds.length ? ` + ${e.tagIds.join(', ')}` : ''}`,
+          `- de ${stripHidden(e.from)}, « ${stripHidden(e.subject)} » → ${e.boxId}${e.tagIds.length ? ` + ${e.tagIds.join(', ')}` : ''}`,
       )
       .join('\n') || '(aucun)';
-  const m = input.mail;
   return `Boîtes :\n${boxes}\n\nÉtiquettes :\n${tags}\n\nExemples :\n${examples}\n\nMail à trier :
-De : ${m.from}\nÀ : ${m.to}\nDate : ${m.date}\nSujet : ${m.subject}\n\n${m.text}`;
+${mailText(input.mail)}`;
 }
+
+/** The mail as the model reads it: what its sender wrote goes without comments nor zero-width characters. */
+const mailText = (m: ClassifyInput['mail']) =>
+  `De : ${stripHidden(m.from)}\nÀ : ${stripHidden(m.to)}\nDate : ${m.date}\nSujet : ${stripHidden(m.subject)}\n\n${stripHidden(m.text)}`;
 
 export function createLlmClassifier(opts: { provider: LlmProvider; model: string }): Classifier {
   const { provider, model } = opts;
@@ -147,7 +151,7 @@ export function createLlmClassifier(opts: { provider: LlmProvider; model: string
       const res = await call(provider, {
         model,
         system: SUMMARY_SYSTEM,
-        user: `De : ${mail.from}\nÀ : ${mail.to}\nDate : ${mail.date}\nSujet : ${mail.subject}\n\n${mail.text}`,
+        user: mailText(mail),
         schema: SUMMARY_SCHEMA,
         maxTokens: 256,
       });
