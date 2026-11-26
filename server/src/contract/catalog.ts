@@ -12,7 +12,7 @@ import {
 import { isDateOrInstant, isDay } from '../agenda/time.ts';
 import { agendaRange } from '../agenda/unified.ts';
 import { applyOp, BadRequestError, NotFoundError, type ActionDeps, type BatchOp } from '../gmail/actions.ts';
-import { plainText } from '../gmail/body.ts';
+import { plainText, stripHidden } from '../gmail/body.ts';
 import { defaultFrom, headerValue, textToHtml } from '../gmail/compose.ts';
 import { createDraft, deleteDraft, getDraft, updateDraft } from '../gmail/drafts.ts';
 import { fetchFull, listMail, readMail, searchMail, summary } from '../gmail/read.ts';
@@ -137,7 +137,7 @@ async function summarizeMissing(deps: CatalogDeps, ids: string[]): Promise<void>
             to: header(payload, 'To'),
             subject: stored.subject,
             date: stored.date,
-            text: plainText(payload.payload),
+            text: stripHidden(plainText(payload.payload)),
           },
         });
       } catch (err) {
@@ -163,7 +163,8 @@ async function summarizeMissing(deps: CatalogDeps, ids: string[]): Promise<void>
         deps.clock(),
         'digest',
       );
-      const text = plainText(payload.payload);
+      // The same text as the model read above: a copy is looked for in it.
+      const text = stripHidden(plainText(payload.payload));
       saveSynthesis(deps.db, id, dropCopied(summary.synthesis, text).map(mask));
     }
   } finally {

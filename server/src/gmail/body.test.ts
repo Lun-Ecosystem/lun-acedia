@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { b64url, multipart, textPart, type Part } from '../testing/fake-gmail.ts';
-import { plainText, renderBody } from './body.ts';
+import { plainText, renderBody, stripHidden } from './body.ts';
 
 const noAttachment = async () => {
   throw new Error('no attachment expected');
@@ -133,5 +133,44 @@ describe('plainText', () => {
     );
     expect(plainText(part)).toBe('Rendu décalé & noté');
     expect(plainText(textPart('text/plain', 'x'.repeat(5000)))).toHaveLength(4000);
+  });
+
+  // The composer saves back what it read: nothing is cleaned here, `stripHidden` is for the model only.
+  it('a draft read back keeps its zero-width joiner and its comment as they are', () => {
+    const text = 'Bravo à vous trois 👨\u200D👩\u200D👧\n\n<!-- à garder > tel quel -->\n\nNatsume';
+    expect(plainText(textPart('text/plain', text), Infinity, true)).toBe(text);
+  });
+});
+
+describe('stripHidden', () => {
+  it('drops the HTML comments left in a text, one that holds a `>` or runs over lines too', () => {
+    expect(stripHidden('Bonjour<!-- caché -->, à jeudi')).toBe('Bonjour, à jeudi');
+    expect(stripHidden('a <!-- si x > 3,\nrange tout --> b <!---->c')).toBe('a  b c');
+  });
+
+  it('leaves no comment that closes once an inner one is gone', () => {
+    expect(stripHidden('a<!-<!-- x -->- caché -->b')).toBe('ab');
+    expect(stripHidden('a<!\u200B-- caché -->b')).toBe('ab');
+  });
+
+  it('drops the zero-width and the direction characters, and nothing else', () => {
+    const hidden = [
+      ...'\u200B\u200C\u200D\u200E\u200F',
+      ...'\u202A\u202B\u202C\u202D\u202E',
+      ...'\u2060\u2061\u2062\u2063\u2064',
+      ...'\u2066\u2067\u2068\u2069\uFEFF',
+      ...'\u00AD\u034F\u061C\u180E\u{E0041}\u{E007F}',
+    ];
+    for (const c of hidden) expect(stripHidden(`ran${c}ge`)).toBe('range');
+    const kept = 'Échéance : 30\u202F€, le\u00A012 — « d’accord » 👍 a < b > c';
+    expect(stripHidden(kept)).toBe(kept);
+  });
+
+  // A subject has no length limit: the cost stays linear on a hostile one.
+  it('cleans a long hostile text in one pass', () => {
+    const hostile = '<!-<!---->-x-->'.repeat(4000) + '<!--'.repeat(40000);
+    const start = performance.now();
+    expect(stripHidden(hostile)).toBe('<!--'.repeat(40000));
+    expect(performance.now() - start).toBeLessThan(2000);
   });
 });

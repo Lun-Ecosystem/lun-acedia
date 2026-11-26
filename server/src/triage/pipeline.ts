@@ -15,7 +15,7 @@ import {
   type BatchOp,
   type LabelChange,
 } from '../gmail/actions.ts';
-import { plainText } from '../gmail/body.ts';
+import { plainText, stripHidden } from '../gmail/body.ts';
 import { getStoredMessage, header, upsertMessage, type StoredMessage } from '../gmail/store.ts';
 import { fetchFull } from '../gmail/read.ts';
 import { fetchMetadata } from '../gmail/sync.ts';
@@ -141,7 +141,8 @@ async function classify(
   const provider = deps.classifier.provider ?? 'anthropic';
   const payload = (await fetchFull(deps.google, mail.id))?.payload;
   if (!payload) return 'gone';
-  const text = plainText(payload);
+  // The text the model reads, and the one its answer is compared to (`dropCopied`).
+  const text = stripHidden(plainText(payload));
   try {
     const result = await deps.classifier.classify({
       mail: {
