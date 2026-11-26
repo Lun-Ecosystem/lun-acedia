@@ -159,9 +159,18 @@ describe('stripHidden', () => {
       ...'\u202A\u202B\u202C\u202D\u202E',
       ...'\u2060\u2061\u2062\u2063\u2064',
       ...'\u2066\u2067\u2068\u2069\uFEFF',
+      ...'\u00AD\u034F\u061C\u180E\u{E0041}\u{E007F}',
     ];
     for (const c of hidden) expect(stripHidden(`ran${c}ge`)).toBe('range');
     const kept = 'Échéance : 30\u202F€, le\u00A012 — « d’accord » 👍 a < b > c';
     expect(stripHidden(kept)).toBe(kept);
+  });
+
+  // A subject has no length limit: the cost stays linear on a hostile one.
+  it('cleans a long hostile text in one pass', () => {
+    const hostile = '<!-<!---->-x-->'.repeat(4000) + '<!--'.repeat(40000);
+    const start = performance.now();
+    expect(stripHidden(hostile)).toBe('<!--'.repeat(40000));
+    expect(performance.now() - start).toBeLessThan(2000);
   });
 });
