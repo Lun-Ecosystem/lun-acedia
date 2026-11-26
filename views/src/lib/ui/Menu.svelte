@@ -76,6 +76,14 @@
     if (!open) query = '';
   });
 
+  // The element the menu came from says it is open, as a trigger would: a row keeps it shown meanwhile (ListRow).
+  $effect(() => {
+    if (!open || trigger || !customAnchor) return;
+    const from = customAnchor;
+    from.setAttribute('aria-expanded', 'true');
+    return () => from.removeAttribute('aria-expanded');
+  });
+
   function choose(item: MenuItem) {
     item.onselect?.();
     onselect?.(item.id);

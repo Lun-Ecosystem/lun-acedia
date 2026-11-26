@@ -97,6 +97,31 @@ describe('Mailbox', () => {
     expect(client.listMail.mock.calls.filter(([view]) => view === 'inbox')).toHaveLength(1);
   });
 
+  // The row shows its actions on hover only: `aria-expanded` is what keeps them, and the menu's anchor, while
+  // the menu is open (ListRow).
+  it('« Ranger dans » from a row marks its button open while the menu is, and files the mail', async () => {
+    const { client, user, list, subjects } = await open();
+    const row = within(list).getByText('Sujet 4').closest('li')!;
+    const button = within(row).getByRole('button', { name: 'Ranger dans' });
+    await user.click(button);
+    const entry = await menuEntry('École');
+    expect(button.getAttribute('aria-expanded')).toBe('true');
+    await user.click(entry);
+    expect(client.file).toHaveBeenCalledWith('m4', 'L-ecole');
+    expect(subjects()).toEqual(['Sujet 1', 'Sujet 2', 'Sujet 3', 'Sujet 5']);
+  });
+
+  it('Escape closes « Ranger dans » of a row, and its button is no longer marked open', async () => {
+    const { client, user, list } = await open();
+    const row = within(list).getByText('Sujet 2').closest('li')!;
+    const button = within(row).getByRole('button', { name: 'Ranger dans' });
+    await user.click(button);
+    await menuEntry('École');
+    await user.keyboard('{Escape}');
+    await waitFor(() => expect(button.hasAttribute('aria-expanded')).toBe(false));
+    expect(client.file).not.toHaveBeenCalled();
+  });
+
   it('validating a proposal from its row offers to undo it', async () => {
     const { client, user, list, subjects } = await open();
     const row = within(list).getAllByRole('listitem')[1]!;
