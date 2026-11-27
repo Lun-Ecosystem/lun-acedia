@@ -1,8 +1,8 @@
 <script lang="ts">
   import { onMount, untrack } from 'svelte';
   import { SvelteSet } from 'svelte/reactivity';
-  import type { AcediaClient, MailCounts } from '../client.ts';
-  import type { BatchOp, LabelView, MailDetail, MailSummary } from '../types.ts';
+  import type { AcediaClient } from '../client.ts';
+  import type { BatchOp, LabelView, MailCounts, MailDetail, MailSummary } from '../types.ts';
   import Banner from '../ui/Banner.svelte';
   import Button from '../ui/Button.svelte';
   import Chip from '../ui/Chip.svelte';

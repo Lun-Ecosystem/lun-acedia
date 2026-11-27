@@ -7,7 +7,6 @@ export type {
   AuthorizationRequest,
   EventDraft,
   LinkedClient,
-  MailCounts,
   RuleDraft,
   TaskDraft,
 } from './client.ts';

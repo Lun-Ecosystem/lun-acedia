@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount, tick, untrack } from 'svelte';
-  import type { AcediaClient, MailCounts } from '../client.ts';
-  import type { LabelView, MailSummary, TodayStats } from '../types.ts';
+  import type { AcediaClient } from '../client.ts';
+  import type { LabelView, MailCounts, MailSummary, TodayStats } from '../types.ts';
   import Banner from '../ui/Banner.svelte';
   import Button from '../ui/Button.svelte';
   import Dialog from '../ui/Dialog.svelte';

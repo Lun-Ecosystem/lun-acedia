@@ -11,6 +11,7 @@ import type {
   LabelChange,
   LabelView,
   LunEvent,
+  MailCounts,
   MailDetail,
   MailPage,
   ModelChoice,
@@ -81,15 +82,6 @@ export interface AuthorizationRequest {
   redirect_uri: string;
   state: string;
   code_challenge: string;
-}
-
-/**
- * Unread mails of the inbox and of each box (by label id), counted in Lun'Acedia's base; a box without one
- * may be absent. Here, not in `types.ts`, which copies the server's.
- */
-export interface MailCounts {
-  inbox: number;
-  boxes: Record<string, number>;
 }
 
 /**
