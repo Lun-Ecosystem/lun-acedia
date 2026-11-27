@@ -17,6 +17,22 @@ describe('createHttpClient', () => {
     expect(new Headers(init?.headers).get('authorization')).toBe('Bearer tok-1');
   });
 
+  it('filters a zone on its unread mails, page by page, and reads the unread counts', async () => {
+    const counts = { inbox: 3, boxes: { 'L-ecole': 1 } };
+    const fetch = vi.fn<typeof globalThis.fetch>(async (url) =>
+      String(url).endsWith('/counts') ? json(counts) : json({ items: [] }),
+    );
+    const client = createHttpClient(BASE, 'tok-1', { fetch });
+    await client.listMail('box:L-ecole', { unread: true });
+    await client.listMail('inbox', { unread: true, cursor: 'c1' });
+    expect(await client.mailCounts()).toEqual(counts);
+    expect(fetch.mock.calls.map(([url]) => String(url))).toEqual([
+      `${BASE}/api/mail?view=box%3AL-ecole&unread=1`,
+      `${BASE}/api/mail?view=inbox&cursor=c1&unread=1`,
+      `${BASE}/api/mail/counts`,
+    ]);
+  });
+
   it('throws UnauthorizedError on 401 and reports it', async () => {
     const onUnauthorized = vi.fn();
     const fetch = vi.fn<typeof globalThis.fetch>(async () => json({ error: 'Jeton invalide' }, 401));

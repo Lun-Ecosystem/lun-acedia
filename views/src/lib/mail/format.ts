@@ -75,6 +75,9 @@ export const boxColor = (id: string) => BOX_COLORS[toneOf(id)]!;
 /** The shared tones in a fixed order: the n-th calendar or task list takes the n-th, without clash up to five. */
 export const toneColor = (index: number) => BOX_COLORS[index % BOX_COLORS.length]!;
 
+/** An unread count as the rail, the chips and the tabs show it: nothing for zero (no empty badge). */
+export const unreadCount = (n: number | undefined) => (n ? n : undefined);
+
 export const sender = (a: Address) => a.name ?? a.addr;
 
 /** The name of a proposal's target: a box, the trash, spam, or none. */

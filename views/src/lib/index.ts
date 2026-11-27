@@ -7,10 +7,12 @@ export type {
   AuthorizationRequest,
   EventDraft,
   LinkedClient,
+  MailCounts,
   RuleDraft,
   TaskDraft,
 } from './client.ts';
 export type * from './types.ts';
+export { unreadCount } from './mail/format.ts';
 export { default as Mailbox } from './mail/Mailbox.svelte';
 export { default as Pending } from './mail/Pending.svelte';
 export { default as Journal } from './mail/Journal.svelte';

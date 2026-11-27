@@ -94,15 +94,23 @@ export function fakeClient(opts: { mails?: MailSummary[]; journal?: JournalEntry
     const inInbox = m.labels.includes('INBOX') && !m.labels.includes('TRASH') && !m.labels.includes('SPAM');
     if (view === 'inbox') return inInbox;
     if (view === 'pending') return inInbox && m.proposal?.status === 'pending';
-    if (view.startsWith('box:')) return m.labels.includes(view.slice(4));
+    if (view.startsWith('box:')) return m.labels.includes(view.slice(4)) && !m.labels.includes('TRASH');
     return false;
   };
   const notUsed = () => Promise.reject(new Error('not used in this test'));
 
   const client = {
-    listMail: vi.fn<AcediaClient['listMail']>(async (view: string) => ({
-      items: structuredClone(mails.filter((m) => inView(view, m))),
+    // Like the server: `unread` filters the zone, a search ignores it.
+    listMail: vi.fn<AcediaClient['listMail']>(async (view: string, o = {}) => ({
+      items: structuredClone(mails.filter((m) => inView(view, m) && (!o.unread || o.q || m.unread))),
     })),
+    mailCounts: vi.fn<AcediaClient['mailCounts']>(async () => {
+      const unread = (view: string) => mails.filter((m) => m.unread && inView(view, m)).length;
+      return {
+        inbox: unread('inbox'),
+        boxes: Object.fromEntries(boxes().map((id) => [id, unread(`box:${id}`)])),
+      };
+    }),
     getMail: vi.fn<AcediaClient['getMail']>(async (id: string): Promise<MailDetail> => {
       const m = mails.find((x) => x.id === id);
       if (!m) throw new ApiError(404, 'Mail introuvable');
