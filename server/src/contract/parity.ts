@@ -32,6 +32,7 @@ export const PARITY: Record<string, Parity> = {
   'GET /api/pina/settings': { excluded: PINA },
   'PUT /api/pina/settings': { excluded: PINA },
   'GET /api/mail': { action: 'mail.list' },
+  'GET /api/mail/counts': { excluded: 'Nombres des écrans ; l’agent lit les mails par mail.list' },
   'GET /api/mail/:id': { action: 'mail.read' },
   'GET /api/mail/:id/attachments/:partId': { excluded: FILE },
   'POST /api/mail/batch': { excluded: 'Lot de gestes que les actions mail couvrent déjà un par un' },

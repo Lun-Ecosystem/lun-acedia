@@ -34,6 +34,13 @@ export interface MailSummary {
   proposal?: ProposalView;
 }
 
+/** `GET /api/mail/counts`: the unread mails Acedia holds, never read from Gmail. */
+export interface MailCounts {
+  inbox: number;
+  /** By box id; a box with no unread mail is absent. */
+  boxes: { [id: string]: number };
+}
+
 export interface AttachmentMeta {
   /** The MIME part id, stable across fetches (Gmail attachment ids are not). */
   id: string;

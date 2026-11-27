@@ -142,16 +142,19 @@ async function gmailPage(
 
 /**
  * A page of a view, newest first: from the cache, then from Gmail once the cache runs out, unless
- * the cache holds the whole mailbox. `undefined` for an unknown view.
+ * the cache holds the whole mailbox. `undefined` for an unknown view. Under `unread`, the unread mails
+ * of the cache only: the list ends with the cache.
  */
 export async function listMail(
   db: DatabaseSync,
   google: GoogleClient,
   view: string,
   cursor?: string,
+  opts: { unread?: boolean } = {},
 ): Promise<{ items: StoredMessage[]; cursor?: string } | undefined> {
   const filter = viewFilter(view);
   if (!filter) return undefined;
+  if (opts.unread) return listView(db, { ...filter, where: `(${filter.where}) AND unread = 1` }, cursor);
   const query = viewQuery(view);
   const deep = cursor ? decodeGmailCursor(cursor) : undefined;
   if (deep) return query ? gmailPage(db, google, query, deep) : { items: [] };
