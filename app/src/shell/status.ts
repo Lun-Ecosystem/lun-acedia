@@ -1,8 +1,8 @@
-import type { AcediaClient, ServiceState } from '@lun-ecosystem/lunacedia-views';
+import { unreadCount, type AcediaClient, type ServiceState } from '@lun-ecosystem/lunacedia-views';
 
 /** What the shell shows around the screens: counters of the rail and state of the service. */
 export interface ShellStatus {
-  /** `12+` when the count covers only the first page of the list. */
+  /** `12+` when the count covers only the first page of the list (the proposals); none at zero for the inbox. */
   counts: { inbox: Count; pending: Count; tasks: Count };
   service: ServiceState;
   /** First line of the service card, when the state's own does not say it (no provider in service). */
@@ -13,7 +13,7 @@ export interface ShellStatus {
   paused: boolean;
 }
 
-export type Count = number | string;
+export type Count = number | string | undefined;
 
 export const EMPTY_STATUS: ShellStatus = {
   counts: { inbox: 0, pending: 0, tasks: 0 },
@@ -45,7 +45,7 @@ export async function readStatus(
 ): Promise<ShellStatus> {
   const today = parisDay(now);
   const [inbox, pending, all, health, keys, settings, chosen] = await Promise.allSettled([
-    client.listMail('inbox'),
+    client.mailCounts(),
     client.listMail('pending'),
     tasks ? client.allTasks() : Promise.reject(),
     client.health(),
@@ -58,8 +58,9 @@ export async function readStatus(
   // One page only (50 mails): past it, the count says it is a lower bound.
   const paged = (n: number, cursor?: string): Count => (cursor && n > 0 ? `${n}+` : n);
   const counts = { ...last.counts };
-  const inboxPage = value(inbox);
-  if (inboxPage) counts.inbox = paged(inboxPage.items.filter((m) => m.unread).length, inboxPage.cursor);
+  // Counted in the base by the server, whole: no « + ».
+  const unread = value(inbox);
+  if (unread) counts.inbox = unreadCount(unread.inbox);
   const pendingPage = value(pending);
   if (pendingPage) counts.pending = paged(pendingPage.items.length, pendingPage.cursor);
   const list = value(all);

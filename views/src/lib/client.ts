@@ -11,6 +11,7 @@ import type {
   LabelChange,
   LabelView,
   LunEvent,
+  MailCounts,
   MailDetail,
   MailPage,
   ModelChoice,
@@ -88,7 +89,10 @@ export interface AuthorizationRequest {
  * app and each app that integrates the views give them an implementation (usually `httpClient`).
  */
 export interface AcediaClient {
-  listMail(view: string, opts?: { q?: string; cursor?: string }): Promise<MailPage>;
+  /** `unread`: the zone's unread mails only, from Lun'Acedia's base (a search ignores it). */
+  listMail(view: string, opts?: { q?: string; cursor?: string; unread?: boolean }): Promise<MailPage>;
+  /** The unread mails of the inbox and of each box, counted in Lun'Acedia's base. */
+  mailCounts(): Promise<MailCounts>;
   getMail(id: string): Promise<MailDetail>;
   /** An attachment's content, by its part id (`AttachmentMeta.id`). */
   attachment(id: string, partId: string): Promise<Blob>;
@@ -298,8 +302,10 @@ export function httpClient(opts: { baseUrl: string; token: string; fetch?: typeo
     listMail(view, o = {}) {
       const q = new URLSearchParams(o.q ? { q: o.q } : { view });
       if (o.cursor) q.set('cursor', o.cursor);
+      if (o.unread && !o.q) q.set('unread', '1');
       return call('GET', `/api/mail?${q}`);
     },
+    mailCounts: () => call('GET', '/api/mail/counts'),
     getMail: (id) => call('GET', `/api/mail/${enc(id)}`),
     async attachment(id, partId) {
       const res = await doFetch(`${base}/api/mail/${enc(id)}/attachments/${enc(partId)}`, { headers });

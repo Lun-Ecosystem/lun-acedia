@@ -1,5 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite';
-import type { Address, MailSummary } from '../types.ts';
+import type { Address, MailCounts, MailSummary } from '../types.ts';
 
 /** A message as Gmail's `format=metadata` (or `full`) returns it. */
 export interface GmailMessage {
@@ -154,6 +154,21 @@ export function viewFilter(view: string): { where: string; params: string[] } | 
       }
       return undefined;
   }
+}
+
+/** The cached unread mails of the inbox and of each box, under the conditions of `viewFilter`. */
+export function unreadCounts(db: DatabaseSync): MailCounts {
+  const { n } = db.prepare(`SELECT COUNT(*) AS n FROM messages WHERE ${inInbox} AND unread = 1`).get() as {
+    n: number;
+  };
+  const rows = db
+    .prepare(
+      `SELECT r.label_id AS id, COUNT(*) AS n FROM messages, json_each(messages.label_ids) j
+       JOIN label_roles r ON r.label_id = j.value AND r.role = 'box'
+       WHERE messages.unread = 1 AND NOT ${has('TRASH')} GROUP BY r.label_id`,
+    )
+    .all() as { id: string; n: number }[];
+  return { inbox: n, boxes: Object.fromEntries(rows.map((r) => [r.id, r.n])) };
 }
 
 /** What to ask Gmail for each view past the end of the cache; `pending` exists only in Acedia. */

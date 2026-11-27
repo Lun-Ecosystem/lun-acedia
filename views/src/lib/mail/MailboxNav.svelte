@@ -4,17 +4,19 @@
   import IconButton from '../ui/IconButton.svelte';
   import NavGroup from '../ui/NavGroup.svelte';
   import NavLink from '../ui/NavLink.svelte';
-  import { boxColor } from './format.ts';
+  import { boxColor, unreadCount } from './format.ts';
 
   /** The mail's part of the rail: the boxes, then the folders of Gmail. */
 
   interface Props {
     view: string;
     boxes: LabelView[];
+    /** Unread mails by box id; a box absent has none. */
+    counts?: Record<string, number> | undefined;
     onselect: (view: string) => void;
     oncreate: () => void;
   }
-  let { view, boxes, onselect, oncreate }: Props = $props();
+  let { view, boxes, counts, onselect, oncreate }: Props = $props();
 
   let gmail = $state(true);
 
@@ -41,6 +43,7 @@
       href="#"
       label={box.name}
       color={boxColor(box.id)}
+      count={unreadCount(counts?.[box.id])}
       current={view === `box:${box.id}`}
       onclick={go(`box:${box.id}`)}
     />

@@ -8,6 +8,7 @@ import { fakeClient } from '../../testing/fake-client.ts';
 import type { LunEvent, MailSummary } from '../types.ts';
 import { dismissAll } from '../ui/toasts.svelte.ts';
 import Toaster from '../ui/Toaster.svelte';
+import ShellFixture from '../../testing/ShellFixture.svelte';
 import Pending from './Pending.svelte';
 
 /** `bulk` as the server sets it for the test's lines (threshold 95, bulk 85): at 85 % or more. */
@@ -643,5 +644,26 @@ describe('Pending', () => {
       expect(await screen.findByText('Un geste est déjà en cours sur ce mail')).toBeInTheDocument();
       await waitFor(() => expect(screen.queryByText('Sujet 3')).toBeNull());
     });
+  });
+
+  it('puts the unread count of each box on its rail link, read again on a mail event and after a gesture', async () => {
+    // Sujet 2 already filed in Perso, unread; Sujet 1 waits for École.
+    const filed = proposed(2, 'L-perso', 90);
+    filed.labels = ['L-perso', 'UNREAD'];
+    filed.proposal!.status = 'accepted';
+    const fake = fakeClient({ mails: [proposed(1, 'L-ecole', 72), filed] });
+    let emit: (e: LunEvent) => void = () => {};
+    fake.client.subscribe.mockImplementation((fn) => ((emit = fn), () => {}));
+    const user = userEvent.setup();
+    render(ShellFixture, { props: { client: fake.client, screen: 'pending' } });
+    render(Toaster);
+    const rail = (name: string) => screen.getByRole('link', { name: new RegExp(`^${name}`) });
+    await waitFor(() => expect(rail('Perso')).toHaveTextContent('1'));
+    expect(rail('École')).not.toHaveTextContent(/\d/);
+    await user.click(button('Sujet 1', 'Valider'));
+    await waitFor(() => expect(rail('École')).toHaveTextContent('1'));
+    const reads = fake.client.mailCounts.mock.calls.length;
+    emit({ id: '1', type: 'mail.changed', importance: 'info', at: '', title: '' });
+    await waitFor(() => expect(fake.client.mailCounts).toHaveBeenCalledTimes(reads + 1));
   });
 });

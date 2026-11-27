@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount, tick, untrack } from 'svelte';
   import type { AcediaClient } from '../client.ts';
-  import type { LabelView, MailSummary, TodayStats } from '../types.ts';
+  import type { LabelView, MailCounts, MailSummary, TodayStats } from '../types.ts';
   import Banner from '../ui/Banner.svelte';
   import Button from '../ui/Button.svelte';
   import Dialog from '../ui/Dialog.svelte';
@@ -57,6 +57,8 @@
   let { client, onchange, onopen, onjournal, onview }: Props = $props();
 
   let items = $state<MailSummary[]>([]);
+  /** Unread mails of each box, for the rail; `null` until read. */
+  let counts = $state<MailCounts | null>(null);
   let labels = $state<LabelView[]>([]);
   let threshold = $state<number | null>(null);
   let bulk = $state(85);
@@ -133,7 +135,26 @@
     }
   }
 
+  /** A count not read keeps the last one: it is a hint. Only the last read shows. */
+  let countReads = 0;
+  const readCounts = () => {
+    const seq = ++countReads;
+    return client
+      .mailCounts()
+      .then((c) => {
+        if (seq === countReads) counts = c;
+      })
+      .catch(() => {});
+  };
+
+  /** Something changed in the mails: the counts here and around read again. */
+  function changed() {
+    void readCounts();
+    onchange?.();
+  }
+
   onMount(() => {
+    void readCounts();
     client
       .listLabels()
       .then((l) => (labels = l))
@@ -150,6 +171,7 @@
     void load();
     return client.subscribe((e) => {
       if (!e.type.startsWith('mail.')) return;
+      void readCounts();
       // Never reshuffle the queue under an open correction nor mid-batch: once, when it is over.
       if (correcting.open || busy) stale = true;
       else void load();
@@ -241,7 +263,7 @@
             for (const id of journal.reverse()) await client.undo(id);
           } finally {
             await load();
-            onchange?.();
+            changed();
           }
         },
       });
@@ -251,7 +273,7 @@
     } finally {
       busy--;
       settle();
-      onchange?.();
+      changed();
     }
   }
 
@@ -393,6 +415,7 @@
   <MailboxNav
     view=""
     {boxes}
+    counts={counts?.boxes}
     onselect={(view) => onview?.(view)}
     oncreate={() => (creating = { open: true, name: '' })}
   />

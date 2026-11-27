@@ -18,7 +18,7 @@ import { findPart } from './body.ts';
 import { defaultFrom, headerValue, sendMail, type Draft } from './compose.ts';
 import { createDraft, deleteDraft, getDraft, sendDraft, updateDraft } from './drafts.ts';
 import { fetchFull, listMail, readMail, searchMail, summary } from './read.ts';
-import type { StoredMessage } from './store.ts';
+import { unreadCounts, type StoredMessage } from './store.ts';
 import { GMAIL_API } from './sync.ts';
 
 /** What the triage plugs into the mail routes. */
@@ -54,7 +54,8 @@ export function gmailRoutes(deps: AppDeps, google: GoogleClient | undefined, hoo
       return c.json(body);
     }
     const view = c.req.query('view') ?? 'inbox';
-    const page = await listMail(deps.db, google!, view, cursor);
+    const unread = c.req.query('unread') === '1';
+    const page = await listMail(deps.db, google!, view, cursor, { unread });
     if (!page) return c.json({ error: `Vue inconnue : ${view}` }, 400);
     const body: { items: MailSummary[]; cursor?: string } = {
       items: page.items.map((m) => summary(decorate(m))),
@@ -62,6 +63,9 @@ export function gmailRoutes(deps: AppDeps, google: GoogleClient | undefined, hoo
     if (page.cursor) body.cursor = page.cursor;
     return c.json(body);
   });
+
+  // Before `/:id`, which would read it as a mail named « counts ».
+  r.get('/counts', (c) => c.json(unreadCounts(deps.db)));
 
   r.get('/:id', async (c) => {
     const read = await readMail(deps.db, google!, c.req.param('id'), decorate);
