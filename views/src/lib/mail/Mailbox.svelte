@@ -107,6 +107,8 @@
   let loads = 0;
 
   async function load(more = false) {
+    // The cursor on screen belongs to the list being replaced: paging on it would mix two lists.
+    if (more && loading) return;
     const seq = ++loads;
     loading = true;
     try {
@@ -130,12 +132,17 @@
     }
   }
 
-  /** A count not read keeps the last one: it is a hint. */
-  const readCounts = () =>
-    client
+  /** A count not read keeps the last one: it is a hint. Only the last read shows. */
+  let countReads = 0;
+  const readCounts = () => {
+    const seq = ++countReads;
+    return client
       .mailCounts()
-      .then((c) => (counts = c))
+      .then((c) => {
+        if (seq === countReads) counts = c;
+      })
       .catch(() => {});
+  };
 
   /** Something changed in the mails: the counts here and around read again. */
   function changed() {

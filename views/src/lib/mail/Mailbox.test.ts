@@ -260,6 +260,26 @@ describe('Mailbox', () => {
       expect(fake.client.listMail).toHaveBeenLastCalledWith('inbox', { cursor: 'u1', unread: true });
     });
 
+    it('does not page « Non lus » on the cursor of « Tout » while the filtered list still loads', async () => {
+      const fake = zones();
+      const all = fake.client.listMail.getMockImplementation()!;
+      let answer = () => {};
+      fake.client.listMail.mockImplementation(async (view, o = {}) => {
+        const page = await all(view, o);
+        if (!o.unread) return { ...page, cursor: 'suite' };
+        await new Promise<void>((r) => (answer = r));
+        return page;
+      });
+      const user = userEvent.setup();
+      render(Mailbox, { props: { client: fake.client } });
+      const list = await screen.findByRole('group', { name: 'Mails' });
+      await within(list).findByText('Sujet 5');
+      await user.click(tab('Non lus'));
+      await user.click(screen.getByRole('button', { name: 'Mails plus anciens' }));
+      expect(fake.client.listMail).not.toHaveBeenCalledWith('inbox', { cursor: 'suite', unread: true });
+      answer();
+    });
+
     it('puts each zone’s unread count on its rail link, its chip and the « Non lus » tab, never a zero', async () => {
       const { user } = await show();
       await waitFor(() => expect(rail('École')).toHaveTextContent('1'));
