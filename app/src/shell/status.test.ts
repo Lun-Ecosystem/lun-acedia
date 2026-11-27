@@ -8,6 +8,8 @@ const now = new Date('2026-11-02T10:00:00.000Z');
 describe('readStatus', () => {
   it('counts the unread mails, the proposals and the open tasks due by today', async () => {
     const { client } = fakeClient();
+    // The inbox count comes from the base, past the first page: never read from the list.
+    client.mailCounts.mockResolvedValueOnce({ inbox: 120, boxes: {} });
     client.allTasks.mockResolvedValueOnce([
       { kind: 'task', id: 't1', listId: 'l', title: 'En retard', due: '2026-10-30', done: false },
       { kind: 'task', id: 't0', listId: 'l', title: 'Très en retard', due: '2026-01-15', done: false },
@@ -16,16 +18,25 @@ describe('readStatus', () => {
       { kind: 'task', id: 't4', listId: 'l', title: 'Un jour', done: false },
     ]);
     const status = await readStatus(client, start, { now });
-    expect(status.counts).toEqual({ inbox: 5, pending: 1, tasks: 3 });
+    expect(status.counts).toEqual({ inbox: 120, pending: 1, tasks: 3 });
+    expect(client.listMail).not.toHaveBeenCalledWith('inbox', expect.anything());
+    expect(client.listMail).not.toHaveBeenCalledWith('inbox');
     expect(status).toMatchObject({ service: 'actif', detail: 'Seuil d’auto-rangement : 100 %' });
   });
 
-  it('says a count is a lower bound when the list has more than one page', async () => {
+  it('says the proposals are a lower bound past one page, the inbox never: its count is the base’s', async () => {
     const { client } = fakeClient();
     const page = (await client.listMail('pending')).items;
     client.listMail.mockResolvedValue({ items: page, cursor: 'suite' });
     const status = await readStatus(client, start, { now });
     expect(status.counts.pending).toBe(String(page.length) + '+');
+    expect(status.counts.inbox).toBe(5);
+  });
+
+  it('shows no inbox count at zero', async () => {
+    const { client } = fakeClient();
+    client.mailCounts.mockResolvedValueOnce({ inbox: 0, boxes: {} });
+    expect((await readStatus(client, start, { now })).counts.inbox).toBeUndefined();
   });
 
   it('tells a pause, and a refused key before it', async () => {
@@ -76,6 +87,7 @@ describe('readStatus', () => {
   it('keeps the last values of what fails', async () => {
     const { client } = fakeClient();
     client.listMail.mockRejectedValue(new Error('hors ligne'));
+    client.mailCounts.mockRejectedValue(new Error('hors ligne'));
     client.health.mockRejectedValueOnce(new Error('hors ligne'));
     const last: ShellStatus = {
       counts: { inbox: 7, pending: 2, tasks: 0 },

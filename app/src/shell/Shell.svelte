@@ -33,6 +33,7 @@
     type ServiceState,
   } from '@lun-ecosystem/lunacedia-views';
   import type { Snippet } from 'svelte';
+  import type { Count } from './status.ts';
 
   /*
    * Shell of the standalone app (plate 03): the rail with its counters and the service card, the top
@@ -49,7 +50,7 @@
     serviceDetail?: string | undefined;
     /** Sorting paused by hand (apart from the card: a refused key may show there instead). */
     paused: boolean;
-    counts: { inbox: number | string; pending: number | string; tasks: number | string };
+    counts: { inbox: Count; pending: Count; tasks: Count };
     /** Google account, for the avatar. */
     account?: string | undefined;
     /** Pauses or resumes the sorting. */
