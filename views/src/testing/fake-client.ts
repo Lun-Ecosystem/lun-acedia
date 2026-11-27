@@ -108,7 +108,10 @@ export function fakeClient(opts: { mails?: MailSummary[]; journal?: JournalEntry
       const unread = (view: string) => mails.filter((m) => m.unread && inView(view, m)).length;
       return {
         inbox: unread('inbox'),
-        boxes: Object.fromEntries(boxes().map((id) => [id, unread(`box:${id}`)])),
+        // A box without an unread mail is absent, as on the server.
+        boxes: Object.fromEntries(
+          boxes().flatMap((id) => (unread(`box:${id}`) ? [[id, unread(`box:${id}`)]] : [])),
+        ),
       };
     }),
     getMail: vi.fn<AcediaClient['getMail']>(async (id: string): Promise<MailDetail> => {

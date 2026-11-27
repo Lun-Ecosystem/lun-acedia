@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount, untrack } from 'svelte';
   import { SvelteSet } from 'svelte/reactivity';
-  import type { AcediaClient } from '../client.ts';
+  import type { AcediaClient, MailCounts } from '../client.ts';
   import type { BatchOp, LabelView, MailDetail, MailSummary } from '../types.ts';
   import Banner from '../ui/Banner.svelte';
   import Button from '../ui/Button.svelte';
@@ -17,7 +17,7 @@
   import { toast } from '../ui/toasts.svelte.ts';
   import BoxMenu from './BoxMenu.svelte';
   import Composer from './Composer.svelte';
-  import { errorText, targetName } from './format.ts';
+  import { errorText, targetName, unreadCount } from './format.ts';
   import MailboxNav from './MailboxNav.svelte';
   import MailList from './MailList.svelte';
   import MailReader from './MailReader.svelte';
@@ -57,6 +57,8 @@
   let composing = $state<{ replyTo?: MailDetail; forward?: MailDetail; draftId?: string } | null>(null);
   let error = $state<string | null>(null);
   let filter = $state('tout');
+  /** Unread mails of the inbox and of each box, from the server; `null` until read. */
+  let counts = $state<MailCounts | null>(null);
   /** Mails the sort filed today, said by the empty inbox; `null` while unknown. */
   let filedToday = $state<number | null>(null);
   /** Mail of the keyboard (J, K), when none is open. */
@@ -76,12 +78,13 @@
 
   const boxes = $derived(labels.filter((l) => l.role === 'box'));
   const searching = $derived(query.trim() !== '');
-  const shown = $derived(
-    filter === 'nonlus'
-      ? items.filter((m) => m.unread)
-      : filter === 'proposes'
-        ? items.filter((m) => m.proposal?.status === 'pending')
-        : items,
+  /** The unread count of the zone open: the inbox or a box; none for a folder of Gmail or « À valider ». */
+  const zoneCount = $derived(
+    view === 'inbox'
+      ? counts?.inbox
+      : view.startsWith('box:')
+        ? (counts?.boxes[view.slice(4)] ?? 0)
+        : undefined,
   );
   // A mail opened by its address may not be in the loaded page: its own detail stands in for the row.
   const open = $derived(items.find((m) => m.id === openId) ?? (detail?.id === openId ? detail : undefined));
@@ -94,8 +97,8 @@
       : null,
   );
   const position = $derived.by(() => {
-    const index = shown.findIndex((m) => m.id === openId);
-    return index < 0 ? '' : `${index + 1} sur ${shown.length}`;
+    const index = items.findIndex((m) => m.id === openId);
+    return index < 0 ? '' : `${index + 1} sur ${items.length}`;
   });
 
   const fail = (err: unknown) => (error = errorText(err));
@@ -110,6 +113,7 @@
       const page = await client.listMail(view, {
         ...(searching ? { q: query.trim() } : {}),
         ...(more && cursor ? { cursor } : {}),
+        ...(filter === 'nonlus' && !searching ? { unread: true } : {}),
       });
       if (seq !== loads) return;
       items = more ? [...items, ...page.items] : page.items;
@@ -126,7 +130,21 @@
     }
   }
 
+  /** A count not read keeps the last one: it is a hint. */
+  const readCounts = () =>
+    client
+      .mailCounts()
+      .then((c) => (counts = c))
+      .catch(() => {});
+
+  /** Something changed in the mails: the counts here and around read again. */
+  function changed() {
+    void readCounts();
+    onchange?.();
+  }
+
   onMount(() => {
+    void readCounts();
     client
       .listLabels()
       .then((l) => (labels = l))
@@ -151,8 +169,10 @@
         .catch(() => {});
     });
     return client.subscribe((e) => {
+      if (!e.type.startsWith('mail.')) return;
+      void readCounts();
       // Never reshuffle the list under a mail being read.
-      if (e.type.startsWith('mail.') && openId === null) void load();
+      if (openId === null) void load();
     });
   });
 
@@ -207,7 +227,8 @@
     if (m.unread) {
       // Marked read in place: the row keeps its position.
       items = items.map((x) => (x.id === m.id ? { ...x, unread: false } : x));
-      client.markRead(m.id, true).catch(fail);
+      // The counts read again once the server says it is read, not before.
+      client.markRead(m.id, true).then(changed).catch(fail);
     }
   }
 
@@ -230,7 +251,7 @@
     if (openId && ids.includes(openId)) close();
     try {
       const journal = [await run()].flat().flatMap((r) => (r.journalId === undefined ? [] : [r.journalId]));
-      onchange?.();
+      changed();
       toast(
         message,
         journal.length
@@ -241,7 +262,7 @@
                   for (const id of journal) await client.undo(id);
                 } finally {
                   await load();
-                  onchange?.();
+                  changed();
                 }
               },
             }
@@ -297,19 +318,13 @@
   function markRead(ids: string[]) {
     items = items.map((m) => (ids.includes(m.id) ? { ...m, unread: false } : m));
     selected.clear();
-    client
-      .batch(ids, { kind: 'read', read: true })
-      .then(() => onchange?.())
-      .catch(fail);
+    client.batch(ids, { kind: 'read', read: true }).then(changed).catch(fail);
   }
 
   function markUnread(m: MailSummary) {
     close();
     items = items.map((x) => (x.id === m.id ? { ...x, unread: true } : x));
-    client
-      .markRead(m.id, false)
-      .then(() => onchange?.())
-      .catch(fail);
+    client.markRead(m.id, false).then(changed).catch(fail);
   }
 
   function openMenu(ids: string[], anchor: HTMLElement | null) {
@@ -341,9 +356,9 @@
   const rowOf = (id: string) => document.getElementById(`mail-${id}`);
 
   function move(step: number) {
-    if (!shown.length) return;
-    const index = shown.findIndex((m) => m.id === (openId ?? current));
-    const next = shown[Math.min(shown.length - 1, Math.max(0, index < 0 ? 0 : index + step))]!;
+    if (!items.length) return;
+    const index = items.findIndex((m) => m.id === (openId ?? current));
+    const next = items[Math.min(items.length - 1, Math.max(0, index < 0 ? 0 : index + step))]!;
     current = next.id;
     if (openId) void openMail(next);
     rowOf(next.id)?.focus();
@@ -449,7 +464,7 @@
 {/snippet}
 
 {#snippet nav()}
-  <MailboxNav {view} {boxes} onselect={select} oncreate={() => createBox([])} />
+  <MailboxNav {view} {boxes} counts={counts?.boxes} onselect={select} oncreate={() => createBox([])} />
 {/snippet}
 
 <div class={['mailbox', 'lun-acedia', { seul: !shell }]} data-monde="acedia">
@@ -461,15 +476,18 @@
   {/if}
 
   <div class={['liste', { etroite: narrow }]}>
-    <div class="pastilles" role="group" aria-label="Filtres">
-      <Chip on={view === 'inbox' && filter === 'tout' && !searching} onclick={() => select('inbox')}
-        >Réception</Chip
-      >
-      <Chip on={filter === 'nonlus'} onclick={() => (filter = filter === 'nonlus' ? 'tout' : 'nonlus')}
-        >Non lus</Chip
+    <div class="pastilles" role="group" aria-label="Zones">
+      <Chip
+        on={view === 'inbox' && !searching}
+        count={unreadCount(counts?.inbox)}
+        onclick={() => select('inbox')}>Réception</Chip
       >
       {#each boxes as box (box.id)}
-        <Chip on={view === `box:${box.id}`} onclick={() => select(`box:${box.id}`)}>{box.name}</Chip>
+        <Chip
+          on={view === `box:${box.id}`}
+          count={unreadCount(counts?.boxes[box.id])}
+          onclick={() => select(`box:${box.id}`)}>{box.name}</Chip
+        >
       {/each}
     </div>
     {#if selected.size > 0}
@@ -482,27 +500,24 @@
         ontrash={() => trash([...selected])}
       />
     {:else}
+      <!-- `.onglets` stays during a search: the C shortcut anchors on it. -->
       <div class="onglets">
-        <Tabs
-          label="Filtrer les mails"
-          bind:value={filter}
-          items={[
-            { value: 'tout', label: 'Tout' },
-            { value: 'nonlus', label: 'Non lus', count: items.filter((m) => m.unread).length },
-            {
-              value: 'proposes',
-              label: 'Proposés',
-              count: items.filter((m) => m.proposal?.status === 'pending').length,
-            },
-          ]}
-        >
-          {#snippet tools()}
-            {#if searching}
-              <span class="recherche">Résultats pour « {query.trim()} »</span>
-              <IconButton icon={X} label="Effacer la recherche" size="petit" onclick={() => search('')} />
-            {/if}
-          {/snippet}
-        </Tabs>
+        {#if searching}
+          <div class="resultats">
+            <span class="recherche">Résultats pour « {query.trim()} »</span>
+            <IconButton icon={X} label="Effacer la recherche" size="petit" onclick={() => search('')} />
+          </div>
+        {:else}
+          <Tabs
+            label="Filtrer les mails"
+            bind:value={filter}
+            onchange={() => void load()}
+            items={[
+              { value: 'tout', label: 'Tout' },
+              { value: 'nonlus', label: 'Non lus', count: unreadCount(zoneCount) },
+            ]}
+          />
+        {/if}
       </div>
     {/if}
     {#if error}
@@ -514,11 +529,11 @@
     {/if}
     <div class="defile">
       <MailList
-        items={shown}
+        {items}
         {labels}
         {selected}
         {openId}
-        focusId={shown.some((m) => m.id === (openId ?? current)) ? (openId ?? current) : null}
+        focusId={items.some((m) => m.id === (openId ?? current)) ? (openId ?? current) : null}
         {loading}
         compact={narrow}
         empty={emptyText}
@@ -640,6 +655,16 @@
   .etroite .onglets {
     padding: 0 10px;
   }
+  /* The bar of the tabs, without them: same height and rule. */
+  .resultats {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    height: 44px;
+    border-bottom: 1px solid var(--bordure);
+    color: var(--texte-3);
+    font-size: 12.5px;
+  }
   .recherche {
     max-width: 260px;
     overflow: hidden;
@@ -659,7 +684,7 @@
     padding-bottom: var(--pina-coin);
   }
 
-  /* Phone: the list alone, filters in chips that scroll; the reading is a screen of its own. */
+  /* Phone: the list alone, its zones in chips that scroll; the reading is a screen of its own. */
   @media (max-width: 767.98px) {
     .cote {
       display: none;
@@ -669,8 +694,9 @@
       flex: 1 1 auto;
       border-right: 0;
     }
+    /* Under the chips of the zones, the same tabs as on a desk, aligned on them. */
     .onglets {
-      display: none;
+      padding: 0 14px;
     }
     .pastilles {
       display: flex;

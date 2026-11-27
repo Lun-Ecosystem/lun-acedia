@@ -2,7 +2,10 @@ import { render, screen, waitFor, within } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ApiError } from '../client.ts';
-import { fakeClient } from '../../testing/fake-client.ts';
+import { fakeClient, fiveMails } from '../../testing/fake-client.ts';
+import ShellFixture from '../../testing/ShellFixture.svelte';
+import type { ScreenParts } from '../ui/shell.ts';
+import type { LunEvent, MailSummary } from '../types.ts';
 import { dismissAll } from '../ui/toasts.svelte.ts';
 import Toaster from '../ui/Toaster.svelte';
 import Mailbox from './Mailbox.svelte';
@@ -189,5 +192,154 @@ describe('Mailbox', () => {
     await user.click(await menuEntry('Perso'));
     expect(await screen.findByRole('alert')).toHaveTextContent('Gmail ne répond pas');
     expect(subjects()).toEqual(['Sujet 1', 'Sujet 2', 'Sujet 3', 'Sujet 4', 'Sujet 5']);
+  });
+
+  describe('the filters « Tout / Non lus » and the unread counts', () => {
+    /** Sujet 1 unread and Sujet 2 read in École, Sujet 3 read in Perso, Sujet 4 unread and Sujet 5 read in the inbox. */
+    function zones() {
+      const [m1, m2, m3, m4, m5] = fiveMails();
+      const set = (m: MailSummary | undefined, labels: string[]) => ({
+        ...m!,
+        labels,
+        unread: labels.includes('UNREAD'),
+      });
+      return fakeClient({
+        mails: [
+          set(m1, ['L-ecole', 'UNREAD']),
+          set(m2, ['L-ecole']),
+          set(m3, ['L-perso']),
+          set(m4, ['INBOX', 'UNREAD']),
+          set(m5, ['INBOX']),
+        ],
+      });
+    }
+
+    const tab = (name: string) => screen.getByRole('tab', { name: new RegExp(`^${name}`) });
+    const rail = (name: string) => screen.getByRole('link', { name: new RegExp(`^${name}`) });
+    const chip = (name: string) =>
+      within(screen.getByRole('group', { name: 'Zones', hidden: true })).getByRole('button', {
+        name: new RegExp(`^${name}`),
+        hidden: true,
+      });
+
+    async function show(fake = zones(), onchange?: () => void) {
+      const user = userEvent.setup();
+      render(Mailbox, { props: { client: fake.client, onchange } });
+      render(Toaster);
+      const list = await screen.findByRole('group', { name: 'Mails' });
+      await within(list).findByText('Sujet 4');
+      return { ...fake, user, list };
+    }
+
+    it('offers « Tout » and « Non lus », and no « Proposés »', async () => {
+      await show();
+      expect(tab('Tout')).toHaveAttribute('aria-selected', 'true');
+      expect(tab('Non lus')).toBeInTheDocument();
+      expect(screen.queryByRole('tab', { name: /Proposés/ })).toBeNull();
+    });
+
+    it('« Non lus » asks the server, which finds an unread mail past the loaded ones, and pages on its cursor', async () => {
+      const fake = zones();
+      const all = fake.client.listMail.getMockImplementation()!;
+      // « Tout » shows only Sujet 5 on its first page; the server's unread filter finds Sujet 4.
+      fake.client.listMail.mockImplementation(async (view, o = {}) => {
+        const page = await all(view, o);
+        if (o.unread) return o.cursor ? { items: [] } : { ...page, cursor: 'u1' };
+        return { items: page.items.filter((m) => m.id !== 'm4'), cursor: 'suite' };
+      });
+      const user = userEvent.setup();
+      render(Mailbox, { props: { client: fake.client } });
+      const list = await screen.findByRole('group', { name: 'Mails' });
+      await within(list).findByText('Sujet 5');
+      expect(within(list).queryByText('Sujet 4')).toBeNull();
+      await user.click(tab('Non lus'));
+      expect(await within(list).findByText('Sujet 4')).toBeInTheDocument();
+      expect(within(list).queryByText('Sujet 5')).toBeNull();
+      expect(fake.client.listMail).toHaveBeenLastCalledWith('inbox', { unread: true });
+      await user.click(screen.getByRole('button', { name: 'Mails plus anciens' }));
+      expect(fake.client.listMail).toHaveBeenLastCalledWith('inbox', { cursor: 'u1', unread: true });
+    });
+
+    it('puts each zone’s unread count on its rail link, its chip and the « Non lus » tab, never a zero', async () => {
+      const { user } = await show();
+      await waitFor(() => expect(rail('École')).toHaveTextContent('1'));
+      expect(rail('Perso')).not.toHaveTextContent(/\d/);
+      expect(chip('Réception')).toHaveTextContent('1');
+      expect(chip('École')).toHaveTextContent('1');
+      expect(chip('Perso')).not.toHaveTextContent(/\d/);
+      expect(screen.queryByRole('button', { name: /^Non lus/, hidden: true })).toBeNull();
+      expect(tab('Non lus')).toHaveTextContent('1');
+      await user.click(rail('Perso'));
+      await waitFor(() => expect(tab('Non lus')).not.toHaveTextContent(/\d/));
+      expect(chip('Perso')).toHaveAttribute('aria-pressed', 'true');
+      expect(chip('Réception')).toHaveAttribute('aria-pressed', 'false');
+    });
+
+    it('a folder of Gmail filters on « Non lus » without a count', async () => {
+      const { user, client } = await show();
+      await user.click(rail('Archives'));
+      await waitFor(() => expect(client.listMail).toHaveBeenLastCalledWith('archive', {}));
+      expect(tab('Non lus')).not.toHaveTextContent(/\d/);
+      await user.click(tab('Non lus'));
+      expect(client.listMail).toHaveBeenLastCalledWith('archive', { unread: true });
+    });
+
+    it('reads the counts again once an opened unread mail is marked read, and after « Marquer non lu »', async () => {
+      const fake = zones();
+      const onchange = vi.fn();
+      const run = fake.client.markRead.getMockImplementation()!;
+      let answer = () => {};
+      fake.client.markRead.mockImplementationOnce(
+        (id, read) => new Promise((resolve) => (answer = () => resolve(run(id, read)))),
+      );
+      const { user, list } = await show(fake, onchange);
+      await waitFor(() => expect(tab('Non lus')).toHaveTextContent('1'));
+      const reads = fake.client.mailCounts.mock.calls.length;
+      await user.click(within(list).getByText('Sujet 4'));
+      const reader = await screen.findByRole('region', { name: 'Lecture' });
+      expect(fake.client.mailCounts).toHaveBeenCalledTimes(reads);
+      expect(onchange).not.toHaveBeenCalled();
+      answer();
+      await waitFor(() => expect(tab('Non lus')).not.toHaveTextContent(/\d/));
+      expect(onchange).toHaveBeenCalledOnce();
+      await user.click(
+        within(within(reader).getByRole('toolbar')).getByRole('button', { name: 'Marquer non lu' }),
+      );
+      await waitFor(() => expect(tab('Non lus')).toHaveTextContent('1'));
+      expect(onchange).toHaveBeenCalledTimes(2);
+    });
+
+    it('reads the counts again on a mail event, even while a mail is open', async () => {
+      const fake = zones();
+      let emit: (e: LunEvent) => void = () => {};
+      fake.client.subscribe.mockImplementation((fn) => ((emit = fn), () => {}));
+      const { user, list, client } = await show(fake);
+      await user.click(within(list).getByText('Sujet 5'));
+      await screen.findByRole('region', { name: 'Lecture' });
+      const reads = client.mailCounts.mock.calls.length;
+      emit({ id: '1', type: 'mail.changed', importance: 'info', at: '', title: '' });
+      await waitFor(() => expect(client.mailCounts).toHaveBeenCalledTimes(reads + 1));
+    });
+
+    it('changing zone puts « Tout » back', async () => {
+      const { user, client } = await show();
+      await user.click(tab('Non lus'));
+      expect(client.listMail).toHaveBeenLastCalledWith('inbox', { unread: true });
+      await user.click(rail('École'));
+      await waitFor(() => expect(client.listMail).toHaveBeenLastCalledWith('box:L-ecole', {}));
+      expect(tab('Tout')).toHaveAttribute('aria-selected', 'true');
+    });
+
+    it('shows no filter during a search, only its line and its cross', async () => {
+      const { client } = zones();
+      let parts: ScreenParts | null = null;
+      render(ShellFixture, { props: { client, onparts: (p: ScreenParts | null) => (parts = p) } });
+      await screen.findByRole('tab', { name: /^Non lus/ });
+      parts!.search!('facture');
+      await waitFor(() => expect(client.listMail).toHaveBeenLastCalledWith('inbox', { q: 'facture' }));
+      await waitFor(() => expect(screen.queryByRole('tab')).toBeNull());
+      expect(screen.getByText('Résultats pour « facture »')).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Effacer la recherche' })).toBeInTheDocument();
+    });
   });
 });
