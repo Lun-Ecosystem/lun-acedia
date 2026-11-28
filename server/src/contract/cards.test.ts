@@ -695,6 +695,22 @@ describe('the signal of a card that leaves the wait', () => {
     expect(changed(s).slice(before)).toHaveLength(1);
   });
 
+  it.each(['archive', 'trash', 'spam'])(
+    '%s of a mail whose proposal waits signals once; without a waiting proposal, nothing',
+    async (op) => {
+      const s = await proposals({});
+      await s.deliver({ id: 'm1', subject: 'm1' }, { id: 'm2', subject: 'm2' });
+      setProposalStatus(s.h.db, 'm2', 'auto');
+      const before = changed(s).length;
+      expect((await gesture(s, `/api/mail/m1/${op}`)).status).toBe(200);
+      const after = changed(s).slice(before);
+      expect(after).toHaveLength(1);
+      expect(after[0]!.data).toEqual({ added: [], changed: ['m1'], removed: [] });
+      expect((await gesture(s, `/api/mail/m2/${op}`)).status).toBe(200);
+      expect(changed(s).slice(before)).toHaveLength(1);
+    },
+  );
+
   it('a card that expired signals once; reading /cards twice with nothing to expire signals nothing', async () => {
     const s = await setup();
     const events = () => eventsSince(s.h.db, '0').filter((e) => e.type === 'card.changed');

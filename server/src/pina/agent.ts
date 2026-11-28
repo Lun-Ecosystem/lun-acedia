@@ -124,6 +124,8 @@ export async function runCard(deps: Pick<PinaDeps, 'db' | 'actions' | 'clock'>, 
       : setCardStatus(deps.db, cardId, 'pending', 'failed', { error: out.error, at });
     // Impossible while every decision goes through this file: said loudly if it ever happens.
     if (!settled) console.error(`Agent : carte ${cardId} décidée pendant son exécution`, JSON.stringify(out));
+    // Once settled, before the model resumes: the core reads the card, not the decision.
+    else signalCards(deps.db, at);
   } finally {
     running.delete(cardId);
   }
@@ -133,7 +135,10 @@ export async function runCard(deps: Pick<PinaDeps, 'db' | 'actions' | 'clock'>, 
 /** CrOliX refuses a card: `false` when it is no longer pending or its action is running. */
 export function refuseCard(deps: Pick<PinaDeps, 'db' | 'clock'>, cardId: number): boolean {
   if (running.has(cardId)) return false;
-  return setCardStatus(deps.db, cardId, 'pending', 'refused', { at: deps.clock() });
+  const at = deps.clock();
+  const refused = setCardStatus(deps.db, cardId, 'pending', 'refused', { at });
+  if (refused) signalCards(deps.db, at);
+  return refused;
 }
 
 /** « Modifier »: replaces a pending card's input, validated by the action's schema. */
@@ -192,8 +197,6 @@ export async function decideCard(
   const decided =
     decision === 'accept' ? await runCard(deps, id) : refuseCard(deps, id) ? getCard(deps.db, id) : undefined;
   if (!decided) return { ok: false, status: 409, error: 'Carte déjà décidée' };
-  // Before the model resumes: the core reads the card, not the decision, and must not see it still waiting.
-  signalCards(deps.db, deps.clock());
   // After the decision, never inside the queue: the loop goes on with its outcome.
   await resume(deps, id);
   return { ok: true, card: getCard(deps.db, id)! };

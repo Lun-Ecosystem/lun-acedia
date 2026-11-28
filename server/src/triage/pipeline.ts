@@ -579,6 +579,8 @@ export function afterUserAction(deps: ActionDeps, change: LabelChange, op: Batch
   if (!action) return undefined;
   const previous = snapshot(deps.db, change.id);
   if (op.kind === 'file') onManualFile(deps, change.id, op.boxId);
+  // The mail leaves the inbox: its waiting proposal is no longer served as a card.
+  else if (getProposal(deps.db, change.id)?.status === 'pending') signalProposal(deps, change.id);
   return logUser(deps.db, change, action, deps.now(), previous);
 }
 

@@ -518,10 +518,10 @@ describe('the signal of a conflict card that leaves the wait', () => {
     const g = await run([A(), B()]);
     const [live] = overlapCards(g.db);
     const { runCard } = await import('../pina/agent.ts');
+    const { proposeOverlaps } = await import('./overlaps.ts');
     g.db.prepare("DELETE FROM calendar_events WHERE id = 'b'").run();
     const running = runCard({ db: g.db, actions: g.actions, clock: g.clock }, live!.id);
-    const { proposeOverlaps } = await import('./overlaps.ts');
-    await proposeOverlaps(g.db, g.clock());
+    proposeOverlaps(g.db, g.clock());
     expect(signals(g.db)).toHaveLength(0);
     await running;
   });
