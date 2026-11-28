@@ -290,6 +290,114 @@ describe('new actions run the same function as their screen route', () => {
   });
 });
 
+describe('mail.list with unread', () => {
+  const ids = (res: { body: { result: { items: { id: string }[] } } }) =>
+    res.body.result.items.map((m) => m.id).sort();
+
+  async function withBox() {
+    const { h, act } = await setup();
+    const box = (await h.call('POST', '/api/labels', { name: 'École', role: 'box' })).body.id as string;
+    h.gmail.deliver(message({ id: 'b-unread', labelIds: [box, 'UNREAD'] }));
+    h.gmail.deliver(message({ id: 'b-read', labelIds: [box] }));
+    h.gmail.deliver(message({ id: 'b-trash', labelIds: [box, 'UNREAD', 'TRASH'] }));
+    h.gmail.deliver(message({ id: 'i-read', labelIds: ['INBOX'] }));
+    await h.sync();
+    return { h, act, box };
+  }
+
+  it('gives only the unread mails of a label, trash excluded', async () => {
+    const { act, box } = await withBox();
+    const res = await act('mail.list', { view: box, unread: true });
+    expect(res.body.ok).toBe(true);
+    expect(ids(res)).toEqual(['b-unread']);
+  });
+
+  it('gives only the unread mails of the inbox', async () => {
+    const { act } = await withBox();
+    const res = await act('mail.list', { view: 'inbox', unread: true });
+    expect(ids(res)).toEqual(['m1']);
+  });
+
+  it('leaves a read mail of the label out', async () => {
+    const { act, box } = await withBox();
+    expect(ids(await act('mail.list', { view: box, unread: true }))).not.toContain('b-read');
+  });
+
+  it('without unread (or with false), the page is the same as before: read and unread', async () => {
+    const { act, box } = await withBox();
+    expect(ids(await act('mail.list', { view: box }))).toEqual(['b-read', 'b-unread']);
+    expect(ids(await act('mail.list', { view: box, unread: false }))).toEqual(['b-read', 'b-unread']);
+  });
+
+  it('an unknown label is a 400, with unread too', async () => {
+    const { act } = await setup();
+    expect((await act('mail.list', { view: 'nope', unread: true })).status).toBe(400);
+  });
+});
+
+describe('stats.today over a period', () => {
+  // The harness clock is 2026-11-02T08:00:00Z.
+  async function withJournal() {
+    const { h, act } = await setup();
+    const ins = h.db.prepare(
+      "INSERT INTO journal (at, message_id, origin, action, before, after) VALUES (?, 'm1', ?, ?, '[]', '[]')",
+    );
+    const row = (at: string, origin: string, action = 'file') => ins.run(at, origin, action).lastInsertRowid;
+    return { h, act, row };
+  }
+  const SINCE = '2026-11-01T06:00:00.000Z';
+  const UNTIL = '2026-11-02T06:00:00.000Z';
+
+  it('counts rule and ai lines of the period in autoFiled', async () => {
+    const { act, row } = await withJournal();
+    row('2026-11-01T12:00:00.000Z', 'rule');
+    row('2026-11-01T13:00:00.000Z', 'ai');
+    const res = await act('stats.today', { since: SINCE, until: UNTIL });
+    expect(res.body.ok).toBe(true);
+    expect(res.body.result).toMatchObject({ autoFiled: 2, rule: 1, ai: 1 });
+  });
+
+  it('leaves out an undone line and a line outside the period; since is in, until is out', async () => {
+    const { h, act, row } = await withJournal();
+    const undone = row('2026-11-01T12:00:00.000Z', 'ai');
+    h.db.prepare('UPDATE journal SET undone_at = ? WHERE id = ?').run('2026-11-01T13:00:00.000Z', undone);
+    row('2026-11-01T05:59:59.000Z', 'rule'); // before since
+    row('2026-11-02T07:00:00.000Z', 'rule'); // after until
+    row(UNTIL, 'rule'); // exactly until: out
+    row(SINCE, 'ai'); // exactly since: in
+    const res = await act('stats.today', { since: SINCE, until: UNTIL });
+    expect(res.body.result).toMatchObject({ autoFiled: 1, ai: 1, rule: 0 });
+  });
+
+  it('does not count a gesture of the user in autoFiled', async () => {
+    const { act, row } = await withJournal();
+    row('2026-11-01T12:00:00.000Z', 'user', 'file');
+    row('2026-11-01T12:01:00.000Z', 'user', 'validate');
+    row('2026-11-01T12:02:00.000Z', 'rule');
+    const res = await act('stats.today', { since: SINCE, until: UNTIL });
+    expect(res.body.result).toMatchObject({ autoFiled: 1, validated: 1 });
+  });
+
+  it.each([
+    ['since alone', { since: SINCE }],
+    ['until alone', { until: UNTIL }],
+    ['since after until', { since: UNTIL, until: SINCE }],
+    ['since equal to until', { since: SINCE, until: SINCE }],
+    ['not a date', { since: 'yesterday', until: UNTIL }],
+  ])('%s is a 400', async (_name, input) => {
+    const { act } = await setup();
+    expect((await act('stats.today', input)).status).toBe(400);
+  });
+
+  it('without a period, counts the current day as before', async () => {
+    const { act, row } = await withJournal();
+    row('2026-11-02T07:00:00.000Z', 'rule'); // today in Paris
+    row('2026-11-01T22:30:00.000Z', 'ai'); // yesterday in Paris
+    const res = await act('stats.today', {});
+    expect(res.body.result).toMatchObject({ autoFiled: 1, rule: 1, ai: 0 });
+  });
+});
+
 describe('catalog errors are answers, never a 500', () => {
   it('invalid input is a 400 with the schema message', async () => {
     const { act } = await setup();
