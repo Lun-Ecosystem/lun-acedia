@@ -622,7 +622,7 @@ export function registerCatalog(actions: ActionRegistry, deps: CatalogDeps): voi
               at: c.decidedAt!,
             }));
       const done = [...journal, ...cards].sort((a, b) => b.at.localeCompare(a.at)).slice(0, LIMIT);
-      expireCards(deps.db, dayOf(deps.clock()));
+      expireCards(deps.db, dayOf(deps.clock()), deps.clock());
       const count = (sql: string, params: string[] = []) =>
         (deps.db.prepare(sql).get(...params) as { n: number }).n;
       // What « À valider » shows: a proposal whose mail left the inbox waits for nobody.

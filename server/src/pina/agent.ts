@@ -1,6 +1,7 @@
 import type { DatabaseSync } from 'node:sqlite';
 import type { Action, ActionRegistry } from '../contract/actions.ts';
 import { recordCost } from '../contract/costs.ts';
+import { emitEvent } from '../contract/events.ts';
 import { keyRefused, keyWorks } from '../llm/keys.ts';
 import { costOf, priceOf, spentToday } from '../llm/models.ts';
 import {
@@ -123,6 +124,8 @@ export async function runCard(deps: Pick<PinaDeps, 'db' | 'actions' | 'clock'>, 
       : setCardStatus(deps.db, cardId, 'pending', 'failed', { error: out.error, at });
     // Impossible while every decision goes through this file: said loudly if it ever happens.
     if (!settled) console.error(`Agent : carte ${cardId} décidée pendant son exécution`, JSON.stringify(out));
+    // Once settled, before the model resumes: the core reads the card, not the decision.
+    else signalCards(deps.db, at);
   } finally {
     running.delete(cardId);
   }
@@ -132,7 +135,10 @@ export async function runCard(deps: Pick<PinaDeps, 'db' | 'actions' | 'clock'>, 
 /** CrOliX refuses a card: `false` when it is no longer pending or its action is running. */
 export function refuseCard(deps: Pick<PinaDeps, 'db' | 'clock'>, cardId: number): boolean {
   if (running.has(cardId)) return false;
-  return setCardStatus(deps.db, cardId, 'pending', 'refused', { at: deps.clock() });
+  const at = deps.clock();
+  const refused = setCardStatus(deps.db, cardId, 'pending', 'refused', { at });
+  if (refused) signalCards(deps.db, at);
+  return refused;
 }
 
 /** « Modifier »: replaces a pending card's input, validated by the action's schema. */
@@ -179,7 +185,7 @@ export async function decideCard(
   if (card.day !== today) {
     if (card.status !== 'pending' && card.status !== 'expired')
       return { ok: false, status: 409, error: 'Carte déjà décidée' };
-    expireCards(deps.db, today);
+    expireCards(deps.db, today, deps.clock());
     return { ok: false, status: 409, error: 'Carte expirée' };
   }
   if (decision === 'accept' && input !== undefined) {
@@ -196,9 +202,14 @@ export async function decideCard(
   return { ok: true, card: getCard(deps.db, id)! };
 }
 
-/** The daily tidy: earlier days' pending cards expire, except one being run right now. */
-export function expireCards(db: DatabaseSync, today: string): void {
-  expireOld(db, today, [...running]);
+/** Tells the core a card left the wait; it reads the card itself (`GET /lun/v1/cards/:id`), nothing of the decision. */
+export function signalCards(db: DatabaseSync, now: Date): void {
+  emitEvent(db, { type: 'card.changed', importance: 'log', title: 'Carte mise à jour' }, now);
+}
+
+/** The daily tidy: earlier days' pending cards expire, except one being run right now. Signals only if one did. */
+export function expireCards(db: DatabaseSync, today: string, now: Date): void {
+  if (expireOld(db, today, [...running]) > 0) signalCards(db, now);
 }
 
 /** A pending card whose moment has passed (a conflict begun): `false` when decided or being run. */

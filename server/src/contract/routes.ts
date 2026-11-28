@@ -22,7 +22,7 @@ import { BadRequestError, NotFoundError, type ActionDeps } from '../gmail/action
 import type { GoogleClient } from '../google/client.ts';
 import { ConflictError } from '../triage/journal.ts';
 import { correct, refuse, validate } from '../triage/pipeline.ts';
-import { emitEvent, eventsSince, mailLink, subscribe, type LunEvent } from './events.ts';
+import { eventsSince, mailLink, subscribe, type LunEvent } from './events.ts';
 import { getState, setPaused, statusOf } from './state.ts';
 
 const HEARTBEAT_MS = 25_000;
@@ -164,17 +164,6 @@ export function contractRoutes(deps: AppDeps, pina: PinaDeps, google?: GoogleCli
         else await correct(mail(), id, boxId, tagIds);
       }
       const status = decision === 'refuse' ? 'refused' : 'done';
-      // The screens reload on a `mail.*` signal: without it, a card settled by the core stays in « À valider ».
-      emitEvent(
-        db,
-        {
-          type: 'mail.changed',
-          importance: 'log',
-          title: 'Boîte mise à jour',
-          data: { added: [], changed: [id], removed: [] },
-        },
-        clock(),
-      );
       return { card: proposalCard(db, getProposal(db, id)!, status) };
     } catch (err) {
       if (err instanceof NotFoundError) return { error: err.message, status: 404 };
@@ -317,7 +306,7 @@ export function contractRoutes(deps: AppDeps, pina: PinaDeps, google?: GoogleCli
     const status = c.req.query('status') ?? 'pending';
     if (!STATUSES.includes(status as PinaCardStatus))
       return c.json({ error: `Statut inconnu : ${status}` }, 400);
-    expireCards(db, dayOf(clock()));
+    expireCards(db, dayOf(clock()), clock());
     const rows = db.prepare('SELECT id FROM pina_cards WHERE status = ? ORDER BY id DESC').all(status);
     const cards = rows.map((x) => toContractCard(db, getCard(db, (x as { id: number }).id)!));
     // shortcut: a settled proposal has no decision time in `proposals`, so status=done or refused serves the agent
@@ -325,6 +314,28 @@ export function contractRoutes(deps: AppDeps, pina: PinaDeps, google?: GoogleCli
     if (status !== 'pending') return c.json({ cards });
     const all = [...cards, ...waitingProposals(db).map((p) => proposalCard(db, p))];
     return c.json({ cards: all.sort((a, b) => b.at.localeCompare(a.at)) });
+  });
+
+  // A card in whatever state: the core reads it after the signal of a card that left the wait.
+  r.get('/cards/:id', (c) => {
+    const id = c.req.param('id');
+    expireCards(db, dayOf(clock()), clock());
+    if (id.startsWith('mail:')) {
+      const p = getProposal(db, id.slice(5));
+      // A mail filed alone is not a card.
+      if (!p || p.status === 'auto') return c.json({ error: 'Carte inconnue' }, 404);
+      const status: ContractCard['status'] =
+        p.status === 'pending'
+          ? waitingProposals(db, p.messageId).length
+            ? 'pending'
+            : 'expired'
+          : p.status === 'refused'
+            ? 'refused'
+            : 'done';
+      return c.json({ card: proposalCard(db, p, status) });
+    }
+    const card = /^\d+$/.test(id) ? getCard(db, Number(id)) : undefined;
+    return card ? c.json({ card: toContractCard(db, card) }) : c.json({ error: 'Carte inconnue' }, 404);
   });
 
   // The card is decided once `decideCard` answers: a failure of the loop that resumes (the model's

@@ -528,7 +528,7 @@ describe('Pina fix round 1', () => {
     const [card] = cardsOf(s.h.db, s.day);
     const run = runCard(s.deps, card!.id);
     expect(refuseCard(s.deps, card!.id)).toBe(false);
-    expireCards(s.h.db, '2099-01-01');
+    expireCards(s.h.db, '2099-01-01', s.h.clock());
     expect(getCard(s.h.db, card!.id)?.status).toBe('pending');
     release();
     expect(await run).toMatchObject({ status: 'done', inverse: { action: 'task.delete' } });
@@ -682,5 +682,117 @@ describe('cards of the overlap detection', () => {
     await decideCard(s.deps, card.id, 'refuse');
     expect(s.requests).toEqual([]);
     expect(s.thread()).toEqual([]);
+  });
+});
+
+describe('the signal of a card that leaves the wait', () => {
+  const cardEvents = (s: Awaited<ReturnType<typeof setup>>) =>
+    eventsSince(s.h.db).filter((e) => e.type === 'card.changed');
+
+  it('a decision signals once, before the model resumes, without saying what was decided', async () => {
+    let seen = -1;
+    const s = await setup([
+      calls(tool('event.create', EVENT)),
+      () => {
+        seen = cardEvents(s).length;
+        return answer('Fait.');
+      },
+    ]);
+    await ask(s.deps, 'Ajoute le dentiste', { screen: 'agenda' });
+    const [card] = cardsOf(s.h.db, s.day);
+    expect(cardEvents(s)).toHaveLength(0);
+    await decideCard(s.deps, card!.id, 'accept');
+    expect(seen).toBe(1);
+    expect(cardEvents(s)).toHaveLength(1);
+    expect(cardEvents(s)[0]).toMatchObject({ importance: 'log', title: 'Carte mise à jour' });
+    expect(cardEvents(s)[0]!.data).toBeUndefined();
+  });
+
+  it('a refusal signals once', async () => {
+    const s = await setup([calls(tool('event.create', EVENT))]);
+    await ask(s.deps, 'Ajoute le dentiste', { screen: 'agenda' });
+    const [card] = cardsOf(s.h.db, s.day);
+    await decideCard(s.deps, card!.id, 'refuse');
+    expect(cardEvents(s)).toHaveLength(1);
+  });
+
+  it('a card whose action fails signals: it has left the wait', async () => {
+    const s = await setup([calls(tool('task.create', { title: 'Appeler la banque' }))]);
+    const original = s.h.actions.get('task.create')!;
+    s.h.actions.register(
+      'task.create',
+      original.description,
+      original.schema,
+      () => Promise.reject(new Error('Google refuse')),
+      'write',
+    );
+    await ask(s.deps, 'Ajoute la banque', { screen: 'tasks' });
+    const [card] = cardsOf(s.h.db, s.day);
+    expect(await decideCard(s.deps, card!.id, 'accept')).toMatchObject({
+      ok: true,
+      card: { status: 'failed' },
+    });
+    expect(cardEvents(s)).toHaveLength(1);
+  });
+
+  it('a gesture refused by a 4xx signals nothing', async () => {
+    const s = await setup([calls(tool('event.create', EVENT))]);
+    await ask(s.deps, 'Ajoute le dentiste', { screen: 'agenda' });
+    const [card] = cardsOf(s.h.db, s.day);
+    expect(await decideCard(s.deps, 9999, 'accept')).toMatchObject({ status: 404 });
+    expect(await decideCard(s.deps, card!.id, 'accept', { title: 1 })).toMatchObject({ status: 400 });
+    expect(cardEvents(s)).toHaveLength(0);
+    await decideCard(s.deps, card!.id, 'refuse');
+    expect(await decideCard(s.deps, card!.id, 'refuse')).toMatchObject({ status: 409 });
+    expect(cardEvents(s)).toHaveLength(1);
+  });
+
+  it('immediate mode: a card that runs signals once, done or failed, and the model resumes after', async () => {
+    let seen = -1;
+    const s = await setup([
+      calls(tool('event.create', EVENT)),
+      () => {
+        seen = cardEvents(s).length;
+        return answer('Fait.');
+      },
+      calls(tool('task.create', { title: 'Appeler la banque' })),
+    ]);
+    putPinaSettings(s.h.db, { mode: 'immediate' });
+    await ask(s.deps, 'Ajoute le dentiste', { screen: 'agenda' });
+    expect(seen).toBe(1);
+    expect(cardEvents(s)).toHaveLength(1);
+    const original = s.h.actions.get('task.create')!;
+    s.h.actions.register(
+      'task.create',
+      original.description,
+      original.schema,
+      () => Promise.reject(new Error('Google refuse')),
+      'write',
+    );
+    await ask(s.deps, 'Ajoute la banque', { screen: 'tasks' });
+    expect(cardsOf(s.h.db, s.day).map((c) => c.status)).toEqual(['done', 'failed']);
+    expect(cardEvents(s)).toHaveLength(2);
+  });
+
+  it('yesterday’s pending card: expires, one signal, 409', async () => {
+    const s = await setup([calls(tool('event.create', EVENT))]);
+    await ask(s.deps, 'Ajoute le dentiste', { screen: 'agenda' });
+    const [card] = cardsOf(s.h.db, s.day);
+    s.h.advance(26 * 3_600_000);
+    expect(await decideCard(s.deps, card!.id, 'accept')).toMatchObject({ ok: false, status: 409 });
+    expect(getCard(s.h.db, card!.id)?.status).toBe('expired');
+    expect(cardEvents(s)).toHaveLength(1);
+  });
+
+  it('the expiry signals only when a card really expired, never on a later read', async () => {
+    const s = await setup([calls(tool('event.create', EVENT))]);
+    await ask(s.deps, 'Ajoute le dentiste', { screen: 'agenda' });
+    const now = s.h.clock();
+    expireCards(s.h.db, s.day, now);
+    expect(cardEvents(s)).toHaveLength(0);
+    expireCards(s.h.db, '2099-01-01', now);
+    expect(cardEvents(s)).toHaveLength(1);
+    expireCards(s.h.db, '2099-01-01', now);
+    expect(cardEvents(s)).toHaveLength(1);
   });
 });

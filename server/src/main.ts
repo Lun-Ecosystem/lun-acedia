@@ -132,7 +132,7 @@ startLoop(async () => pruneEvents(db, clock()), {
 startLoop(
   async () => {
     const today = dayOf(clock());
-    expireCards(db, today);
+    expireCards(db, today, clock());
     purge(db, today);
   },
   { intervalMs: 3600_000, onError: logError('Fil de l’agent') },

@@ -598,3 +598,129 @@ describe('/lun/v1/cards/mail:<id>: the gesture on a proposal', () => {
     expect((await s.accept({}, String(card()))).body.card.status).toBe('done');
   });
 });
+
+describe('GET /lun/v1/cards/:id', () => {
+  const read = async (s: Awaited<ReturnType<typeof proposals>>, id: string) => {
+    const res = await s.request(`/cards/${encodeURIComponent(id)}`);
+    return { status: res.status, body: await res.json() };
+  };
+
+  it('serves a proposal whatever its state: pending, done, refused, expired', async () => {
+    const s = await proposals({});
+    await s.deliver({ id: 'a', subject: 'a' }, { id: 'b', subject: 'b' }, { id: 'c', subject: 'c' });
+    await s.deliver({ id: 'd', subject: 'd' });
+    expect((await read(s, 'mail:a')).body.card).toMatchObject({ id: 'mail:a', status: 'pending' });
+    setProposalStatus(s.h.db, 'a', 'accepted');
+    expect((await read(s, 'mail:a')).body.card).toMatchObject({ id: 'mail:a', status: 'done' });
+    setProposalStatus(s.h.db, 'b', 'corrected');
+    expect((await read(s, 'mail:b')).body.card.status).toBe('done');
+    setProposalStatus(s.h.db, 'c', 'refused');
+    expect((await read(s, 'mail:c')).body.card.status).toBe('refused');
+    // Still pending, but its mail has left the inbox (Gmail): nobody waits for it.
+    setStoredLabels(s.h.db, 'd', [s.b2]);
+    expect((await read(s, 'mail:d')).body.card).toMatchObject({ id: 'mail:d', status: 'expired' });
+  });
+
+  it('a mail filed alone is not a card, nor is an unknown id', async () => {
+    const s = await proposals({});
+    await s.deliver({ id: 'm1', subject: 'm1' });
+    setProposalStatus(s.h.db, 'm1', 'auto');
+    expect((await read(s, 'mail:m1')).status).toBe(404);
+    expect((await read(s, 'mail:nope')).status).toBe(404);
+    expect((await read(s, '4242')).status).toBe(404);
+    expect((await read(s, 'abc')).status).toBe(404);
+  });
+
+  it('serves the card of the agent as /cards does, in any status; yesterday’s pending one reads expired', async () => {
+    const s = await setup();
+    const id = s.card();
+    const listed = (await (await s.get('/cards')).json()).cards[0];
+    const res = await s.get(`/cards/${id}`);
+    expect(res.status).toBe(200);
+    expect((await res.json()).card).toEqual(listed);
+    await s.post(`/cards/${id}/refuse`, {});
+    expect((await (await s.get(`/cards/${id}`)).json()).card.status).toBe('refused');
+    const old = s.card({ day: '2026-01-01' });
+    expect((await (await s.get(`/cards/${old}`)).json()).card.status).toBe('expired');
+  });
+
+  it('wants the device token', async () => {
+    const s = await setup();
+    const id = s.card();
+    expect((await s.h.app.request(`/lun/v1/cards/${id}`)).status).toBe(401);
+  });
+});
+
+describe('the signal of a card that leaves the wait', () => {
+  const changed = (s: Awaited<ReturnType<typeof proposals>>) =>
+    eventsSince(s.h.db, '0').filter((e) => e.type === 'mail.changed');
+  const gesture = (s: Awaited<ReturnType<typeof proposals>>, path: string, body: unknown = {}) =>
+    s.h.call('POST', path, body);
+
+  it.each([
+    ['validate', '/api/mail/m1/validate'],
+    ['refuse', '/api/mail/m1/refuse'],
+    ['correct', '/api/mail/m1/correct'],
+  ])('%s in the screen signals once', async (_name, path) => {
+    const s = await proposals({});
+    await s.deliver({ id: 'm1', subject: 'm1' });
+    const before = changed(s).length;
+    const res = await gesture(s, path, path.endsWith('correct') ? { boxId: s.b2 } : {});
+    expect(res.status).toBe(200);
+    const after = changed(s).slice(before);
+    expect(after).toHaveLength(1);
+    expect(after[0]).toMatchObject({ importance: 'log', data: { added: [], changed: ['m1'], removed: [] } });
+  });
+
+  it('a gesture that fails signals nothing', async () => {
+    const s = await proposals({});
+    await s.deliver({ id: 'm1', subject: 'm1' });
+    await gesture(s, '/api/mail/m1/validate');
+    const before = changed(s).length;
+    expect((await gesture(s, '/api/mail/m1/validate')).status).toBeGreaterThanOrEqual(400);
+    expect(changed(s)).toHaveLength(before);
+  });
+
+  it('a mail filed by hand, which settles its pending proposal, signals once', async () => {
+    const s = await proposals({});
+    await s.deliver({ id: 'm1', subject: 'm1' }, { id: 'm2', subject: 'm2' });
+    const before = changed(s).length;
+    expect((await gesture(s, '/api/mail/m1/file', { boxId: s.b2 })).status).toBe(200);
+    expect(getProposal(s.h.db, 'm1')?.status).toBe('corrected');
+    const after = changed(s).slice(before);
+    expect(after).toHaveLength(1);
+    expect(after[0]!.data).toEqual({ added: [], changed: ['m1'], removed: [] });
+    // A second filing leaves the proposal as it is: nothing changed, nothing said.
+    await gesture(s, '/api/mail/m1/file', { boxId: s.b1 });
+    expect(changed(s).slice(before)).toHaveLength(1);
+  });
+
+  it.each(['archive', 'trash', 'spam'])(
+    '%s of a mail whose proposal waits signals once; without a waiting proposal, nothing',
+    async (op) => {
+      const s = await proposals({});
+      await s.deliver({ id: 'm1', subject: 'm1' }, { id: 'm2', subject: 'm2' });
+      setProposalStatus(s.h.db, 'm2', 'auto');
+      const before = changed(s).length;
+      expect((await gesture(s, `/api/mail/m1/${op}`)).status).toBe(200);
+      const after = changed(s).slice(before);
+      expect(after).toHaveLength(1);
+      expect(after[0]!.data).toEqual({ added: [], changed: ['m1'], removed: [] });
+      expect((await gesture(s, `/api/mail/m2/${op}`)).status).toBe(200);
+      expect(changed(s).slice(before)).toHaveLength(1);
+    },
+  );
+
+  it('a card that expired signals once; reading /cards twice with nothing to expire signals nothing', async () => {
+    const s = await setup();
+    const events = () => eventsSince(s.h.db, '0').filter((e) => e.type === 'card.changed');
+    s.card();
+    await s.get('/cards');
+    await s.get('/cards');
+    expect(events()).toHaveLength(0);
+    s.card({ day: '2026-01-01' });
+    await s.get('/cards');
+    await s.get('/cards');
+    expect(events()).toHaveLength(1);
+  });
+});

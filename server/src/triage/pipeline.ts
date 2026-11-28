@@ -446,6 +446,20 @@ async function oneAtATime<T>(id: string, gesture: () => Promise<T>): Promise<T> 
   }
 }
 
+/** Tells the screens and the core a proposal left the wait: they read it again, the decision is not in it. */
+function signalProposal(deps: ActionDeps, id: string): void {
+  emitEvent(
+    deps.db,
+    {
+      type: 'mail.changed',
+      importance: 'log',
+      title: 'Boîte mise à jour',
+      data: { added: [], changed: [id], removed: [] },
+    },
+    deps.now(),
+  );
+}
+
 /** CrOliX accepts the proposal as it is. */
 export async function validate(deps: ActionDeps, id: string): Promise<Proposal & { journalId: number }> {
   return oneAtATime(id, async () => {
@@ -455,6 +469,7 @@ export async function validate(deps: ActionDeps, id: string): Promise<Proposal &
     setProposalStatus(deps.db, id, 'accepted');
     remember(deps, id, p.boxId, p.tagIds);
     const journalId = logUser(deps.db, changeOf(deps, id, change), 'validate', deps.now(), previous);
+    signalProposal(deps, id);
     return { ...getProposal(deps.db, id)!, journalId };
   });
 }
@@ -475,6 +490,7 @@ export async function refuse(deps: ActionDeps, id: string): Promise<Proposal & {
     const previous = snapshot(deps.db, id);
     setProposalStatus(deps.db, id, 'refused');
     const journalId = logUser(deps.db, changeOf(deps, id, undefined), 'refuse', deps.now(), previous);
+    signalProposal(deps, id);
     return { ...getProposal(deps.db, id)!, journalId };
   });
 }
@@ -510,7 +526,8 @@ export async function correct(
   opts: { rememberSender?: boolean } = {},
 ): Promise<Proposal & { journalId: number }> {
   return oneAtATime(id, async () => {
-    if (!getProposal(deps.db, id)) throw new NotFoundError('Aucune proposition pour ce mail');
+    const was = getProposal(deps.db, id);
+    if (!was) throw new NotFoundError('Aucune proposition pour ce mail');
     if (boxId !== null && boxId !== 'trash' && boxId !== 'spam' && !boxIds(deps.db).includes(boxId))
       throw new BadRequestError(`« ${boxId} » n’est pas une boîte`);
     const tags = new Set(listTags(deps.db).map((t) => t.id));
@@ -523,6 +540,8 @@ export async function correct(
     const createdRule = opts.rememberSender && boxId ? ruleForSender(deps, id, boxId) : undefined;
     if (createdRule) previous.createdRule = createdRule;
     const journalId = logUser(deps.db, changeOf(deps, id, change), 'correct', deps.now(), previous);
+    // A mail the AI had filed alone was no card: nothing leaves the wait.
+    if (was.status === 'pending') signalProposal(deps, id);
     return { ...getProposal(deps.db, id)!, journalId };
   });
 }
@@ -536,8 +555,11 @@ export function onManualFile(deps: ActionDeps, id: string, boxId: string): void 
   if (!mail) return;
   recordExample(deps.db, mail, boxId, tagIdsOf(deps.db, mail.labels), deps.now());
   const p = getProposal(deps.db, id);
-  if (p?.status === 'pending' || (p?.source === 'ai' && p.status === 'auto'))
+  if (p?.status === 'pending' || (p?.source === 'ai' && p.status === 'auto')) {
     setProposalStatus(deps.db, id, p.boxId === boxId ? 'accepted' : 'corrected');
+    // Only a card that waited leaves the wait; an AI filing alone was never one.
+    if (p.status === 'pending') signalProposal(deps, id);
+  }
 }
 
 const JOURNALED: Partial<Record<BatchOp['kind'], UserAction>> = {
@@ -557,6 +579,8 @@ export function afterUserAction(deps: ActionDeps, change: LabelChange, op: Batch
   if (!action) return undefined;
   const previous = snapshot(deps.db, change.id);
   if (op.kind === 'file') onManualFile(deps, change.id, op.boxId);
+  // The mail leaves the inbox: its waiting proposal is no longer served as a card.
+  else if (getProposal(deps.db, change.id)?.status === 'pending') signalProposal(deps, change.id);
   return logUser(deps.db, change, action, deps.now(), previous);
 }
 

@@ -143,11 +143,13 @@ export function deletePendingCard(db: DatabaseSync, id: number): boolean {
 }
 
 /** Cards of an earlier day can no longer be validated; `keep` are the cards being run right now. */
-export function expireOld(db: DatabaseSync, today: string, keep: number[] = []): void {
-  db.prepare(
-    `UPDATE pina_cards SET status = 'expired' WHERE status = 'pending' AND day < ?
+export function expireOld(db: DatabaseSync, today: string, keep: number[] = []): number {
+  return db
+    .prepare(
+      `UPDATE pina_cards SET status = 'expired' WHERE status = 'pending' AND day < ?
      AND id NOT IN (SELECT value FROM json_each(?))`,
-  ).run(today, JSON.stringify(keep));
+    )
+    .run(today, JSON.stringify(keep)).changes as number;
 }
 
 /** The cards of the day's digest wait this long for a core that was away. */
