@@ -218,14 +218,17 @@ function parisDayEnd(now: Date): Date {
   return parisDayStart(new Date(start + 36 * 3_600_000));
 }
 
-/** What was done today (a Paris calendar day); undone entries do not count. */
-export function todayStats(db: DatabaseSync, now: Date): TodayStats {
+/** What was done today (a Paris calendar day) or over `[since, until[`; undone entries do not count. */
+export function todayStats(db: DatabaseSync, now: Date, period?: { since: Date; until: Date }): TodayStats {
   const rows = db
     .prepare(
       `SELECT origin, action, COUNT(*) AS n FROM journal
        WHERE undone_at IS NULL AND at >= ? AND at < ? GROUP BY origin, action`,
     )
-    .all(parisDayStart(now).toISOString(), parisDayEnd(now).toISOString()) as {
+    .all(
+      (period?.since ?? parisDayStart(now)).toISOString(),
+      (period?.until ?? parisDayEnd(now)).toISOString(),
+    ) as {
     origin: Origin;
     action: string;
     n: number;

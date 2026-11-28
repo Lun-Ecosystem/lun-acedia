@@ -93,7 +93,7 @@ dans lun-docs.
 ## Dans l'écosystème
 
 **Rôle dans l'écosystème** : satellite. Il possède la boîte mail, son tri, l'agenda, les tâches et l'autorisation Google,
-et il sert ses propres écrans. Il fonctionne seul. Lun'Anima s'y branche par le [contrat satellite](https://github.com/Lun-Ecosystem/lun-docs/blob/main/standards/contrat-satellite.md) (v1.6) : il délègue à son agent
+et il sert ses propres écrans. Il fonctionne seul. Lun'Anima s'y branche par le [contrat satellite](https://github.com/Lun-Ecosystem/lun-docs/blob/main/standards/contrat-satellite.md) (v1.7) : il délègue à son agent
 (`POST /lun/v1/agent`) et relaie ses cartes (`GET /lun/v1/cards`, `accept`, `refuse`), sans intégrer ses écrans.
 
 Ce qui sort du poste vers Lun'Anima, d'un mail : son objet et une synthèse de deux lignes au plus, l'un et l'autre

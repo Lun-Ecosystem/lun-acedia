@@ -353,15 +353,15 @@ export function registerCatalog(actions: ActionRegistry, deps: CatalogDeps): voi
   add(
     'read',
     'mail.list',
-    'Liste une page d’une vue (inbox, pending, trash, spam, sent) ou d’une boîte (son id), du plus récent au plus ancien.',
-    z.object({ view: Id, cursor: z.string().optional() }),
-    async ({ view, cursor }) => {
+    'Liste une page d’une vue (inbox, pending, trash, spam, sent) ou d’une boîte (son id), du plus récent au plus ancien. Avec unread: true, seuls les mails non lus, lus du cache.',
+    z.object({ view: Id, cursor: z.string().optional(), unread: z.boolean().optional() }),
+    async ({ view, cursor, unread }) => {
       // A bare box id is what label.list gives; the screen's own view name is `box:<id>`.
       const named = viewFilter(view) ? view : `box:${view}`;
       // The screen lists an unknown box as empty; the model is told instead.
       if (named !== view && !listLabels(deps.db).some((l) => l.id === view))
         throw new BadRequestError(`Vue inconnue : ${view}`);
-      const page = await listMail(deps.db, mail().google, named, cursor);
+      const page = await listMail(deps.db, mail().google, named, cursor, { unread: unread === true });
       if (!page) throw new BadRequestError(`Vue inconnue : ${view}`);
       const body: { items: ReturnType<typeof summary>[]; cursor?: string } = {
         items: page.items.map((m) => summary(withProposal(deps.db, m))),
@@ -527,8 +527,20 @@ export function registerCatalog(actions: ActionRegistry, deps: CatalogDeps): voi
     },
   );
 
-  add('read', 'stats.today', 'Ce que le tri a fait aujourd’hui.', z.object({}), async () =>
-    todayStats(deps.db, deps.clock()),
+  add(
+    'read',
+    'stats.today',
+    'Ce que le tri a fait aujourd’hui, ou sur une période [since, until[ (les deux ensemble, ou aucun).',
+    z.object({
+      since: z.iso.datetime({ offset: true }).optional().describe('Début inclus, ISO 8601 UTC'),
+      until: z.iso.datetime({ offset: true }).optional().describe('Fin exclue, ISO 8601 UTC'),
+    }),
+    async ({ since, until }) => {
+      if (!since && !until) return todayStats(deps.db, deps.clock());
+      if (!since || !until) throw new InvalidInputError('since et until vont ensemble');
+      if (Date.parse(since) >= Date.parse(until)) throw new InvalidInputError('since doit précéder until');
+      return todayStats(deps.db, deps.clock(), { since: new Date(since), until: new Date(until) });
+    },
   );
 
   add(
