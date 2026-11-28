@@ -54,6 +54,7 @@ interface Row {
   all_day: number;
   location: string | null;
   reminders: string | null;
+  declined: number;
 }
 
 const popups = (reminders: GoogleReminder[] | undefined) =>
@@ -81,6 +82,7 @@ export function toEvent(db: DatabaseSync, r: Row): AgendaEvent {
       r.reminders === null ? defaultReminders(db, r.calendar_id) : (JSON.parse(r.reminders) as number[]),
   };
   if (r.location) e.location = r.location;
+  if (r.declined === 1) e.declined = true;
   return e;
 }
 

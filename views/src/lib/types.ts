@@ -69,6 +69,8 @@ export interface AgendaEvent {
   end: string;
   allDay: boolean;
   location?: string;
+  /** The user declined this invitation; absent otherwise. */
+  declined?: true;
   /** Minutes before the start (the calendar defaults when the event has none of its own). */
   reminders: number[];
 }
