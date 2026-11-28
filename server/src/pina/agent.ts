@@ -1,6 +1,7 @@
 import type { DatabaseSync } from 'node:sqlite';
 import type { Action, ActionRegistry } from '../contract/actions.ts';
 import { recordCost } from '../contract/costs.ts';
+import { emitEvent } from '../contract/events.ts';
 import { keyRefused, keyWorks } from '../llm/keys.ts';
 import { costOf, priceOf, spentToday } from '../llm/models.ts';
 import {
@@ -179,7 +180,7 @@ export async function decideCard(
   if (card.day !== today) {
     if (card.status !== 'pending' && card.status !== 'expired')
       return { ok: false, status: 409, error: 'Carte déjà décidée' };
-    expireCards(deps.db, today);
+    expireCards(deps.db, today, deps.clock());
     return { ok: false, status: 409, error: 'Carte expirée' };
   }
   if (decision === 'accept' && input !== undefined) {
@@ -191,14 +192,21 @@ export async function decideCard(
   const decided =
     decision === 'accept' ? await runCard(deps, id) : refuseCard(deps, id) ? getCard(deps.db, id) : undefined;
   if (!decided) return { ok: false, status: 409, error: 'Carte déjà décidée' };
+  // Before the model resumes: the core reads the card, not the decision, and must not see it still waiting.
+  signalCards(deps.db, deps.clock());
   // After the decision, never inside the queue: the loop goes on with its outcome.
   await resume(deps, id);
   return { ok: true, card: getCard(deps.db, id)! };
 }
 
-/** The daily tidy: earlier days' pending cards expire, except one being run right now. */
-export function expireCards(db: DatabaseSync, today: string): void {
-  expireOld(db, today, [...running]);
+/** Tells the core a card left the wait; it reads the card itself (`GET /lun/v1/cards/:id`), nothing of the decision. */
+function signalCards(db: DatabaseSync, now: Date): void {
+  emitEvent(db, { type: 'card.changed', importance: 'log', title: 'Carte mise à jour' }, now);
+}
+
+/** The daily tidy: earlier days' pending cards expire, except one being run right now. Signals only if one did. */
+export function expireCards(db: DatabaseSync, today: string, now: Date): void {
+  if (expireOld(db, today, [...running]) > 0) signalCards(db, now);
 }
 
 /** A pending card whose moment has passed (a conflict begun): `false` when decided or being run. */

@@ -391,7 +391,7 @@ describe('against weariness', () => {
   it('an expired card brings its pair back never, the day after, nor 30 days after', async () => {
     const h = await run([A(), B()]);
     h.advance(24 * HOUR);
-    expireCards(h.db, dayOf(h.clock()));
+    expireCards(h.db, dayOf(h.clock()), h.clock());
     expect(overlapCards(h.db)[0]!.status).toBe('expired');
     await h.syncAgenda();
     expect(overlapCards(h.db)).toHaveLength(1);
@@ -604,7 +604,7 @@ describe('one reminder, on the eve', () => {
   const D = () => guestEvent('b', paris(5, 10, 30), paris(5, 11, 30), { summary: 'Réunion client' });
   async function nextDay(h: Harness) {
     h.advance(24 * HOUR);
-    expireCards(h.db, dayOf(h.clock()));
+    expireCards(h.db, dayOf(h.clock()), h.clock());
     await h.syncAgenda();
   }
 
@@ -625,7 +625,7 @@ describe('one reminder, on the eve', () => {
   it('the eve is a day of Paris: at 00:30 in Paris, 23:30 UTC the day before, it is the eve', async () => {
     const h = await run([C(), D()]);
     h.advance(39.5 * HOUR); // Wednesday Nov 4, 00:30 in Paris.
-    expireCards(h.db, dayOf(h.clock()));
+    expireCards(h.db, dayOf(h.clock()), h.clock());
     await h.syncAgenda();
     expect(overlapCards(h.db).map((c) => c.day)).toEqual(['2026-11-02', '2026-11-04']);
   });
