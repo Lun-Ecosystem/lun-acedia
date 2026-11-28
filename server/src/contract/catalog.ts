@@ -353,7 +353,7 @@ export function registerCatalog(actions: ActionRegistry, deps: CatalogDeps): voi
   add(
     'read',
     'mail.list',
-    'Liste une page d’une vue (inbox, pending, trash, spam, sent) ou d’une boîte (son id), du plus récent au plus ancien. Avec unread: true, seuls les mails non lus, lus du cache.',
+    'Liste une page d’une vue (inbox, pending, trash, spam, sent) ou d’une boîte (son id), du plus récent au plus ancien. Avec unread: true, seuls les non lus déjà en cache ; repasser unread avec le curseur.',
     z.object({ view: Id, cursor: z.string().optional(), unread: z.boolean().optional() }),
     async ({ view, cursor, unread }) => {
       // A bare box id is what label.list gives; the screen's own view name is `box:<id>`.
@@ -532,8 +532,8 @@ export function registerCatalog(actions: ActionRegistry, deps: CatalogDeps): voi
     'stats.today',
     'Ce que le tri a fait aujourd’hui, ou sur une période [since, until[ (les deux ensemble, ou aucun).',
     z.object({
-      since: z.iso.datetime({ offset: true }).optional().describe('Début inclus, ISO 8601 UTC'),
-      until: z.iso.datetime({ offset: true }).optional().describe('Fin exclue, ISO 8601 UTC'),
+      since: z.iso.datetime({ offset: true }).optional().describe('Début inclus, ISO 8601 (Z ou décalage)'),
+      until: z.iso.datetime({ offset: true }).optional().describe('Fin exclue, ISO 8601 (Z ou décalage)'),
     }),
     async ({ since, until }) => {
       if (!since && !until) return todayStats(deps.db, deps.clock());

@@ -329,6 +329,27 @@ describe('mail.list with unread', () => {
     expect(ids(await act('mail.list', { view: box, unread: false }))).toEqual(['b-read', 'b-unread']);
   });
 
+  it('pages through the unread mails of a label with the cursor, without a read mail, a duplicate or a gap', async () => {
+    const { h, act } = await setup();
+    const box = (await h.call('POST', '/api/labels', { name: 'École', role: 'box' })).body.id as string;
+    const unread: string[] = [];
+    for (let i = 0; i < 80; i++) {
+      const date = new Date(Date.UTC(2026, 9, 1, 0, i)).toISOString();
+      const isUnread = i % 4 !== 0;
+      if (isUnread) unread.push(`p${i}`);
+      h.gmail.deliver(message({ id: `p${i}`, date, labelIds: isUnread ? [box, 'UNREAD'] : [box] }));
+    }
+    await h.sync();
+    const first = await act('mail.list', { view: box, unread: true });
+    const body1 = first.body.result as { items: { id: string }[]; cursor?: string };
+    expect(body1.cursor).toBeTruthy();
+    const second = await act('mail.list', { view: box, unread: true, cursor: body1.cursor });
+    const body2 = second.body.result as { items: { id: string }[]; cursor?: string };
+    const got = [...body1.items, ...body2.items].map((m) => m.id);
+    expect(got).toEqual(unread.slice().reverse());
+    expect(body2.cursor).toBeUndefined();
+  });
+
   it('an unknown label is a 400, with unread too', async () => {
     const { act } = await setup();
     expect((await act('mail.list', { view: 'nope', unread: true })).status).toBe(400);
@@ -387,6 +408,19 @@ describe('stats.today over a period', () => {
   ])('%s is a 400', async (_name, input) => {
     const { act } = await setup();
     expect((await act('stats.today', input)).status).toBe(400);
+  });
+
+  it('reads an offset date as the same instant in Z', async () => {
+    const { act, row } = await withJournal();
+    row('2026-11-01T06:00:00.000Z', 'rule'); // exactly since (07:00+01:00): in
+    row('2026-11-01T05:59:00.000Z', 'ai');
+    const res = await act('stats.today', { since: '2026-11-01T07:00:00+01:00', until: UNTIL });
+    expect(res.body.result).toMatchObject({ rule: 1, ai: 0 });
+  });
+
+  it('a date that does not exist (30 February) is a 400', async () => {
+    const { act } = await setup();
+    expect((await act('stats.today', { since: '2026-02-30T00:00:00Z', until: UNTIL })).status).toBe(400);
   });
 
   it('without a period, counts the current day as before', async () => {
