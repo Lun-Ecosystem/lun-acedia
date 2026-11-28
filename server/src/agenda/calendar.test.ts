@@ -155,6 +155,21 @@ describe('what the sync keeps for the overlaps', () => {
     expect(row('occurrence')).toMatchObject({ solo: 1, series_id: 'serie-1' });
   });
 
+  it('serves a declined invitation with declined: true, and no field otherwise (contract 1.8)', async () => {
+    const h = await makeAgendaHarness();
+    const put = (id: string, extra: object) => h.agenda.putEvent('primary', { id, ...when, ...extra });
+    const theirs = { organizer: { email: 'orga@example.org' } };
+    put('plain', {});
+    put('accepted', { ...theirs, attendees: [{ ...SELF, responseStatus: 'accepted' }] });
+    put('unanswered', { ...theirs, attendees: [{ ...SELF, responseStatus: 'needsAction' }] });
+    put('declined', { ...theirs, attendees: [{ ...SELF, responseStatus: 'declined' }] });
+    await h.syncAgenda();
+    const served = agendaRange(h.db, '2026-11-03T00:00:00Z', '2026-11-04T00:00:00Z');
+    const of = (id: string) => served.find((e) => e.id === id);
+    expect(of('declined')).toMatchObject({ declined: true });
+    for (const id of ['plain', 'accepted', 'unanswered']) expect(of(id)).not.toHaveProperty('declined');
+  });
+
   it('counts a change of guests as a change of the cache', async () => {
     const h = await makeAgendaHarness();
     h.agenda.putEvent('primary', { id: 'e1', ...when, organizer: SELF });

@@ -274,7 +274,7 @@ export function registerCatalog(actions: ActionRegistry, deps: CatalogDeps): voi
   add(
     'read',
     'agenda.list',
-    'Événements et tâches datées d’une période [from, to).',
+    'Événements et tâches datées d’une période [from, to) ; une invitation refusée porte declined.',
     z.object({ from: When, to: When }),
     async ({ from, to }) => ({ items: agendaRange(deps.db, from, to) }),
   );
