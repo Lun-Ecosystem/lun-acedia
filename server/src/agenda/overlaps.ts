@@ -1,7 +1,7 @@
 import type { DatabaseSync } from 'node:sqlite';
 import { emitEvent } from '../contract/events.ts';
 import { getState } from '../contract/state.ts';
-import { expireCard, withdrawCard } from '../pina/agent.ts';
+import { expireCard, signalCards, withdrawCard } from '../pina/agent.ts';
 import { addCard, dayOf } from '../pina/store.ts';
 import { parisOffset } from '../triage/journal.ts';
 import { mainCalendar } from './calendar.ts';
@@ -155,6 +155,8 @@ export function proposeOverlaps(db: DatabaseSync, now: Date): void {
       begun.has(c.call_id) && !live.has(c.call_id) ? expireCard(db, c.id, now) : withdrawCard(db, c.id);
     if (gone) taken += 1;
   }
+  // One signal a pass, whatever the number of cards taken: the core reads them again.
+  if (taken) signalCards(db, now);
   let made = 0;
   // One event a pass for the screens to read the thread again; a card made in the pass sends its own.
   const said = () => {

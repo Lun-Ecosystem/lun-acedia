@@ -476,6 +476,57 @@ describe('against weariness', () => {
   });
 });
 
+describe('the signal of a conflict card that leaves the wait', () => {
+  const signals = (db: DatabaseSync) => eventsSince(db).filter((e) => e.type === 'card.changed');
+  const served = async (h: Harness, id: number) => {
+    const token = await h.pairClient();
+    const res = await h.app.request(`/lun/v1/cards/${id}`, { headers: h.auth(token) });
+    return { status: res.status, card: res.status === 200 ? (await res.json()).card : undefined };
+  };
+
+  it('a conflict settled by hand: the card is taken back, one signal, and the contract no longer serves it', async () => {
+    const h = await run([A(), B()]);
+    const [card] = overlapCards(h.db);
+    expect(signals(h.db)).toHaveLength(0);
+    h.agenda.putEvent('primary', B({ start: { dateTime: paris(3, 14) }, end: { dateTime: paris(3, 15) } }));
+    await h.syncAgenda();
+    expect(signals(h.db)).toHaveLength(1);
+    expect(signals(h.db)[0]).toMatchObject({ importance: 'log', title: 'Carte mise à jour' });
+    expect((await served(h, card!.id)).status).toBe(404);
+    await h.syncAgenda();
+    expect(signals(h.db)).toHaveLength(1);
+  });
+
+  it('a conflict that has begun: the card expires, one signal, and it reads expired', async () => {
+    const h = await run([A(), B()]);
+    const [card] = overlapCards(h.db);
+    h.advance(25.5 * HOUR); // 10:30 Paris: `a` has begun, both still run
+    await h.syncAgenda();
+    expect(getCard(h.db, card!.id)).toMatchObject({ status: 'expired' });
+    expect(signals(h.db)).toHaveLength(1);
+    expect((await served(h, card!.id)).card.status).toBe('expired');
+  });
+
+  it('a card already decided, or being run, signals nothing', async () => {
+    const h = await run([A(), B()]);
+    const [card] = overlapCards(h.db);
+    setCardStatus(h.db, card!.id, 'pending', 'refused', { at: h.clock() });
+    h.agenda.cancelEvent('primary', 'b');
+    await h.syncAgenda();
+    expect(signals(h.db)).toHaveLength(0);
+
+    const g = await run([A(), B()]);
+    const [live] = overlapCards(g.db);
+    const { runCard } = await import('../pina/agent.ts');
+    g.db.prepare("DELETE FROM calendar_events WHERE id = 'b'").run();
+    const running = runCard({ db: g.db, actions: g.actions, clock: g.clock }, live!.id);
+    const { proposeOverlaps } = await import('./overlaps.ts');
+    await proposeOverlaps(g.db, g.clock());
+    expect(signals(g.db)).toHaveLength(0);
+    await running;
+  });
+});
+
 describe('pause and mode', () => {
   it('in pause, no card is made, nor event; at the lifting, the detection resumes', async () => {
     const h = await makeAgendaHarness();

@@ -200,7 +200,7 @@ export async function decideCard(
 }
 
 /** Tells the core a card left the wait; it reads the card itself (`GET /lun/v1/cards/:id`), nothing of the decision. */
-function signalCards(db: DatabaseSync, now: Date): void {
+export function signalCards(db: DatabaseSync, now: Date): void {
   emitEvent(db, { type: 'card.changed', importance: 'log', title: 'Carte mise à jour' }, now);
 }
 
